@@ -1,0 +1,17 @@
+@import "tailwindcss";
+@import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@700;900&family=Caveat:wght@700&family=Satisfy&family=IM+Fell+English&family=Pirata+One&display=swap');
+
+html, body, #root {
+  height: 100%;
+  width: 100%;
+  overflow: hidden !important;
+  margin: 0;
+  padding: 0;
+  overscroll-behavior: none;
+  user-select: none;
+}
+
+body {
+  font-family: Cambria, "Hoefler Text", Utopia, "Liberation Serif", Georgia, serif;
+  font-size: 13pt;
+}

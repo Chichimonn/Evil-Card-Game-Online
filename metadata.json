@@ -1,0 +1,7 @@
+{
+  "name": "EVIL Card Game",
+  "description": "EVIL Card Game - Tabletop tactical card game with hex grid battlefield, deckbuilder, card gallery, and hotseat gameplay.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
+
