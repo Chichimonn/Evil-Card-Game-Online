@@ -1,6 +1,23 @@
 @import "tailwindcss";
 @import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@700;900&family=Caveat:wght@700&family=Satisfy&family=IM+Fell+English&family=Pirata+One&display=swap');
 
+/* Card fonts, served from public/assets/fonts (same origin, so they are embedded in the captured card images on any host) */
+@font-face {
+  font-family: 'Card Pirata One';
+  src: url('/assets/fonts/pirata-one-latin-400-normal.woff2') format('woff2');
+  font-weight: 400;
+  font-style: normal;
+  font-display: block;
+}
+
+@font-face {
+  font-family: 'Card IM Fell English';
+  src: url('/assets/fonts/im-fell-english-latin-400-normal.woff2') format('woff2');
+  font-weight: 400;
+  font-style: normal;
+  font-display: block;
+}
+
 html, body, #root {
   height: 100%;
   width: 100%;

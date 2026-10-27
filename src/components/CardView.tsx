@@ -41,9 +41,9 @@ const getAbilityHighlight = (ability: CardAbility): { box: string; tag: Record<s
   return { box: 'border-2 border-stone-600 bg-stone-800', tag };
 };
 
-// Gothic serif faces (loaded in index.html / index.css): blackletter for names, old-style serif for card text
-export const CARD_HEADING_FONT = "'Pirata One', 'Cinzel', Georgia, serif";
-export const CARD_BODY_FONT = "'IM Fell English', Georgia, serif";
+// Gothic serif faces (bundled in src/assets/fonts, declared in index.css): blackletter for names, old-style serif for card text
+export const CARD_HEADING_FONT = "'Card Pirata One', 'Cinzel', Georgia, serif";
+export const CARD_BODY_FONT = "'Card IM Fell English', Georgia, serif";
 
 const CARD_WIDTH = 750;
 const CARD_HEIGHT = 1050;

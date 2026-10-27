@@ -2,7 +2,7 @@ import React, { createContext, useContext, useState, useEffect, useRef } from 'r
 import { CardItem } from '../types/card';
 import { initialCardsData } from '../data/cardsData';
 import { CardView, CARD_HEADING_FONT, CARD_BODY_FONT, getSetBackgroundPath } from '../components/CardView';
-import { toPng, getFontEmbedCSS } from 'html-to-image';
+import { toPng } from 'html-to-image';
 import { getAllCachedCardImages, saveCachedCardImage } from '../services/cardImageDB';
 
 interface CardImageContextType {
@@ -27,6 +27,28 @@ declare global {
   interface Window {
     __CARD_IMAGE_CACHE__?: Record<string, string>;
   }
+}
+
+// The card fonts (declared in index.css), inlined as data URLs so each captured card face carries them
+const CARD_FONT_FILES = [
+  { family: 'Card Pirata One', url: '/assets/fonts/pirata-one-latin-400-normal.woff2' },
+  { family: 'Card IM Fell English', url: '/assets/fonts/im-fell-english-latin-400-normal.woff2' }
+];
+
+async function buildCardFontEmbedCSS(): Promise<string> {
+  const rules = await Promise.all(
+    CARD_FONT_FILES.map(async ({ family, url }) => {
+      const blob = await (await fetch(url)).blob();
+      const dataUrl = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result as string);
+        reader.onerror = () => reject(reader.error);
+        reader.readAsDataURL(blob);
+      });
+      return `@font-face { font-family: '${family}'; src: url(${dataUrl}) format('woff2'); font-weight: 400; font-style: normal; }`;
+    })
+  );
+  return rules.join('\n');
 }
 
 // Preloads an array of image URLs to ensure browser cache is primed
@@ -121,7 +143,7 @@ export const CardImageProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         // Fall back to the serif stack
       }
 
-      // The web fonts are embedded into each captured face (built once, from the first card, and reused)
+      // The card fonts are embedded into each captured face (built once, on the first card, and reused)
       let fontEmbedCSS: string | undefined;
 
       // Render missing cards one by one
@@ -161,7 +183,7 @@ export const CardImageProvider: React.FC<{ children: React.ReactNode }> = ({ chi
 
             if (fontEmbedCSS === undefined) {
               try {
-                fontEmbedCSS = await getFontEmbedCSS(targetEl);
+                fontEmbedCSS = await buildCardFontEmbedCSS();
               } catch (err) {
                 console.warn('Could not embed card fonts:', err);
                 fontEmbedCSS = '';
