@@ -12212,6 +12212,8 @@ export default function App() {
         return RoomConnection.testConditions;
       },
       drop: () => roomRef.current?.simulateDrop(),
+      // (this game drops off the connection server, as a backgrounded tab or a network blip can make it)
+      serverDrop: () => (roomRef.current as any)?.peer?.disconnect(),
       scenarios: () => Object.fromEntries(Object.entries(ONLINE_SCENARIOS).map(([k, s]) => [k, s.description])),
       scenario: (name: string) => {
         const s = ONLINE_SCENARIOS[name];

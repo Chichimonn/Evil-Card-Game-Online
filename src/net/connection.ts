@@ -60,6 +60,9 @@ export class RoomConnection {
   private lastHeard = 0;
   private pingTimer: ReturnType<typeof setInterval> | null = null;
   private hostAttempts = 0;
+  private joinAttempts = 0;
+  // Gives up on a join that found the room but never managed to connect (see openGuest)
+  private connectTimer: ReturnType<typeof setTimeout> | null = null;
   // Reopening a room with its old code (rejoining a match): a taken code is waited for, not replaced
   private fixedCode = false;
   // How the room ended: this side closed it, the other side left on purpose, or the link dropped (or the other side
@@ -141,6 +144,8 @@ export class RoomConnection {
     if (!this.endedBy) this.endedBy = 'drop';
     if (this.pingTimer) clearInterval(this.pingTimer);
     this.pingTimer = null;
+    if (this.connectTimer) clearTimeout(this.connectTimer);
+    this.connectTimer = null;
     const conn = this.conn;
     const peer = this.peer;
     this.conn = null;
@@ -158,7 +163,11 @@ export class RoomConnection {
     this.setStatus('opening');
     const peer = new Peer(PEER_PREFIX + this.code, { debug: 0 });
     this.peer = peer;
-    peer.on('open', () => this.setStatus('waiting', this.code));
+    peer.on('open', () => {
+      // (and again after reconnecting to the server, below)
+      if (!this.conn) this.setStatus('waiting', this.code);
+    });
+    this.keepRegistered(peer);
     peer.on('connection', (conn) => {
       if (this.conn) {
         // A room holds one guest
@@ -188,7 +197,26 @@ export class RoomConnection {
     });
   }
 
+  // The host must stay registered with the connection server to be found. Browsers slow down background tabs (e.g.
+  // while the code is being sent over chat), and networks blip: the server then drops the host without a word, and
+  // its room can no longer be found although its screen still shows the code. Whenever that happens, re-register.
+  private keepRegistered(peer: Peer) {
+    peer.on('disconnected', () => {
+      if (this.peer !== peer || peer.destroyed) return;
+      setTimeout(() => {
+        if (this.peer === peer && !peer.destroyed && peer.disconnected) peer.reconnect();
+      }, 1000);
+    });
+    // (a tab coming back to the front checks straight away rather than waiting)
+    const onVisible = () => {
+      if (this.peer !== peer || peer.destroyed) return document.removeEventListener('visibilitychange', onVisible);
+      if (document.visibilityState === 'visible' && peer.disconnected) peer.reconnect();
+    };
+    document.addEventListener('visibilitychange', onVisible);
+  }
+
   private openGuest() {
+    this.joinAttempts += 1;
     this.setStatus('opening');
     const peer = new Peer({ debug: 0 });
     this.peer = peer;
@@ -196,15 +224,35 @@ export class RoomConnection {
       this.setStatus('connecting');
       // (binary: PeerJS splits big messages, e.g. a whole match, into pieces; its JSON mode refuses anything over ~16KB)
       this.attach(peer.connect(PEER_PREFIX + this.code, { reliable: true, serialization: 'binary' }));
+      // Found, but the two browsers can't reach each other directly (some networks block it): say so, don't hang
+      this.connectTimer = setTimeout(() => {
+        if (this.peer === peer && (this.status === 'connecting' || this.status === 'handshake')) {
+          this.shutdown(
+            'error',
+            `Couldn't reach a game with the code ${this.code}. Check the code, and that the host's game is still open and showing it (if not, the host can host again and send the new code). If both are right, one of your networks may be blocking direct connections (common on work, school and some mobile networks): try another network, or a phone hotspot.`
+          );
+        }
+      }, 20000);
     });
-    peer.on('error', (err: any) => this.handlePeerError(err));
+    peer.on('error', (err: any) => {
+      // The host may be re-registering with the server for a moment: look again a few times before giving up
+      if (err?.type === 'peer-unavailable' && this.joinAttempts < 4 && this.status !== 'closed') {
+        if (this.connectTimer) clearTimeout(this.connectTimer);
+        this.connectTimer = null;
+        this.conn = null;
+        peer.destroy();
+        setTimeout(() => this.status !== 'closed' && this.status !== 'error' && this.openGuest(), 2000);
+        return;
+      }
+      this.handlePeerError(err);
+    });
   }
 
   private handlePeerError(err: any) {
     const type = err?.type as string | undefined;
     const detail =
       type === 'peer-unavailable'
-        ? `No open room has the code ${this.code}.`
+        ? `No open room has the code ${this.code}. Check the code, and that the host's game still shows it (if not, the host can host again and send the new code).`
         : type === 'network' || type === 'server-error' || type === 'socket-error' || type === 'socket-closed'
         ? "Couldn't reach the connection server. Check your internet connection."
         : type === 'browser-incompatible'
@@ -218,6 +266,8 @@ export class RoomConnection {
   private attach(conn: DataConnection) {
     this.conn = conn;
     conn.on('open', () => {
+      if (this.connectTimer) clearTimeout(this.connectTimer);
+      this.connectTimer = null;
       this.setStatus('handshake');
       this.lastHeard = Date.now();
       this.send('hello', { version: LOCAL_VERSION, role: this.role });
