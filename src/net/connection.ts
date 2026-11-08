@@ -27,6 +27,37 @@ export interface RoomEvents {
 }
 
 const PEER_PREFIX = 'evil-card-game-room-';
+
+// How the two browsers reach each other. STUN servers let each browser learn its public address, which is enough for
+// most home networks. When both sides are behind stricter networks (many mobile carriers, some ISPs, work and school
+// networks), the connection has to go through a relay (TURN) server instead. PeerJS's own free relays no longer
+// exist, so the relay comes from build settings (e.g. Vercel's environment variables):
+//   VITE_TURN_URLS        comma-separated, e.g. turn:standard.relay.metered.ca:80,turns:standard.relay.metered.ca:443
+//   VITE_TURN_USERNAME    the relay's username
+//   VITE_TURN_CREDENTIAL  the relay's password
+// (they end up in the published game, as any relay a browser game uses must: use one meant for that, with its own
+// usage limits)
+const TURN_URLS = String(import.meta.env.VITE_TURN_URLS || '')
+  .split(',')
+  .map((s) => s.trim())
+  .filter(Boolean);
+const ICE_SERVERS: RTCIceServer[] = [
+  { urls: ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302', 'stun:stun.cloudflare.com:3478'] },
+  ...(TURN_URLS.length > 0
+    ? [{ urls: TURN_URLS, username: String(import.meta.env.VITE_TURN_USERNAME || ''), credential: String(import.meta.env.VITE_TURN_CREDENTIAL || '') }]
+    : [])
+];
+const PEER_OPTIONS = { debug: 0, config: { iceServers: ICE_SERVERS } };
+/** Whether this build has a relay server for players whose networks can't connect directly. */
+export const HAS_RELAY = TURN_URLS.length > 0;
+
+// The two games found each other but couldn't open a connection between them
+const negotiationFailedText = () =>
+  HAS_RELAY
+    ? "Found the other player's game, but couldn't connect to it, even through the relay server. One of your networks may be blocking it: try another network (e.g. a phone hotspot)."
+    : "Found the other player's game, but your two networks won't let your browsers connect directly, and this game has no relay server set up for that. Try another network (e.g. a phone hotspot); the game's host can add a relay (TURN) server to fix this for everyone.";
+const isNegotiationFailure = (err: any) =>
+  err?.type === 'negotiation-failed' || /negotiation/i.test(String(err?.message || ''));
 // No 0/O or 1/I, so a code read aloud or copied by hand is hard to get wrong
 const CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 const CODE_LENGTH = 6;
@@ -161,7 +192,7 @@ export class RoomConnection {
   private openHost() {
     this.hostAttempts += 1;
     this.setStatus('opening');
-    const peer = new Peer(PEER_PREFIX + this.code, { debug: 0 });
+    const peer = new Peer(PEER_PREFIX + this.code, PEER_OPTIONS);
     this.peer = peer;
     peer.on('open', () => {
       // (and again after reconnecting to the server, below)
@@ -218,7 +249,7 @@ export class RoomConnection {
   private openGuest() {
     this.joinAttempts += 1;
     this.setStatus('opening');
-    const peer = new Peer({ debug: 0 });
+    const peer = new Peer(PEER_OPTIONS);
     this.peer = peer;
     peer.on('open', () => {
       this.setStatus('connecting');
@@ -255,6 +286,8 @@ export class RoomConnection {
         ? `No open room has the code ${this.code}. Check the code, and that the host's game still shows it (if not, the host can host again and send the new code).`
         : type === 'network' || type === 'server-error' || type === 'socket-error' || type === 'socket-closed'
         ? "Couldn't reach the connection server. Check your internet connection."
+        : isNegotiationFailure(err)
+        ? negotiationFailedText()
         : type === 'browser-incompatible'
         ? "This browser can't make peer-to-peer connections."
         : `Connection error${type ? ` (${type})` : ''}: ${err?.message || err}`;
@@ -276,7 +309,9 @@ export class RoomConnection {
     conn.on('close', () => {
       if (this.status !== 'closed' && this.status !== 'error') this.shutdown('closed', 'The connection to the other player closed.');
     });
-    conn.on('error', (err: any) => this.shutdown('error', `Connection error: ${err?.message || err}`));
+    conn.on('error', (err: any) =>
+      this.shutdown('error', isNegotiationFailure(err) ? negotiationFailedText() : `Connection error: ${err?.message || err}`)
+    );
   }
 
   private receive(data: unknown) {
