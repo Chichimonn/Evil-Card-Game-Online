@@ -5,13 +5,14 @@ interface PlayModeModalProps {
   isOpen: boolean;
   onClose: () => void;
   onHotSeat: () => void;
+  onOnline: () => void;
 }
 
 /**
- * Choosing how to play before a match. Hot Seat is both players at this screen (the current game);
- * Online is planned but not available yet.
+ * Choosing how to play before a match. Hot Seat is both players at this screen; Online is against someone on another
+ * device, through a room code (see OnlineLobbyModal).
  */
-export const PlayModeModal: React.FC<PlayModeModalProps> = ({ isOpen, onClose, onHotSeat }) => {
+export const PlayModeModal: React.FC<PlayModeModalProps> = ({ isOpen, onClose, onHotSeat, onOnline }) => {
   if (!isOpen) return null;
 
   return (
@@ -32,6 +33,19 @@ export const PlayModeModal: React.FC<PlayModeModalProps> = ({ isOpen, onClose, o
         {/* Modes */}
         <div className="p-6 flex flex-col gap-3 bg-stone-900/60">
           <button
+            onClick={onOnline}
+            className="flex items-center gap-4 p-4 rounded-xl border-2 border-emerald-800/70 bg-stone-950 hover:border-emerald-400 hover:bg-emerald-950/30 text-left transition-colors cursor-pointer"
+          >
+            <div className="p-2.5 rounded-lg bg-emerald-950 border border-emerald-800/60 text-emerald-400 shrink-0">
+              <Globe className="w-5 h-5" />
+            </div>
+            <div className="flex flex-col min-w-0">
+              <span className="font-serif font-bold text-base text-stone-100">Online</span>
+              <span className="text-xs text-stone-400">Play against someone on another device, with a room code.</span>
+            </div>
+          </button>
+
+          <button
             onClick={onHotSeat}
             className="flex items-center gap-4 p-4 rounded-xl border-2 border-sky-700/70 bg-stone-950 hover:border-sky-400 hover:bg-sky-950/40 text-left transition-colors cursor-pointer"
           >
@@ -41,22 +55,6 @@ export const PlayModeModal: React.FC<PlayModeModalProps> = ({ isOpen, onClose, o
             <div className="flex flex-col min-w-0">
               <span className="font-serif font-bold text-base text-stone-100">Hot Seat</span>
               <span className="text-xs text-stone-400">Two players take turns on this screen.</span>
-            </div>
-          </button>
-
-          <button
-            disabled
-            className="flex items-center gap-4 p-4 rounded-xl border-2 border-stone-800 bg-stone-950/60 text-left opacity-60 cursor-not-allowed"
-            title="Online play is coming soon"
-          >
-            <div className="p-2.5 rounded-lg bg-stone-900 border border-stone-700 text-stone-500 shrink-0">
-              <Globe className="w-5 h-5" />
-            </div>
-            <div className="flex flex-col min-w-0">
-              <span className="font-serif font-bold text-base text-stone-300">
-                Online <span className="ml-1 text-[10px] font-mono uppercase tracking-wider text-amber-400">Coming soon</span>
-              </span>
-              <span className="text-xs text-stone-500">Play against someone on another device.</span>
             </div>
           </button>
         </div>

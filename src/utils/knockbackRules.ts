@@ -110,10 +110,26 @@ export function getAttackerExtraKnockback(unit: BattlefieldUnit | null | undefin
 }
 
 /**
+ * An ability's own knockback effect that the attacker may choose to apply, or that only applies under a condition
+ * (e.g. Disembowel: { type: 'knockback', distance: 1, optional: true, if: 'selfOnTileBehindTarget' }).
+ */
+export function getAbilityOptionalKnockbackEffect(
+  ability: CardAbility | null | undefined
+): { distance: number; optional: boolean; if?: string } | null {
+  const eff: any = ability?.effects?.find((e: any) => e.type === 'knockback' && (e.optional || e.if));
+  if (!eff || typeof eff.distance !== 'number') return null;
+  return { distance: eff.distance, optional: Boolean(eff.optional), if: eff.if };
+}
+
+/**
  * Number of knockback tiles an ability applies (from "Knockback N" text or its knockback effect).
  */
 export function getAbilityKnockbackTiles(ability: CardAbility | null | undefined): number {
   if (!ability) return 0;
+  // An optional or conditional knockback ("If ... you may have it apply knockback 1") is never automatic
+  if (getAbilityOptionalKnockbackEffect(ability)) return 0;
+  // A push in a direction the player chooses (e.g. Overpowering Gust, Burst from Underneath) is resolved by its ability
+  if (ability.effects?.some((e: any) => e.type === 'knockback' && e.direction === 'chosen')) return 0;
   const kbMatch = ability.text?.match(/knockback\s+(\d+)/i);
   if (kbMatch) return parseInt(kbMatch[1], 10);
   const kbAny = ability.effects?.find(

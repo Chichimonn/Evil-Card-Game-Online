@@ -7,9 +7,9 @@ import {
   getHexBehind,
   getHexMovementDirection
 } from './hexGridMath';
-import { getPathSpec, getNextPathHexes, formatPath } from './paths';
+import { getPathSpec, getNextPathHexes, formatPath, getChargeLineMove, getChargeLineChoices } from './paths';
 import { hasFeedingFrenzy } from './unitPassives';
-import { isFlowingStanceActive } from './flowingStance';
+import { isFlowingStanceActive, getEffectiveAbilityRange } from './flowingStance';
 import {
   isChargeFlightAbility,
   getChargeFlightSpec,
@@ -30,16 +30,23 @@ export interface MultiStageState {
     primaryTargetHex?: string; // Anchor Smash
     promotedMeleeAbility?: CardAbility; // Anchor Smash
     flailTileBehind?: string; // Umbral Flail
+    vaultTiles?: string[]; // Vaulting Strike: empty tiles surrounding the target to land on
     killCount?: number; // Coin Plink
     pulledTargetHex?: string; // Corsair Saboteur / Boarding Hook target
     movingCaster?: boolean; // Corsair Saboteur fallback
     splitHitCandidates?: string[]; // "The second hit may target a different unit" (Cloven Crash): where it can go
     // Move-then-strike (Leap Strike, Pouncing Ambush): the unit has moved; the units the strike can hit
     strikeCandidates?: string[];
+    // A chain (e.g. Arc Lightning): the units it may jump to next, and the units it has hit so far
+    chainCandidates?: string[];
+    chainHitIds?: string[];
     autoStrike?: boolean; // the strike needs no choice (Leap Strike: the unit in the direction moved)
     // Burst from Underneath: the target to push and where it can be pushed to
     pushTargetHex?: string;
     pushChoices?: string[];
+    // Roar of the Pride: the friendly unit that attacks, and the attack it uses
+    allyHex?: string;
+    allyAbilityId?: string;
   };
 }
 
@@ -54,7 +61,35 @@ export interface MultiTargetSpec {
   maxRange: number;
   side?: 'friendly'; // default is enemy units
   min?: number; // minimum targets needed to confirm (default 1)
+  // Tiles instead of units (e.g. Colossal Hedgehog: 3 tiles in melee range), each next to another chosen one if
+  // eachSurroundingAnother
+  tiles?: boolean;
+  eachSurroundingAnother?: boolean;
+  // ...or none of them next to another (e.g. Laser Artillery: "up to 3 tile targets, none surrounding another")
+  noneSurroundingAnother?: boolean;
 }
+
+/**
+ * "Choose a friendly basic unit. It may immediately use a 1AP melee attack for free" (e.g. Roar of the Pride):
+ * { type: 'grantAction', target: 'chosenFriendlyBasicUnit', use: { cost, kind: 'attack', melee } }.
+ */
+export function getGrantedAllyAttack(ability: CardAbility | null | undefined): { cost: number; melee: boolean } | null {
+  const eff: any = (ability?.effects || []).find((e: any) => e.type === 'grantAction' && e.target === 'chosenFriendlyBasicUnit');
+  if (!eff) return null;
+  return { cost: typeof eff.use?.cost === 'number' ? eff.use.cost : 1, melee: Boolean(eff.use?.melee) };
+}
+
+/** The attacks a friendly unit may use through getGrantedAllyAttack: its own abilities of that cost that deal damage. */
+export function getAllyAttackChoices(unit: BattlefieldUnit, spec: { cost: number; melee: boolean }): CardAbility[] {
+  return (unit.card.abilities || []).filter(
+    (a) =>
+      a.cost === spec.cost &&
+      (a.effects || []).some((e: any) => e.type === 'damage' && e.target !== 'self') &&
+      (!spec.melee || a.tags?.includes('melee'))
+  );
+}
+
+const isBasicUnit = (u: BattlefieldUnit) => u.card.basic === true || u.card.reinforce?.mode === 'basic';
 
 export function isAnchorSmash(ability: CardAbility | null | undefined): boolean {
   const id = ability?.id || '';
@@ -76,10 +111,27 @@ export function getMultiTargetSpec(ability: CardAbility | null | undefined): Mul
   let max: number | null;
   if (tc === 'any') max = null;
   else if (typeof tc === 'object' && typeof tc.max === 'number') max = tc.max;
-  else return null;
+  else if (typeof tc === 'object' && typeof tc.exactly === 'number') {
+    // "N tile targets each surrounding at least 1 other" (e.g. Colossal Hedgehog)
+    const melee = ability.tags?.includes('melee');
+    const r = (ability as any).range as number[] | undefined;
+    return {
+      max: tc.exactly,
+      min: tc.exactly,
+      minRange: r?.[0] ?? 1,
+      maxRange: r?.[1] ?? r?.[0] ?? (melee ? 1 : 2),
+      tiles: (ability as any).target === 'tile',
+      eachSurroundingAnother: Boolean(tc.eachSurroundingAnother)
+    };
+  } else return null;
   const range = (ability as any).range as number[] | undefined;
+  // Up to N tiles (e.g. Laser Artillery)
+  const tileTargets =
+    (ability as any).target === 'tile' && typeof tc === 'object'
+      ? { tiles: true, ...(tc.noneSurroundingAnother ? { noneSurroundingAnother: true } : {}) }
+      : {};
   if (Array.isArray(range) && range.length > 0) {
-    return { max, minRange: range[0], maxRange: range[1] ?? range[0] };
+    return { max, minRange: range[0], maxRange: range[1] ?? range[0], ...tileTargets };
   }
   const melee = ability.tags?.includes('melee') || (ability as any).target === 'surroundingEnemyUnits';
   return melee ? { max, minRange: 1, maxRange: 1 } : { max, minRange: 1, maxRange: 2 };
@@ -87,14 +139,12 @@ export function getMultiTargetSpec(ability: CardAbility | null | undefined): Mul
 
 /**
  * Damage change applied to EVERY hit once the final target count is known.
- * Greatcleave: +1 per target beyond the first (1 target = 5 dmg, 2 targets = 6 dmg each, 3 targets = 7 dmg each).
+ * Read from a damage modifier { addAmount: { perTarget: N } }, per target beyond the first (e.g. Greatcleave: -1, so
+ * 1 target = 6 dmg, 2 targets = 5 dmg each, 3 targets = 4 dmg each).
  * Anchor Smash: -1 per target beyond the first.
  */
 export function getPerHitAdjustment(ability: CardAbility, targetCount: number): number {
   if (isAnchorSmash(ability)) return -Math.max(0, targetCount - 1);
-  if (ability.id === 'greatcleave' || (ability as any).name === 'Greatcleave') {
-    return Math.max(0, targetCount - 1);
-  }
   const effects: any[] = (ability as any).effects || [];
   for (const e of effects) {
     for (const m of e?.modifiers || []) {
@@ -114,6 +164,8 @@ export function isMultiStageAbility(ability: CardAbility | null | undefined): bo
   if (isChargeFlightAbility(ability)) return true;
   if (getPathSpec(ability)) return true;
   if (getMultiTargetSpec(ability)) return true;
+  if (getChargeLineMove(ability)) return true;
+  if (getGrantedAllyAttack(ability)) return true;
   const multiStageIds = [
     'realm_warp',
     'tactical_swap',
@@ -179,6 +231,30 @@ export function getMultiStageTargetInfo(
   const casterUnit = unitsOnBoard[casterHex];
   const bonusRange = casterUnit?.bonusRangeThisTurn || 0;
 
+  // A chain (e.g. Arc Lightning: { type: 'damage', amount, chain: { to: 'enemyUnitSurroundingLastTarget', decreaseBy,
+  // eachUnitOncePerTurn } }): first an enemy in range, then one surrounding the last target
+  const chainEff: any = ((ability as any).effects || []).find((e: any) => e.type === 'damage' && e.chain);
+  if (chainEff) {
+    if (metadata?.chainCandidates) {
+      return {
+        validHexes: metadata.chainCandidates,
+        promptMessage: `${ability.name}: choose another enemy unit surrounding the last target.`
+      };
+    }
+    const range = (ability as any).range as number[] | undefined;
+    const minR = range?.[0] ?? 1;
+    const maxR = (range?.[1] ?? range?.[0] ?? 1) + bonusRange;
+    const hitBefore = casterUnit?.usedOnTargets?.[String(ability.baseAbilityId || ability.id)] || [];
+    return {
+      validHexes: getHexesInRange(casterHex, minR, maxR).filter(
+        (h) =>
+          unitsOnBoard[h] &&
+          unitsOnBoard[h].owner !== activePlayer &&
+          !(chainEff.chain.eachUnitOncePerTurn && hitBefore.includes(unitsOnBoard[h].instanceId))
+      ),
+      promptMessage: `${ability.name}: click an enemy unit in range ${minR}-${maxR}.`
+    };
+  }
   // Move-then-strike (e.g. Pouncing Ambush): the unit has moved, now choose the enemy to strike
   if (metadata?.strikeCandidates) {
     return {
@@ -213,6 +289,45 @@ export function getMultiStageTargetInfo(
     };
   }
 
+  // A friendly basic unit's free attack (e.g. Roar of the Pride): first the unit, then its target in melee range
+  const allySpec = getGrantedAllyAttack(ability);
+  if (allySpec) {
+    if (!metadata?.allyHex || !metadata.allyAbilityId) {
+      const allies = Object.keys(unitsOnBoard).filter((h) => {
+        const u = unitsOnBoard[h];
+        return u.owner === activePlayer && h !== casterHex && isBasicUnit(u) && getAllyAttackChoices(u, allySpec).length > 0;
+      });
+      return {
+        validHexes: allies,
+        promptMessage:
+          allies.length > 0
+            ? `${ability.name}: click a friendly basic unit to make a free ${allySpec.cost}AP${allySpec.melee ? ' melee' : ''} attack.`
+            : `${ability.name}: no friendly basic unit has a ${allySpec.cost}AP${allySpec.melee ? ' melee' : ''} attack.`
+      };
+    }
+    const ally = unitsOnBoard[metadata.allyHex];
+    const allyAbility = ally?.card.abilities?.find((a) => a.id === metadata.allyAbilityId);
+    if (!ally || !allyAbility) return { validHexes: [], promptMessage: `${ability.name}: that unit is gone.` };
+    const { minRange, maxRange } = getEffectiveAbilityRange(allyAbility, ally);
+    return {
+      validHexes: getHexesInRange(metadata.allyHex, minRange, maxRange).filter(
+        (h) => unitsOnBoard[h] && unitsOnBoard[h].owner !== activePlayer
+      ),
+      promptMessage: `${ability.name}: click the enemy ${ally.card.name} attacks with ${allyAbility.name}.`
+    };
+  }
+
+  // Charge line (e.g. Silver Charge): a tile to stop on, or an enemy further along the line to charge into
+  const chargeLine = getChargeLineMove(ability);
+  if (chargeLine && targets.length === 0) {
+    const choices = getChargeLineChoices(casterHex, chargeLine.maxTiles, unitsOnBoard, activePlayer);
+    return {
+      validHexes: [...choices.keys()],
+      promptMessage: `${ability.name}: click a tile up to ${chargeLine.maxTiles} away in a straight line to move there, or an enemy further along the line to charge it.`,
+      isTileTarget: true
+    };
+  }
+
   // Charge / Flight path mode (Mounted Charge, Drake's Flight, and unified charge abilities)
   if (isChargeFlightAbility(ability)) {
     const spec = getChargeFlightSpec(ability);
@@ -221,13 +336,22 @@ export function getMultiStageTargetInfo(
     const lengthsStr = spec.possiblePathLengths.join(' or ');
     const turnAnalysis = analyzePathTurns(casterHex, targets);
 
+    const turnRule =
+      spec.requiredTurns === null
+        ? spec.noSameDirectionTwice
+          ? 'never the same direction twice in a row'
+          : 'any path'
+        : `${spec.minTurns !== undefined && spec.minTurns !== spec.requiredTurns ? `${spec.minTurns}-` : 'exactly '}${spec.requiredTurns} turn${spec.requiredTurns === 1 ? '' : 's'}${spec.noReversal ? ', no turning back' : ''}`;
+    const turnCountText = spec.requiredTurns === null ? '' : `, ${turnAnalysis.turnCount}/${spec.requiredTurns} turns`;
+    const damageText =
+      spec.damage > 0 ? ` Deals ${spec.damage} damage to ${spec.damageEnemiesOnly ? 'enemy ' : ''}units moved over.` : '';
     let promptMessage = '';
     if (targets.length === 0) {
-      promptMessage = `${ability.name}: Click an adjacent tile to start drawing path (${lengthsStr} tiles, exactly 1 turn, no turning back).`;
+      promptMessage = `${ability.name}: Click an adjacent tile to start drawing path (${lengthsStr} tiles, ${turnRule}).`;
     } else if (check.valid) {
-      promptMessage = `${ability.name}: Legal path (${targets.length} tiles, 1 turn)! Deals ${spec.damage} damage to units moved over. Click '${ability.name}' button or final tile to execute.`;
+      promptMessage = `${ability.name}: Legal path (${targets.length} tiles)!${damageText} Click '${ability.name}' button or final tile to execute, or keep drawing.`;
     } else {
-      promptMessage = `${ability.name}: Path: ${targets.join(' → ')} (${targets.length}/${lengthsStr} tiles, ${turnAnalysis.turnCount}/1 turn). Click next tile, or click a path tile to undo.`;
+      promptMessage = `${ability.name}: Path: ${targets.join(' → ')} (${targets.length}/${lengthsStr} tiles${turnCountText}). Click next tile, or click a path tile to undo.`;
     }
 
     return {
@@ -262,8 +386,11 @@ export function getMultiStageTargetInfo(
     }
 
     // A move-then-strike may skip the move (e.g. Pouncing Ambush: "moves up to 2 tiles")
+    // (an exact distance, e.g. Lunar Leap's "exactly 2 tiles", must be moved in full)
     const canStayPut =
       targets.length === 0 &&
+      pathSpec.minLength <= 1 &&
+      (ability.effects || []).some((e: any) => e.type === 'move' && typeof e.distance === 'object') &&
       (ability.effects || []).some((e: any) => e.type === 'damage' && e.target === 'chosenEnemyInMeleeRange');
     return {
       validHexes: !pathSpec.straight && last ? [...next, last] : next,
@@ -280,6 +407,13 @@ export function getMultiStageTargetInfo(
     const canTargetFriendly = friendly || hasFeedingFrenzy(casterUnit);
     const effectiveMaxRange = mtSpec.maxRange + bonusRange;
     const candidates = getHexesInRange(casterHex, mtSpec.minRange, effectiveMaxRange).filter((hex) => {
+      if (mtSpec.tiles) {
+        // Tiles: each next tile must surround an already chosen one, when they must surround another
+        if (targets.includes(hex)) return false;
+        if (mtSpec.noneSurroundingAnother) return !getSurroundingHexes(hex).some((h) => targets.includes(h));
+        if (!mtSpec.eachSurroundingAnother || targets.length === 0) return true;
+        return getSurroundingHexes(hex).some((h) => targets.includes(h));
+      }
       const u = unitsOnBoard[hex];
       if (!u || hex === casterHex) return false;
       return canTargetFriendly ? (friendly ? u.owner === activePlayer : true) : u.owner !== activePlayer;
@@ -287,10 +421,10 @@ export function getMultiStageTargetInfo(
     const picked = targets.length;
     const atMax = mtSpec.max !== null && picked >= mtSpec.max;
     const countLabel = mtSpec.max === null ? `${picked}` : `${picked}/${mtSpec.max}`;
-    const who = friendly ? 'friendly units' : 'enemy targets';
+    const who = mtSpec.tiles ? 'tiles' : friendly ? 'friendly units' : 'enemy targets';
     return {
       // Selected targets stay clickable so they can be deselected
-      validHexes: atMax ? [...targets] : candidates,
+      validHexes: atMax ? [...targets] : mtSpec.tiles ? [...candidates, ...targets] : candidates,
       promptMessage:
         picked === 0
           ? `${ability.name}: Click ${who} (${mtSpec.max === null ? 'any number' : `up to ${mtSpec.max}`})${
@@ -298,7 +432,8 @@ export function getMultiStageTargetInfo(
             }. It resolves when you confirm.`
           : `${ability.name}: ${countLabel} selected. Click more, click a selected target to remove it, or confirm.`,
       isOptional: picked >= (mtSpec.min ?? 1),
-      finishButtonLabel: picked === 0 ? 'Confirm (self only)' : `Confirm (${picked})`
+      finishButtonLabel: picked === 0 ? 'Confirm (self only)' : `Confirm (${picked})`,
+      isTileTarget: mtSpec.tiles
     };
   }
   
@@ -496,7 +631,7 @@ export function getMultiStageTargetInfo(
   }
 
   // 11. Coin Plink (The Cyclotron)
-  // Deals 2 damage. If kill, Stage 2 triggers for another enemy in range 1-4 for 0 AP
+  // Deals 1 damage, hits 3 times. If kill, Stage 2 triggers for another enemy in range 1-4 for 0 AP
   if (abilityId === 'coin_plink') {
     const inRange = getHexesInRange(casterHex, 1, 4 + bonusRange);
     const enemyHexes = inRange.filter((hex) => {
@@ -507,7 +642,7 @@ export function getMultiStageTargetInfo(
     if (stage === 1) {
         return {
           validHexes: enemyHexes,
-          promptMessage: `Coin Plink (Stage 1): Click a target in range 1-${4 + bonusRange} (deals 2 damage). If it kills, chains to another target!`
+          promptMessage: `Coin Plink (Stage 1): Click a target in range 1-${4 + bonusRange} (deals 1 damage, 3 hits). If it kills, chains to another target!`
         };
       } else {
         return {
@@ -648,30 +783,29 @@ export function getMultiStageTargetInfo(
       }
     }
 
-    // Vaulting Strike (Skirmish Captain)
-    // Works the same way as swooping pounce: it is still melee and still only deals 6 damage.
-    // Stage 1: Target unit in melee range (range 1, or 2 with Flowing Stance)
-    // Stage 2: Pick an empty tile surrounding the target to place the unit using it
+    // Vaulting Strike (Skirmish Captain): "Deals 6 damage. Then, you may place this unit on an empty tile surrounding
+    // the target (if there is one)."
+    // Stage 1: an enemy in melee range (range 1, or 2 with Flowing Stance)
+    // Stage 2 (optional): an empty tile surrounding the target to land on
     if (abilityId === 'vaulting_strike') {
       if (stage === 1) {
         const maxR = (isFlowingStanceActive(casterUnit) ? 2 : 1) + bonusRange;
         const inRange = getHexesInRange(casterHex, 1, maxR);
         const validUnits = inRange.filter((hex) => {
           const u = unitsOnBoard[hex];
-          return u && hex !== casterHex;
+          return u && hex !== casterHex && (u.owner !== activePlayer || hasFeedingFrenzy(casterUnit));
         });
         return {
           validHexes: validUnits,
-          promptMessage: `Vaulting Strike (Stage 1/2): Click a target unit in range 1-${maxR}.`
+          promptMessage: `Vaulting Strike (Stage 1/2): Click an enemy in range 1-${maxR} (deals 6 damage).`
         };
       } else {
-        const targetHex = targets[0];
-        const targetUnit = unitsOnBoard[targetHex];
-        const targetName = targetUnit?.card.name || 'target';
-        const surrEmpty = getSurroundingHexes(targetHex).filter((h) => !unitsOnBoard[h] || h === casterHex);
+        const tiles = metadata?.vaultTiles || [];
         return {
-          validHexes: surrEmpty,
-          promptMessage: `Vaulting Strike (Stage 2/2): Click an empty tile surrounding ${targetName} to place ${casterUnit?.card.name || 'Skirmish Captain'} on that tile.`,
+          validHexes: tiles,
+          promptMessage: `Vaulting Strike (Stage 2/2): Click an empty tile surrounding the target to place ${casterUnit?.card.name || 'Skirmish Captain'} there, or click 'Stay Here'.`,
+          isOptional: true,
+          finishButtonLabel: 'Stay Here',
           isTileTarget: true
         };
       }

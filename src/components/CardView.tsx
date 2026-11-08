@@ -2,9 +2,8 @@ import React, { useState, useEffect, useLayoutEffect, useRef } from 'react';
 import { CardItem, CardAbility } from '../types/card';
 import { CardArtFallback } from './CardArtFallback';
 import { Heart, Zap, Crosshair, ShieldAlert, Sparkles } from 'lucide-react';
-import { formatFusionRequirements } from '../utils/reinforceRules';
+import { formatFusionRequirements, formatTributeRequirements } from '../utils/reinforceRules';
 import { isStraightLineAbility } from '../utils/hexGridMath';
-import { getAbilityHitStructure } from '../utils/attackLogic';
 import { useProcessedArt } from '../utils/artHalo';
 
 interface CardViewProps {
@@ -63,6 +62,13 @@ const MAX_NAME_SIZE = 62;
 const MIN_NAME_SIZE = 28;
 
 const heading: React.CSSProperties = { fontFamily: CARD_HEADING_FONT, fontWeight: 400 };
+
+// Numbers are drawn in a plain bold face (the gothic faces' numerals are hard to read), the rest stays as it is
+const NUMERAL_STYLE: React.CSSProperties = { fontFamily: "Arial, 'Helvetica Neue', Helvetica, sans-serif", fontWeight: 700 };
+const withNumerals = (value: string | number): React.ReactNode =>
+  String(value)
+    .split(/(\d+)/)
+    .map((part, i) => (i % 2 === 1 ? <span key={i} style={NUMERAL_STYLE}>{part}</span> : part));
 
 /** The picture behind a card's art: its set's name as a file in the art folder (e.g. wrath_of_the_elements.png). */
 export const getSetBackgroundPath = (card: CardItem): string | null =>
@@ -133,15 +139,15 @@ export const CardView: React.FC<CardViewProps> = ({
   const subtitle = (
     <>
       {card.basic && <span>Basic Unit</span>}
-      {card.reinforce?.mode === 'promote' && <span>Promote [{card.reinforce.requirement?.[0]?.[0] || 'Unit'}]</span>}
+      {card.reinforce?.mode === 'promote' && <span>{withNumerals(`Promote [${card.reinforce.requirement?.[0]?.[0] || 'Unit'}]`)}</span>}
       {card.reinforce?.mode === 'fusion' && (
-        <span className="truncate" title={`Fusion: ${formatFusionRequirements(card)}`}>
-          Fusion: {formatFusionRequirements(card)}
+        <span title={`Fusion: ${formatFusionRequirements(card)}`}>
+          {withNumerals(`Fusion: ${formatFusionRequirements(card)}`)}
         </span>
       )}
-      {card.reinforce?.mode === 'tribute' && <span>Tribute ({card.reinforce.count || 2} Units)</span>}
+      {card.reinforce?.mode === 'tribute' && <span>{withNumerals(formatTributeRequirements(card))}</span>}
       {card.isWall && <span>Token · Wall</span>}
-      {card.type && !card.basic && !card.reinforce && <span>{replaceStaticWithPassive(card.type)}</span>}
+      {card.type && !card.basic && !card.reinforce && <span>{withNumerals(replaceStaticWithPassive(card.type))}</span>}
     </>
   );
 
@@ -171,11 +177,12 @@ export const CardView: React.FC<CardViewProps> = ({
           style={heading}
           className="w-full text-white leading-tight whitespace-nowrap overflow-hidden text-center"
         >
-          {replaceStaticWithPassive(card.name)}
+          {withNumerals(replaceStaticWithPassive(card.name))}
         </h2>
 
         <div className="flex items-center justify-between gap-3 mt-1">
-          <div className="flex items-center gap-2 min-w-0 text-[26px] font-bold text-white truncate">
+          {/* Wraps rather than cutting off, so a full reinforce requirement always shows */}
+          <div className="flex flex-wrap items-center gap-x-2 min-w-0 text-[26px] font-bold text-white leading-tight">
             {subtitle}
           </div>
 
@@ -186,7 +193,7 @@ export const CardView: React.FC<CardViewProps> = ({
             >
               <Heart className="w-7 h-7 text-rose-500 fill-rose-500" />
               <span style={heading} className="text-[24px] text-white">HP</span>
-              <span style={heading} className="text-[40px] text-white leading-none tabular-nums">{card.hp}</span>
+              <span style={NUMERAL_STYLE} className="text-[36px] text-white leading-none tabular-nums">{card.hp}</span>
             </div>
             <div
               className="flex items-center gap-1.5 px-3 py-0.5 bg-amber-950 border-[3px] border-amber-500 rounded-lg"
@@ -194,7 +201,7 @@ export const CardView: React.FC<CardViewProps> = ({
             >
               <Zap className="w-7 h-7 text-amber-400 fill-amber-400" />
               <span style={heading} className="text-[24px] text-white">AP</span>
-              <span style={heading} className="text-[40px] text-white leading-none tabular-nums">{card.ap}</span>
+              <span style={NUMERAL_STYLE} className="text-[36px] text-white leading-none tabular-nums">{card.ap}</span>
             </div>
           </div>
         </div>
@@ -250,16 +257,16 @@ export const CardView: React.FC<CardViewProps> = ({
               >
                 <div className="flex items-center gap-[0.25em]">
                   <span style={heading} className="text-white text-[1.1em] min-w-0 truncate">
-                    {replaceStaticWithPassive(passive.name)}
+                    {withNumerals(replaceStaticWithPassive(passive.name))}
                   </span>
                   <span className="shrink-0 text-white bg-amber-700 px-[0.25em] rounded font-bold text-[0.65em]">
                     Passive
                   </span>
                   {Boolean(passive.limits?.oncePerTurn) && (
-                    <span className="shrink-0 font-bold text-white bg-rose-700 px-[0.25em] rounded text-[0.65em]">1/Turn</span>
+                    <span className="shrink-0 font-bold text-white bg-rose-700 px-[0.25em] rounded text-[0.65em]">{withNumerals('1/Turn')}</span>
                   )}
                 </div>
-                <p className="text-white">{formatCardText(passive.text)}</p>
+                <p className="text-white">{withNumerals(formatCardText(passive.text))}</p>
               </div>
             ))}
           </div>
@@ -282,9 +289,9 @@ export const CardView: React.FC<CardViewProps> = ({
                   <div className="flex items-center gap-[0.25em] flex-wrap">
                     <span className="inline-flex items-center gap-[0.1em] bg-amber-600 text-white font-bold rounded px-[0.2em] text-[0.8em]">
                       <Zap className="w-[0.8em] h-[0.8em] fill-white" />
-                      {costDisplay} AP
+                      {withNumerals(`${costDisplay} AP`)}
                     </span>
-                    <span style={heading} className="text-white text-[1.1em]">{ability.name}</span>
+                    <span style={heading} className="text-white text-[1.1em]">{withNumerals(ability.name)}</span>
                     {ability.tags?.map((tag) => (
                       <span
                         key={tag}
@@ -301,28 +308,19 @@ export const CardView: React.FC<CardViewProps> = ({
                     ) : (ability.usesPath || ability.id === 'bananarang') ? (
                       <span className={`bg-amber-800 text-white ${chip}`}>
                         <Sparkles className="w-[0.9em] h-[0.9em] text-amber-300" />
-                        Path: {ability.rangeText || (ability.range ? (ability.range[0] === ability.range[1] ? `${ability.range[0]} tiles` : `${ability.range[0]}-${ability.range[1]} tiles`) : '3 tiles')}
+                        {withNumerals(`Path: ${ability.rangeText || (ability.range ? (ability.range[0] === ability.range[1] ? `${ability.range[0]} tiles` : `${ability.range[0]}-${ability.range[1]} tiles`) : '3 tiles')}`)}
                       </span>
                     ) : (ability.rangeText || (ability.range && ability.range.length > 0)) ? (
                       <span className={`bg-sky-800 text-white ${chip}`}>
                         <Crosshair className="w-[0.9em] h-[0.9em]" />
-                        Range: {ability.rangeText || (ability.range ? (ability.range.length > 1 ? `${ability.range[0]}-${ability.range[1]}` : ability.range[0]) : '')}
+                        {withNumerals(`Range: ${ability.rangeText || (ability.range ? (ability.range.length > 1 ? `${ability.range[0]}-${ability.range[1]}` : ability.range[0]) : '')}`)}
                       </span>
                     ) : null}
-                    {(() => {
-                      const hitStruct = getAbilityHitStructure(ability);
-                      if (!hitStruct.isMultiHit) return null;
-                      return (
-                        <span className={`bg-rose-800 text-white ${chip}`} title={hitStruct.summaryText}>
-                          {hitStruct.badgeText || `${hitStruct.hits.length} Hits`}
-                        </span>
-                      );
-                    })()}
-                    {ability.limits?.oncePerTurn && <span className={`bg-rose-700 text-white ${chip}`}>1/Turn</span>}
+                    {ability.limits?.oncePerTurn && <span className={`bg-rose-700 text-white ${chip}`}>{withNumerals('1/Turn')}</span>}
                   </div>
 
                   {/* Ability Body Text */}
-                  <p className="text-white">{formatCardText(ability.text)}</p>
+                  <p className="text-white">{withNumerals(formatCardText(ability.text))}</p>
                 </div>
               );
             })}
@@ -334,7 +332,7 @@ export const CardView: React.FC<CardViewProps> = ({
           <div className="flex flex-col items-center justify-center text-center p-[0.3em] text-white">
             <ShieldAlert className="w-[1.2em] h-[1.2em] mb-[0.2em] opacity-60" />
             <p style={heading} className="text-white text-[1.1em]">No Passive or Abilities</p>
-            <p className="text-white">This token unit has 0 AP and serves as a tactical obstacle.</p>
+            <p className="text-white">{withNumerals('This token unit has 0 AP and serves as a tactical obstacle.')}</p>
           </div>
         )}
       </div>

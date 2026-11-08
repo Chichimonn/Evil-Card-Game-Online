@@ -146,7 +146,8 @@ export function getProviderChainSpec(
       distinct: false,
       nonAttackDistinct: Boolean(choose.nonAttackAbilities?.distinct),
       sameTargetForAttacks: false,
-      chooseFirst: true,
+      // Chosen and used one at a time, each targeted as it's chosen (e.g. Grand Metamorphosis)
+      chooseFirst: false,
       upTo: true,
       maxAttacks,
       maxNonAttacks,
@@ -158,7 +159,9 @@ export function getProviderChainSpec(
   (eff.modifiers || []).forEach((m: any) => {
     if (m.if === 'thisAbilityUsedEarlierThisTurn' && parentUsedBefore && typeof m.setTimes === 'number') uses = m.setTimes;
   });
-  const sameTarget = Boolean(eff.sameTarget || eff.attacksMustBeLegalAgainstTarget);
+  // "If this ability has already been used this turn, instead only use 1 ability this way" (e.g. Guard the Payload)
+  if (parentUsedBefore && typeof eff.timesIfUsedEarlierThisTurn === 'number') uses = eff.timesIfUsedEarlierThisTurn;
+  const sameTarget = Boolean(eff.sameTarget || eff.attacksMustBeLegalAgainstTarget || eff.sameTargetForAttacks);
   if (uses <= 1 && !sameTarget) return null;
 
   return {

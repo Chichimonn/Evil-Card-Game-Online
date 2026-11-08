@@ -8,13 +8,28 @@ import {
 
 export interface ChargeFlightSpec {
   possiblePathLengths: number[];
-  damage: number; // Configurable damage variable (defaults to 8)
-  requireExactlyOneTurn: boolean;
+  damage: number; // Damage to each unit moved over (Mounted Charge 8); 0 for a plain path move (e.g. Zephyr Step)
+  // How many times the path must change direction (Mounted Charge 1, Twisting Dragontrail 2, Glacial Strafe 0), or
+  // null for any path (e.g. Log Roll along its row, Zephyr Step)
+  requiredTurns: number | null;
+  // The fewest direction changes allowed when the path may change direction a range of times
+  // ("changing direction one or two times", directionChanges: [1, 2]); requiredTurns is then the most
+  minTurns?: number;
   noReversal: boolean;
   finalTileMustBeEmpty: boolean;
   mayMoveOverUnits: boolean;
   // Every tile of the path stays in this unit's row (e.g. Log Roll: "moves up to 3 tiles within the same row")
   sameRowOnly?: boolean;
+  // "Never going in the same direction twice in a row" (e.g. Sky Slither): every step changes direction
+  noSameDirectionTwice?: boolean;
+  // Only enemy units moved over take the damage (damageToEnemiesMovedOver, e.g. Sky Slither)
+  damageEnemiesOnly?: boolean;
+  // "...and scorches the tile it is on until your next turn" for each enemy moved over (e.g. Twisting Dragontrail)
+  scorchTilesMovedOver?: boolean;
+  // ...for every unit moved over, friend or foe (scorchTilesOfUnitsMovedOver, e.g. Sky Slither)
+  scorchAllMovedOver?: boolean;
+  // A status each enemy moved over gets (e.g. Haunting Dive: 'move_tax')
+  statusOnEnemiesMovedOver?: string;
 }
 
 /**
@@ -29,7 +44,12 @@ export function isChargeFlightAbility(ability?: CardAbility | null): boolean {
   if ((ability as any).isChargeFlight === true) return true;
   return Boolean(
     ability.effects?.some(
-      (e: any) => e.type === 'move' && ((e.path?.directionChanges === 1 && e.path?.noReversal) || e.path?.sameRow)
+      (e: any) =>
+        e.type === 'move' &&
+        (e.target === 'self' || !e.target) &&
+        // Any self move along a drawn path with its own rules (e.g. Mounted Charge, Log Roll, Zephyr Step, Sky Slither)
+        Boolean(e.path) &&
+        typeof e.path === 'object'
     )
   );
 }
@@ -44,7 +64,7 @@ export function getChargeFlightSpec(ability?: CardAbility | null): ChargeFlightS
     return {
       possiblePathLengths: [3],
       damage: defaultDamage,
-      requireExactlyOneTurn: true,
+      requiredTurns: 1,
       noReversal: true,
       finalTileMustBeEmpty: true,
       mayMoveOverUnits: true
@@ -56,9 +76,11 @@ export function getChargeFlightSpec(ability?: CardAbility | null): ChargeFlightS
   const moveEffect = ability.effects?.find((e: any) => e.type === 'move') as any;
 
   // Damage variable: read from effect, ability property, or fallback to 8
-  let damage = defaultDamage;
+  let damage = moveEffect ? 0 : defaultDamage;
   if (typeof moveEffect?.damageToUnitsMovedOver === 'number') {
     damage = moveEffect.damageToUnitsMovedOver;
+  } else if (typeof moveEffect?.damageToEnemiesMovedOver === 'number') {
+    damage = moveEffect.damageToEnemiesMovedOver;
   } else if (typeof (ability as any).damage === 'number') {
     damage = (ability as any).damage;
   }
@@ -77,6 +99,10 @@ export function getChargeFlightSpec(ability?: CardAbility | null): ChargeFlightS
       for (let d = moveEffect.distance.min; d <= moveEffect.distance.max; d++) {
         possiblePathLengths.push(d);
       }
+    } else if (typeof moveEffect.distance.max === 'number') {
+      // "Up to N tiles"
+      possiblePathLengths = [];
+      for (let d = 1; d <= moveEffect.distance.max; d++) possiblePathLengths.push(d);
     } else if (Array.isArray(moveEffect.distance)) {
       possiblePathLengths = moveEffect.distance;
     }
@@ -85,10 +111,15 @@ export function getChargeFlightSpec(ability?: CardAbility | null): ChargeFlightS
   return {
     possiblePathLengths,
     damage,
-    requireExactlyOneTurn:
-      moveEffect?.path?.directionChanges !== undefined
-        ? moveEffect.path.directionChanges === 1
-        : true,
+    requiredTurns:
+      typeof moveEffect?.path?.directionChanges === 'number'
+        ? moveEffect.path.directionChanges
+        : Array.isArray(moveEffect?.path?.directionChanges)
+        ? Math.max(...moveEffect.path.directionChanges)
+        : moveEffect?.path
+        ? null
+        : 1,
+    ...(Array.isArray(moveEffect?.path?.directionChanges) ? { minTurns: Math.min(...moveEffect.path.directionChanges) } : {}),
     noReversal:
       moveEffect?.path?.noReversal !== undefined
         ? Boolean(moveEffect.path.noReversal)
@@ -100,10 +131,20 @@ export function getChargeFlightSpec(ability?: CardAbility | null): ChargeFlightS
     mayMoveOverUnits:
       moveEffect?.mayMoveOverUnits !== undefined
         ? Boolean(moveEffect.mayMoveOverUnits)
-        : true,
-    sameRowOnly: Boolean(moveEffect?.path?.sameRow)
+        : !moveEffect?.path?.emptyTilesOnly,
+    sameRowOnly: Boolean(moveEffect?.path?.sameRow),
+    noSameDirectionTwice: Boolean(moveEffect?.path?.noSameDirectionTwiceInARow),
+    damageEnemiesOnly: typeof moveEffect?.damageToEnemiesMovedOver === 'number',
+    scorchTilesMovedOver: Boolean(moveEffect?.scorchTilesOfEnemiesMovedOver),
+    scorchAllMovedOver: Boolean(moveEffect?.scorchTilesOfUnitsMovedOver),
+    ...(typeof moveEffect?.statusOnEnemiesMovedOver === 'string' ? { statusOnEnemiesMovedOver: moveEffect.statusOnEnemiesMovedOver } : {})
   };
 }
+
+const describeTurns = (n: number, min?: number) =>
+  min !== undefined && min !== n
+    ? `${min} to ${n} times`
+    : n === 0 ? 'zero times' : n === 1 ? 'exactly once' : `exactly ${n} times`;
 
 /**
  * Returns the cube direction vector from hexA to hexB (must be adjacent).
@@ -234,19 +275,20 @@ export function validateChargeFlightPath(
     return { valid: false, reason: 'Unit cannot turn back the way it came.' };
   }
 
-  if (spec.requireExactlyOneTurn) {
-    if (analysis.turnCount === 0) {
-      return {
-        valid: false,
-        reason: 'Path must change direction exactly once (cannot move in a straight line).'
-      };
-    }
-    if (analysis.turnCount > 1) {
-      return {
-        valid: false,
-        reason: `Path must change direction exactly once (made ${analysis.turnCount} turns).`
-      };
-    }
+  if (
+    spec.requiredTurns !== null &&
+    (analysis.turnCount > spec.requiredTurns || analysis.turnCount < (spec.minTurns ?? spec.requiredTurns))
+  ) {
+    return {
+      valid: false,
+      reason: `Path must change direction ${describeTurns(spec.requiredTurns, spec.minTurns)} (made ${analysis.turnCount}).`
+    };
+  }
+  if (spec.noSameDirectionTwice && analysis.directions.some((d, i) => i > 0 && areDirectionsEqual(d, analysis.directions[i - 1]))) {
+    return { valid: false, reason: 'The path can never go in the same direction twice in a row.' };
+  }
+  if (!spec.mayMoveOverUnits && path.slice(0, -1).some((h) => unitsOnBoard[h])) {
+    return { valid: false, reason: 'The path must be on empty tiles.' };
   }
 
   const finalTile = path[path.length - 1];
@@ -302,13 +344,17 @@ export function getNextChargeFlightHexes(
 
     const nextTurnCount = currentAnalysis.turnCount + (isTurn ? 1 : 0);
 
-    // If it already turned once, it cannot turn again! (paths with free turns, e.g. along a row, don't count turns)
-    if (spec.requireExactlyOneTurn && nextTurnCount > 1) continue;
+    // No more turns than the path needs (paths with free turns, e.g. along a row, don't count turns)
+    if (spec.requiredTurns !== null && nextTurnCount > spec.requiredTurns) continue;
+    // "Never the same direction twice in a row" (e.g. Sky Slither)
+    if (spec.noSameDirectionTwice && currentAnalysis.directions.length > 0 && !isTurn) continue;
+    // A path on empty tiles only (e.g. Zephyr Step)
+    if (!spec.mayMoveOverUnits && unitsOnBoard[cand]) continue;
 
     // If this candidate would be the maximum length of the path:
     if (nextLength === maxLength) {
-      // Must have exactly 1 turn total!
-      if (spec.requireExactlyOneTurn && nextTurnCount !== 1) continue;
+      // Must have made all its turns by now
+      if (spec.requiredTurns !== null && nextTurnCount < (spec.minTurns ?? spec.requiredTurns)) continue;
       // Final tile must be unoccupied
       if (spec.finalTileMustBeEmpty && unitsOnBoard[cand]) continue;
     }
@@ -362,10 +408,10 @@ export function extendChargeFlightPath(
       return { newPath: path, error: 'Cannot revisit already selected tiles.' };
     }
     const currentAnalysis = analyzePathTurns(casterHex, path);
-    if (currentAnalysis.turnCount >= 1) {
+    if (spec.requiredTurns !== null && currentAnalysis.turnCount >= spec.requiredTurns) {
       return {
         newPath: path,
-        error: 'Path has already changed direction once. All remaining steps must continue straight.'
+        error: `Path has already changed direction ${describeTurns(spec.requiredTurns, spec.minTurns)}. All remaining steps must continue straight.`
       };
     }
     if (path.length + 1 === Math.max(...spec.possiblePathLengths) && unitsOnBoard[clickedHex]) {

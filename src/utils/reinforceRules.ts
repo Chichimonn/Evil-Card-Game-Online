@@ -87,6 +87,28 @@ export function getRequirementsList(card: CardItem): string[] {
 }
 
 // Check if a friendly unit on board is a valid Promote target for the given promote card
+/**
+ * "This unit may promote into any promote unit. If that unit does not promote an ooze, doing this deals 6 damage to
+ * the new unit" (e.g. Forced Metamorphosis): { type: 'promotableByAnyPromoteUnit', damageIfRequirementIsNot, amount }.
+ */
+export function canPromoteIntoAny(unit: BattlefieldUnit): boolean {
+  return [...(unit.card.passives || [])].some((p) => (p.effects || []).some((e: any) => e.type === 'promotableByAnyPromoteUnit'));
+}
+
+/** Damage the new unit takes when it promoted `unit` only through such a passive (0 if it qualified anyway). */
+export function getForcedPromotionDamage(promoteCard: CardItem, unit: BattlefieldUnit): number {
+  const reqList = getRequirementsList(promoteCard);
+  if (reqList.some((req) => unitMatchesRequirement(unit, req))) return 0;
+  for (const p of unit.card.passives || []) {
+    const e: any = (p.effects || []).find((x: any) => x.type === 'promotableByAnyPromoteUnit');
+    if (!e) continue;
+    const needs = String(e.damageIfRequirementIsNot || '').toLowerCase();
+    const promotesThat = reqList.some((r) => r.toLowerCase() === needs);
+    return promotesThat ? 0 : typeof e.amount === 'number' ? e.amount : 0;
+  }
+  return 0;
+}
+
 export function getValidPromoteTargets(
   promoteCard: CardItem,
   unitsOnBoard: Record<string, BattlefieldUnit>,
@@ -103,8 +125,9 @@ export function getValidPromoteTargets(
       if (unit.statuses?.includes('cannot_promote_or_fuse')) {
         return;
       }
-      // Must match at least one requirement in the list
-      const matches = reqList.some((req) => unitMatchesRequirement(unit, req));
+      // Must match at least one requirement in the list, or be able to promote into any promote unit (e.g. Forced
+      // Metamorphosis)
+      const matches = reqList.some((req) => unitMatchesRequirement(unit, req)) || canPromoteIntoAny(unit);
       if (matches) {
         validHexes.push(hexId);
       }
@@ -318,6 +341,22 @@ export function checkFusionMaterials(
  * - The Cyclotron: "3 Cook, Engineer, Camper, and/or Correspondent"
  * - Faceless King: "3 Any Basic Unit"
  */
+/**
+ * A tribute's full requirement, e.g. "Tribute 2, at least 1 Flaming": the count of basic units sacrificed, plus
+ * one "at least" per class slot (identical slots are counted together, e.g. "at least 2 Plant").
+ */
+export function formatTributeRequirements(card?: CardItem | null): string {
+  if (!card || card.reinforce?.mode !== 'tribute') return '';
+  const count = card.reinforce.count || 2;
+  const slotCounts = new Map<string, number>();
+  (card.reinforce.requirement || []).forEach((options) => {
+    const label = options.map((o) => (o === '*' ? 'Any' : o)).join(' or ');
+    slotCounts.set(label, (slotCounts.get(label) || 0) + 1);
+  });
+  const extras = Array.from(slotCounts, ([label, n]) => `at least ${n} ${label}`);
+  return [`Tribute ${count}`, ...extras].join(', ');
+}
+
 export function formatFusionRequirements(card?: CardItem | null): string {
   if (!card || card.reinforce?.mode !== 'fusion') return '';
   const rawReq = card.reinforce.requirement || [];

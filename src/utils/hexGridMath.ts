@@ -120,6 +120,15 @@ export function getTileBehindUnit(hexId: string, unitOwner: PlayerId): string | 
 }
 
 /**
+ * "Behind" by the rules: the tile 1 row closer to the enemy back row from the perspective of the effect's controller,
+ * in the same column (none on that back row). For an enemy unit this is the same as getTileBehindUnit with its owner;
+ * for a friendly one it is the tile on the far side of it from your own back row.
+ */
+export function getTileBehindFor(hexId: string, controller: PlayerId): string | null {
+  return getTileBehindUnit(hexId, controller === 'player1' ? 'player2' : 'player1');
+}
+
+/**
  * Checks if an attack against targetHex is made from the tile behind the target unit.
  */
 export function isAttackFromBehind(
@@ -222,6 +231,11 @@ export function isAbilityTargetingEmptyTile(
 ): boolean {
   if (!ability) return false;
   if (ability.target === 'emptyTile') return true;
+  // A unit target, even one described by the tile next to it (e.g. Shadow Emergence: "targets unit with an empty tile
+  // behind it"), is a unit
+  if (ability.target === 'unit' || ability.target === 'enemyUnit' || ability.target === 'anyUnit' || ability.target === 'friendlyUnit') {
+    return false;
+  }
   if (ability.targetText?.toLowerCase().includes('empty tile') || ability.targetText?.toLowerCase().includes('empty surrounding')) return true;
   if (ability.id === 'stone_wall' || ability.id === 'build_structure' || ability.id === 'pitch_camp' || ability.id === 'shade_step' || ability.id === 'vanish' || ability.id === 'reckless_leap') return true;
   // Abilities that deal damage target a unit, not an empty tile
@@ -248,6 +262,8 @@ export function isTargetedAbility(
 ): boolean {
   if (!ability) return false;
   if (ability.target === 'self') return false;
+  // A tile to click (e.g. Reckless Leap), even when its only damage is to itself
+  if (ability.target === 'emptyTile') return true;
   if (
     ability.id === 'fortress_stance' ||
     ability.id === 'gird_for_battle' ||
@@ -322,13 +338,21 @@ export function isTargetedAbility(
 // Check if a tile is scorched (e.g. by surrounding a Raging Bonfire or via Volatile Hexes / Echoing Incantation)
 export function isTileScorched(
   hexId: string,
-  unitsOnBoard: Record<string, { card?: { id?: string; name?: string } }>,
+  unitsOnBoard: Record<string, { card?: { id?: string; name?: string; passives?: { effects?: unknown[] }[] }; statuses?: string[] }>,
   scorchedTiles?: Record<string, { expiresOnTurnEndFor?: string; turnsRemaining?: number; casterPlayer?: string }> | null
 ): boolean {
+  const surrounding = getSurroundingHexes(hexId);
+  // "As soon as a scorched tile is surrounding this unit, it is no longer scorched. This effect overrides other
+  // effects" (e.g. Deep Freeze, { type: 'unscorchTiles' }): wins over a Raging Bonfire too (unless its passives are off)
+  const frozen = surrounding.some((h) => {
+    const u = unitsOnBoard[h];
+    if (!u || u.statuses?.some((s) => s === 'passives_removed' || s === 'passives_removed_this_turn')) return false;
+    return Boolean(u.card?.passives?.some((p) => (p.effects || []).some((e: any) => e?.type === 'unscorchTiles')));
+  });
+  if (frozen) return false;
   if (scorchedTiles && scorchedTiles[hexId]) {
     return true;
   }
-  const surrounding = getSurroundingHexes(hexId);
   for (const surrHex of surrounding) {
     const u = unitsOnBoard[surrHex];
     if (u && (u.card?.id === 'raging_bonfire' || u.card?.name === 'Raging Bonfire')) {

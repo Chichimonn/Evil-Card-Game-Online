@@ -1,9 +1,12 @@
 // Lightweight, zero-dependency IndexedDB storage for pre-rendered card images
 import { BUILD_ID } from '../version';
 
+declare const __ART_ID__: string;
+// Which code and which art drew the stored images (see vite.config.ts): a change to either draws them all again
+const CACHE_ID = `${BUILD_ID}:${typeof __ART_ID__ === 'string' ? __ART_ID__ : 'unknown'}`;
+
 const DB_NAME = 'tactics_card_images_v5';
 const STORE_NAME = 'card_images';
-// Which build drew the stored images: a different build (card data or card layout changed) draws them all again
 const BUILD_KEY = '__build_id__';
 
 function openDB(): Promise<IDBDatabase> {
@@ -24,7 +27,7 @@ function openDB(): Promise<IDBDatabase> {
 }
 
 /**
- * Retrieves all pre-rendered card images from IndexedDB, or none (and clears them) if another build drew them.
+ * Retrieves all pre-rendered card images from IndexedDB, or none (and clears them) if other code or art drew them.
  */
 export async function getAllCachedCardImages(): Promise<Record<string, string>> {
   try {
@@ -34,12 +37,12 @@ export async function getAllCachedCardImages(): Promise<Record<string, string>> 
       req.onsuccess = () => resolve(req.result);
       req.onerror = () => resolve(undefined);
     });
-    if (storedBuild !== BUILD_ID) {
+    if (storedBuild !== CACHE_ID) {
       await new Promise<void>((resolve) => {
         const tx = db.transaction(STORE_NAME, 'readwrite');
         const store = tx.objectStore(STORE_NAME);
         store.clear();
-        store.put(BUILD_ID, BUILD_KEY);
+        store.put(CACHE_ID, BUILD_KEY);
         tx.oncomplete = () => resolve();
         tx.onerror = () => resolve();
       });

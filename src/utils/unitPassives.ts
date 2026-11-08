@@ -10,6 +10,8 @@ import { getHexDistance } from './hexGridMath';
  */
 /** Status: this unit has no passives (e.g. hit by Silencing Strike). Expires when its owner's turn ends. */
 export const PASSIVES_REMOVED = 'passives_removed';
+// "That unit's passives have no effect this turn" (e.g. Posthumous Prerogative): cleared when the turn ends
+export const PASSIVES_REMOVED_THIS_TURN = 'passives_removed_this_turn';
 
 // Units whose passives are switched off while an attack that ignores passives resolves (e.g. Silencing Strike).
 // Kept until the App clears it after that attack's state updates have been applied.
@@ -27,7 +29,7 @@ export const hasPassiveSuppression = () => passiveSuppression.size > 0;
 
 export function getUnitPassives(unit: BattlefieldUnit | null | undefined): CardPassive[] {
   if (!unit) return [];
-  if (unit.statuses?.includes(PASSIVES_REMOVED) || passiveSuppression.has(unit.instanceId)) return [];
+  if (unit.statuses?.includes(PASSIVES_REMOVED) || unit.statuses?.includes(PASSIVES_REMOVED_THIS_TURN) || passiveSuppression.has(unit.instanceId)) return [];
   const basePassives = unit.card.passives || [];
   if (unit.chosenPassive) {
     return [...basePassives, unit.chosenPassive];
@@ -41,6 +43,8 @@ export function getUnitPassives(unit: BattlefieldUnit | null | undefined): CardP
  */
 export function isUnitMindless(unit: BattlefieldUnit | null | undefined): boolean {
   if (!unit) return false;
+  // Given Mindless for a while (e.g. Induce Fear)
+  if (unit.statuses?.includes('mindless')) return true;
   const passives = getUnitPassives(unit);
   return passives.some(
     (p) =>
@@ -145,6 +149,7 @@ export interface DamageEvent {
   hexId: string;
   damagedUnitOwner?: PlayerId;
   damageAmount?: number;
+  nonAttack?: boolean; // damage not from an attack (self-damage, scorched tiles, passives): "from an attack" passives skip it
 }
 
 /**
@@ -306,7 +311,8 @@ export function getOnAttackSelfArmour(
   const result = { upTo: 0, sources: [] as string[] };
   if (!unit) return result;
   getUnitPassives(unit).forEach((p) => {
-    if (p.trigger !== 'self.attacks') return;
+    // (and 'self.attacksBeforeMovingThisTurn', e.g. Eerie Presence: only while it hasn't moved this turn)
+    if (p.trigger !== 'self.attacks' && !(p.trigger === 'self.attacksBeforeMovingThisTurn' && !unit.movedThisTurn)) return;
     (p.effects || []).forEach((e: any) => {
       if (e.type !== 'armour' || (e.target && e.target !== 'self') || typeof e.upTo !== 'number') return;
       let upTo = e.upTo;
@@ -364,19 +370,47 @@ export function getTargetedScryPassive(
 export function getTargetedRetaliation(
   unit: BattlefieldUnit | null | undefined,
   isRangedAttack: boolean,
-  tookDamage = false
+  tookDamage = false,
+  opts?: { distance?: number; attacker?: BattlefieldUnit | null; rawFirstHit?: number; armourLost?: number }
 ): { amount: number; sources: string[] } {
   const result = { amount: 0, sources: [] as string[] };
   if (!unit) return result;
+  const distance = opts?.distance ?? (isRangedAttack ? 2 : 1);
   getUnitPassives(unit).forEach((p) => {
     (p.effects || []).forEach((e: any) => {
+      // "When damage is prevented this way, deal that much damage to the attacker" (e.g. Shining Scales: 1 less from
+      // melee attacks, per attack)
+      if (e.type === 'reduceDamage' && e.dealPreventedToAttacker && typeof e.amount === 'number') {
+        const applies = (e.from !== 'meleeAttack' || !isRangedAttack) && (e.from !== 'rangedAttack' || isRangedAttack);
+        const prevented = Math.min(e.amount, Math.max(0, opts?.rawFirstHit ?? e.amount));
+        if (applies && prevented > 0) {
+          result.amount += prevented;
+          result.sources.push(p.name);
+        }
+        return;
+      }
+      // "When damage is dealt to this unit's armour by a melee attack, it deals that much damage back to the attacker"
+      // (e.g. Wheel of Blades): { type: 'damage', target: 'attacker', amount: 'armourDamageTaken',
+      // trigger: 'self.armourDamagedByMeleeAttack' }
+      if (e.type === 'damage' && e.target === 'attacker' && e.amount === 'armourDamageTaken') {
+        if ((e.trigger || p.trigger) === 'self.armourDamagedByMeleeAttack' && !isRangedAttack && (opts?.armourLost || 0) > 0) {
+          result.amount += opts!.armourLost!;
+          result.sources.push(p.name);
+        }
+        return;
+      }
       if (e.type !== 'damage' || e.target !== 'attacker' || typeof e.amount !== 'number') return;
+      // A passive that works "as a react effect" (e.g. Blinding Brilliance) doesn't reach an attacker immune to them
+      if (e.asReact && ((opts?.attacker && isImmuneToReactEffects(opts.attacker)) || unit.statuses?.includes('cannot_use_reacts'))) return;
       const trig = e.trigger || p.trigger;
       const fires =
         trig === 'self.targetedByAttack' ||
+        trig === 'self.targetedByEnemyAttack' ||
         (trig === 'self.targetedByRangedAttack' && isRangedAttack) ||
         (trig === 'self.targetedByMeleeAttack' && !isRangedAttack) ||
-        (trig === 'self.takesDamageFromMeleeAttack' && !isRangedAttack && tookDamage);
+        (trig === 'self.takesDamageFromMeleeAttack' && !isRangedAttack && tookDamage) ||
+        // "Whenever an enemy unit attacks this unit from range 2 or further" (e.g. Energy Crackle)
+        (e.if === 'attackerAtRange2OrMore' && distance >= 2);
       if (!fires) return;
       result.amount += e.amount * (typeof e.hits === 'number' ? e.hits : 1);
       result.sources.push(p.name);

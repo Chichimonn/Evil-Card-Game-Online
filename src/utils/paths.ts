@@ -5,6 +5,7 @@ import { getSurroundingHexes, parseHexId, offsetToCube, cubeToOffset, toHexId } 
  * Path rules. An ability opts in with card data:
  *   "usesPath": true,
  *   "pathRule": "straight"   (optional: path must be a straight line; otherwise any connected path)
+ *   "pathRule": "noSameDirectionTwice"   (each step turns: never the same direction twice in a row, e.g. Twisting Beam)
  *   "range": [min, max]      (path length limits)
  * Units along a path never block it (per the rules), so no blocking logic here.
  */
@@ -12,6 +13,7 @@ export interface PathSpec {
   minLength: number;
   maxLength: number;
   straight: boolean;
+  zigzag?: boolean;
 }
 
 export function getPathSpec(ability?: CardAbility | null): PathSpec | null {
@@ -26,26 +28,84 @@ export function getPathSpec(ability?: CardAbility | null): PathSpec | null {
   }
   // "Move up to N tiles in a straight line for free, then ..." (e.g. Spitfire Landing): the move is drawn as a path
   const lineMove = getSelfStraightLineMove(ability);
-  if (lineMove) return { minLength: 1, maxLength: lineMove.maxTiles, straight: true };
+  if (lineMove) return { minLength: lineMove.minTiles, maxLength: lineMove.maxTiles, straight: true };
   if (!a.usesPath) return null;
   const range: number[] | undefined = Array.isArray(a.range) && a.range.length > 0 ? a.range : undefined;
   const pathLength: number | undefined = typeof a.pathLength === 'number' ? a.pathLength : undefined;
   return {
     minLength: pathLength ?? (range ? range[0] : 1),
     maxLength: pathLength ?? (range ? range[1] ?? range[0] : 1),
-    straight: a.pathRule === 'straight'
+    straight: a.pathRule === 'straight',
+    zigzag: a.pathRule === 'noSameDirectionTwice'
   };
 }
 
 /**
- * An ability whose first effect moves this unit up to N tiles in a straight line (e.g. Spitfire Landing:
- * { type: 'move', target: 'self', distance: { max: 3 }, straightLine: true, free: true }).
+ * An ability whose first effect moves this unit in a straight line: up to N tiles (e.g. Spitfire Landing:
+ * { type: 'move', target: 'self', distance: { max: 3 }, straightLine: true, free: true }), or exactly N tiles with a
+ * number distance (e.g. Lunar Leap). ignoreUnits: it may pass over units on the way (e.g. Rift Leap).
+ * Not for a line move that strikes the enemy in the direction moved (see getChargeLineMove).
  */
-export function getSelfStraightLineMove(ability?: CardAbility | null): { maxTiles: number } | null {
-  const first: any = (ability?.effects || [])[0];
-  if (!first || first.type !== 'move' || first.target !== 'self' || !first.straightLine) return null;
-  const max = typeof first.distance === 'number' ? first.distance : first.distance?.max;
+export function getSelfStraightLineMove(
+  ability?: CardAbility | null
+): { minTiles: number; maxTiles: number; ignoreUnits: boolean } | null {
+  const effects: any[] = ability?.effects || [];
+  const move = effects.find((e) => e.type === 'move');
+  if (!move || move.target !== 'self' || !move.straightLine) return null;
+  // The move must come first (an armour effect before it is fine, e.g. Skillful Joust)
+  if (effects.slice(0, effects.indexOf(move)).some((e) => e.type !== 'armour')) return null;
+  if (getChargeLineMove(ability)) return null;
+  const max = typeof move.distance === 'number' ? move.distance : move.distance?.max;
+  if (typeof max !== 'number' || max <= 0) return null;
+  return { minTiles: typeof move.distance === 'number' ? max : 1, maxTiles: max, ignoreUnits: Boolean(move.ignoreUnitsInWay) };
+}
+
+/**
+ * "Move up to N tiles in a chosen direction. Then, if there is an enemy in that direction, deal X to it" (e.g. Silver
+ * Charge, Piercing Charge, Skillful Joust): a straight move followed by a damage effect on 'enemyInDirectionMoved'.
+ * The player picks either the tile to stop on, or an enemy further along the line (the unit stops next to it, which
+ * may be 0 tiles).
+ */
+export function getChargeLineMove(ability?: CardAbility | null): { maxTiles: number } | null {
+  const effects: any[] = ability?.effects || [];
+  const move = effects.find((e) => e.type === 'move');
+  if (!move || move.target !== 'self' || !move.straightLine) return null;
+  if (!effects.some((e) => e.type === 'damage' && e.target === 'enemyInDirectionMoved')) return null;
+  const max = typeof move.distance === 'number' ? move.distance : move.distance?.max;
   return typeof max === 'number' && max > 0 ? { maxTiles: max } : null;
+}
+
+/**
+ * Tiles to click for a charge line move from casterHex: each empty tile it can stop on (up to maxTiles away along an
+ * empty line), mapped to its path, and the first enemy on each line within maxTiles + 1, mapped to the path that stops
+ * next to it.
+ */
+export function getChargeLineChoices(
+  casterHex: string,
+  maxTiles: number,
+  units: Record<string, { owner: string }>,
+  owner: string
+): Map<string, { path: string[]; strike: boolean }> {
+  const out = new Map<string, { path: string[]; strike: boolean }>();
+  for (const first of getSurroundingHexes(casterHex)) {
+    const path: string[] = [];
+    let prev = casterHex;
+    let cur: string | null = first;
+    while (cur && path.length <= maxTiles) {
+      const u = units[cur];
+      if (u) {
+        if (u.owner !== owner) out.set(cur, { path: [...path], strike: true });
+        break;
+      }
+      if (path.length === maxTiles) break;
+      path.push(cur);
+      out.set(cur, { path: [...path], strike: false });
+      const next = stepBeyond(prev, cur);
+      prev = cur;
+      cur = next;
+    }
+  }
+  return out;
 }
 
 /** The tile directly past `throughHex` when travelling from `fromHex` (adjacent tiles). */
@@ -85,7 +145,10 @@ export function getNextPathHexes(casterHex: string, path: string[], spec: PathSp
   if (spec.straight) return Array.from(getStraightLines(casterHex, spec.maxLength).keys());
   if (path.length >= spec.maxLength) return [];
   const from = path.length > 0 ? path[path.length - 1] : casterHex;
-  return getSurroundingHexes(from).filter((h) => h !== casterHex && !path.includes(h));
+  // (a zigzag path can't continue in the direction of its last step)
+  const prev = path.length > 1 ? path[path.length - 2] : casterHex;
+  const straightOn = spec.zigzag && path.length > 0 ? stepBeyond(prev, from) : null;
+  return getSurroundingHexes(from).filter((h) => h !== casterHex && !path.includes(h) && h !== straightOn);
 }
 
 /**
@@ -116,6 +179,13 @@ export function validatePath(casterHex: string, path: string[], spec: PathSpec):
     }
     seen.add(h);
     prev = h;
+  }
+  if (spec.zigzag) {
+    for (let i = 1; i < path.length; i++) {
+      if (stepBeyond(i === 1 ? casterHex : path[i - 2], path[i - 1]) === path[i]) {
+        return { valid: false, reason: 'This path can never go the same direction twice in a row.' };
+      }
+    }
   }
   if (spec.straight) {
     const line = getStraightLines(casterHex, spec.maxLength).get(path[path.length - 1]);

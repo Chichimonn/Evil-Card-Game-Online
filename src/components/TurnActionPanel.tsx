@@ -40,6 +40,8 @@ interface TurnActionPanelProps {
   onFinishMultiStage?: () => void;
   onCancelMultiStage?: () => void;
   onHoverCard?: (card: CardItem | null) => void;
+  // Hovering an ability previews its range on the board
+  onHoverAbility?: (ability: CardAbility | null) => void;
   unitsOnBoard?: Record<string, BattlefieldUnit>;
   onCancelPrepaidAbility?: () => void;
   // Active multi-use provider chain (e.g. Dual Casting): progress label and which promoted abilities may still be chosen
@@ -69,6 +71,7 @@ export const TurnActionPanel: React.FC<TurnActionPanelProps> = ({
   onFinishMultiStage,
   onCancelMultiStage,
   onHoverCard,
+  onHoverAbility,
   unitsOnBoard,
   onCancelPrepaidAbility,
   providerChainInfo,
@@ -282,7 +285,7 @@ export const TurnActionPanel: React.FC<TurnActionPanelProps> = ({
                       ? 'bg-emerald-500 text-stone-950 border-emerald-300 ring-2 ring-emerald-400 shadow-md cursor-pointer'
                       : activeTurnUnit.currentAp >= moveCost
                       ? isMoveTaxed
-                        ? 'bg-stone-800 hover:bg-cyan-950 text-cyan-300 border-cyan-700/60 hover:border-cyan-500 shadow-xs cursor-pointer'
+                        ? 'bg-stone-800 hover:bg-red-950 text-red-400 border-red-900/60 hover:border-red-800 shadow-xs cursor-pointer'
                         : hasOmni
                         ? 'bg-stone-800 hover:bg-purple-950 text-purple-300 border-purple-600/60 hover:border-purple-400 shadow-xs cursor-pointer'
                         : 'bg-stone-800 hover:bg-emerald-950 text-emerald-300 border-emerald-700/60 hover:border-emerald-500 shadow-xs cursor-pointer'
@@ -329,7 +332,7 @@ export const TurnActionPanel: React.FC<TurnActionPanelProps> = ({
                 !isAssistLocked && canUniversalDraw && !isMindless && activeTurnUnit.currentAp >= 1
                   ? hasRapidCatalog
                     ? 'bg-stone-800 hover:bg-amber-950 text-amber-300 border-amber-600/70 hover:border-amber-400 shadow-xs cursor-pointer'
-                    : 'bg-stone-800 hover:bg-sky-950 text-sky-300 border-sky-700/60 hover:border-sky-500 shadow-xs cursor-pointer'
+                    : 'bg-stone-800 hover:bg-red-950 text-red-400 border-red-900/60 hover:border-red-800 shadow-xs cursor-pointer'
                   : 'opacity-40 cursor-not-allowed bg-stone-900 border-stone-800 text-stone-500'
               }`}
               title={
@@ -406,8 +409,14 @@ export const TurnActionPanel: React.FC<TurnActionPanelProps> = ({
                       <button
                         key={`${ability.id}_${idx}`}
                         onClick={() => onAbilityClick(ability)}
-                        onMouseEnter={() => onHoverCard?.(activeTurnUnit.card)}
-                        onMouseLeave={() => onHoverCard?.(null)}
+                        onMouseEnter={() => {
+                          onHoverCard?.(activeTurnUnit.card);
+                          onHoverAbility?.(ability);
+                        }}
+                        onMouseLeave={() => {
+                          onHoverCard?.(null);
+                          onHoverAbility?.(null);
+                        }}
                         disabled={!canAfford || isUsedOncePerTurn || isLocked || isAssistLocked}
                         className={`w-full flex items-center justify-between px-3 py-1.5 rounded-lg text-xs sm:text-sm font-serif font-bold border transition-all ${
                           isLocked
@@ -586,8 +595,14 @@ export const TurnActionPanel: React.FC<TurnActionPanelProps> = ({
                       <button
                         key={`qualifying_${cardName}_${promAb.id}_${idx}`}
                         onClick={() => onPromotedAbilitySelect(promAb, parentProviderAbility)}
-                        onMouseEnter={() => onHoverCard?.(card)}
-                        onMouseLeave={() => onHoverCard?.(null)}
+                        onMouseEnter={() => {
+                          onHoverCard?.(card);
+                          onHoverAbility?.(promAb);
+                        }}
+                        onMouseLeave={() => {
+                          onHoverCard?.(null);
+                          onHoverAbility?.(null);
+                        }}
                         disabled={isUsedOncePerTurn || isPromLocked || isAssistLocked}
                         className={`w-full flex items-center justify-between px-2 py-1.5 rounded-lg text-xs font-serif font-bold border transition-all ${
                           isUsedOncePerTurn

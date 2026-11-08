@@ -2,7 +2,7 @@ export interface AbilityModifier {
   if?: string;
   addAmount?:
     | number
-    | { perTarget?: number; perExtraTarget?: number; perTileMovedThisTurn?: number; perPreviousUseThisTurn?: number };
+    | { perTarget?: number; perExtraTarget?: number; perTileMovedThisTurn?: number; perPreviousUseThisTurn?: number; perCardUnderTarget?: number };
   minAmount?: number;
   setAmount?: number;
   setHits?: number;
@@ -27,6 +27,8 @@ export interface AbilityEffect {
 }
 
 export interface CardAbility {
+  // A reveal-gated provider already paid for and revealed (Seer's Visions): its free ability costs nothing more
+  revealPrepaid?: boolean;
   id: string;
   name: string;
   cost: number | number[];
@@ -47,7 +49,7 @@ export interface CardAbility {
   straightLine?: boolean;
   isMultiStage?: boolean;
   usesPath?: boolean;
-  pathRule?: 'straight' | 'any';
+  pathRule?: 'straight' | 'any' | 'noSameDirectionTwice';
   requires?: string;
   limits?: {
     oncePerTurn?: boolean;

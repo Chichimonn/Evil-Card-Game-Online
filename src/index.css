@@ -1,5 +1,5 @@
-@import "tailwindcss";
 @import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@700;900&family=Caveat:wght@700&family=Satisfy&family=IM+Fell+English&family=Pirata+One&display=swap');
+@import "tailwindcss";
 
 /* Card fonts, served from public/assets/fonts (same origin, so they are embedded in the captured card images on any host) */
 @font-face {
@@ -31,4 +31,20 @@ html, body, #root {
 body {
   font-family: Cambria, "Hoefler Text", Utopia, "Liberation Serif", Georgia, serif;
   font-size: 13pt;
+}
+
+/* Scrolls as usual, with no scrollbar shown (e.g. the card gallery) */
+.hide-scrollbar {
+  scrollbar-width: none;
+}
+.hide-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+/* The page is shown at 125% (as if browser-zoomed): the app is drawn 1.25x larger and laid out in the space that
+   fills the window once scaled */
+#root {
+  zoom: 1.25;
+  width: calc(100vw / 1.25);
+  height: calc(100vh / 1.25);
 }

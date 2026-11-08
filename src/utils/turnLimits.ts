@@ -2,6 +2,9 @@ import { CardAbility, CardPassive } from '../types/card';
 import { BattlefieldUnit } from '../types/game';
 import { isPromotedAbilityProvider } from './promotedAbilities';
 import { isAttackAbility } from './providerChain';
+import { getBarredMinCost, getBarredExactCosts, CANNOT_USE_RANGED } from './turnRestrictions';
+import { getSurroundingHexes } from './hexGridMath';
+import { getUnitPassives } from './unitPassives';
 
 /**
  * Checks if an ability or passive is flagged 1/Turn.
@@ -144,6 +147,21 @@ export function getAttacksUsedThisTurn(unit: BattlefieldUnit | null | undefined)
  * Reads an "only as this unit's Nth ability in a turn" restriction from an ability.
  * Uses requires: "thisIsNthAbilityOfTurn:N", falling back to the card text.
  */
+/** usedTurnCounts key counting this unit's universal Move actions this turn (free moves from abilities don't count). */
+export const UNIVERSAL_MOVE_KEY = 'universal:move';
+
+/** Actions this unit has taken this turn: abilities, universal moves and the universal draw. */
+export function getActionsUsedThisTurn(unit: BattlefieldUnit | null | undefined): number {
+  if (!unit) return 0;
+  return getAbilitiesUsedThisTurn(unit) + (unit.usedTurnCounts?.[UNIVERSAL_MOVE_KEY] || 0) + (unit.usedUniversalDrawThisTurn ? 1 : 0);
+}
+
+/** "Use this ability only as this unit's Nth action in a turn" (e.g. Fatal Error!): requires 'thisIsNthActionOfTurn:N'. */
+export function getRequiredActionOrdinal(ability: CardAbility | null | undefined): number | null {
+  const m = ability?.requires?.match(/thisIsNthActionOfTurn:(\d+)/i);
+  return m ? parseInt(m[1], 10) : null;
+}
+
 export function getRequiredAbilityOrdinal(ability: CardAbility | null | undefined): number | null {
   if (!ability) return null;
   const reqMatch = ability.requires?.match(/thisIsNthAbilityOfTurn:(\d+)/i);
@@ -217,6 +235,31 @@ export function canUseAbilityThisTurn(
   if (ability.requires === 'self.movedThisTurn' && !unit.movedThisTurn) {
     return { allowed: false, reason: `${ability.name} can only be used if this unit has moved this turn.` };
   }
+  // "Use only if this unit has at least N damage on it" (e.g. Vile Ceremony)
+  const dmgReq = ability.requires?.match(/^self\.damageAtLeast:(\d+)$/);
+  if (dmgReq && unit.damageCounters < parseInt(dmgReq[1], 10)) {
+    return { allowed: false, reason: `${ability.name} can only be used with at least ${dmgReq[1]} damage on this unit.` };
+  }
+  // "Cannot use abilities that cost N or more AP" / "cannot use ranged attacks" until its next turn ends
+  // (e.g. Suffocating Draft, Blinding Shield)
+  const barredCost = getBarredMinCost(unit);
+  if (barredCost !== null && getListedAbilityCost(ability) >= barredCost) {
+    return { allowed: false, reason: `${unit.card.name} can't use abilities that cost ${barredCost} or more AP this turn.` };
+  }
+  if (getBarredExactCosts(unit).includes(getListedAbilityCost(ability))) {
+    return { allowed: false, reason: `${unit.card.name} can't use ${getListedAbilityCost(ability)}AP abilities this turn.` };
+  }
+  // "This cannot be the first action this unit takes in a turn" (e.g. Charged Leap)
+  if (ability.requires === 'notFirstActionOfTurn' && getActionsUsedThisTurn(unit) === 0) {
+    return { allowed: false, reason: `${ability.name} can't be the first action ${unit.card.name} takes this turn.` };
+  }
+  // "If this unit has dealt damage this turn" (e.g. Combat Roll)
+  if (ability.requires === 'self.dealtDamageThisTurn' && !unit.dealtDamageThisTurn) {
+    return { allowed: false, reason: `${ability.name} can only be used after ${unit.card.name} has dealt damage this turn.` };
+  }
+  if (unit.statuses?.includes(CANNOT_USE_RANGED) && isRangedAttackAbility(ability)) {
+    return { allowed: false, reason: `${unit.card.name} can't use ranged attacks this turn.` };
+  }
 
   const requiredOrdinal = getRequiredAbilityOrdinal(ability);
   if (requiredOrdinal !== null) {
@@ -228,8 +271,69 @@ export function canUseAbilityThisTurn(
       };
     }
   }
+  const requiredAction = getRequiredActionOrdinal(ability);
+  if (requiredAction !== null) {
+    const actionsSoFar = getActionsUsedThisTurn(unit);
+    if (actionsSoFar !== requiredAction - 1) {
+      return {
+        allowed: false,
+        reason: `${ability.name} can only be used as this unit's action #${requiredAction} this turn (${actionsSoFar} actions taken so far).`
+      };
+    }
+  }
+
+  // "Use up to N times per turn" (e.g. Triple Fillet, Smash): limits.maxPerTurn above 1
+  const maxPerTurn = ability.limits?.maxPerTurn;
+  if (typeof maxPerTurn === 'number' && maxPerTurn > 1) {
+    const usage = Math.max(getTurnUsageCount(unit, key), baseKey ? getTurnUsageCount(unit, baseKey) : 0);
+    if (usage >= maxPerTurn) {
+      return { allowed: false, reason: `${ability.name} can only be used ${maxPerTurn} times per turn.` };
+    }
+  }
 
   return { allowed: true };
+}
+
+/** The lowest AP an ability can be used for (a variable cost lists its options). */
+function getListedAbilityCost(ability: CardAbility): number {
+  const c: any = ability.selectedCost ?? ability.cost;
+  if (Array.isArray(c)) return Math.min(...c);
+  return typeof c === 'number' ? c : 0;
+}
+
+/** A ranged attack: an ability that deals damage and is tagged ranged, reaches past range 1 without being melee, or fires in a line. */
+export function isRangedAttackAbility(ability: CardAbility | null | undefined): boolean {
+  if (!ability || !ability.effects?.some((e: any) => e.type === 'damage' && e.target !== 'self')) return false;
+  if (ability.tags?.includes('ranged')) return true;
+  if (ability.tags?.includes('melee')) return false;
+  return ((ability.range?.[1] ?? ability.range?.[0] ?? 1) > 1) || ability.target === 'direction' || Boolean((ability as any).straightLine);
+}
+
+/**
+ * Limits other units put on this one from where they stand (e.g. Hypnotic Sway: "Enemy units surrounding this unit cannot
+ * use abilities that cost 2 or more AP"): { type: 'cannotUseAbilities', target: 'enemyUnitsSurroundingSelf', minCost }.
+ */
+export function getAuraAbilityBlock(
+  unit: BattlefieldUnit | null | undefined,
+  ability: CardAbility,
+  board: Record<string, BattlefieldUnit>
+): string | null {
+  if (!unit || ability.readiedReact) return null;
+  const hex = Object.keys(board).find((h) => board[h].instanceId === unit.instanceId);
+  if (!hex) return null;
+  for (const h of getSurroundingHexes(hex)) {
+    const n = board[h];
+    if (!n || n.owner === unit.owner) continue;
+    for (const p of getUnitPassives(n)) {
+      const eff: any = (p.effects || []).find(
+        (e: any) => e.type === 'cannotUseAbilities' && e.target === 'enemyUnitsSurroundingSelf' && typeof e.minCost === 'number'
+      );
+      if (eff && getListedAbilityCost(ability) >= eff.minCost) {
+        return `${n.card.name}'s ${p.name}: units surrounding it can't use abilities that cost ${eff.minCost} or more AP.`;
+      }
+    }
+  }
+  return null;
 }
 
 /**

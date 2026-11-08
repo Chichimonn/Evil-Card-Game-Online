@@ -9,6 +9,12 @@ export const GAME_STATE_VERSION = 1;
  * Everything a match needs to continue from where it is, as plain JSON. App.tsx builds it from its state
  * (captureGameState) and can load one back (loadGameState).
  *
+ * Known gap (online play, Phase 6): it holds both players' hands and decks, and each turn's handoff sends all of it,
+ * because the receiving game needs them to carry on (its abilities can make the other player draw, discard or loot).
+ * The screen shows only your own hand and keeps the other player's private messages out of view, but someone reading
+ * their browser's memory or network traffic could still see the opponent's cards. Closing that needs a trusted server
+ * (or cryptographic card dealing), which this peer-to-peer design doesn't have.
+ *
  * It holds the lasting match state only. Choices in progress (targeting, popups, prompts) are not part of it:
  * capture the game when nothing is open (see isGameStateStable in App.tsx), e.g. between actions or at turn end.
  */

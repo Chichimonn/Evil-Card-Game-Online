@@ -88,9 +88,11 @@ export const BattlefieldCardStandee: React.FC<BattlefieldCardStandeeProps> = ({
 }) => {
   const [isHovered, setIsHovered] = useState(false);
 
-  // Art to try, in order (custom art alone when given), with the white halo drawn around the figure
+  // Art to try, in order (custom art alone when given), with the white halo drawn around the figure and its feet moved
+  // to the bottom edge, so it stands on the middle of its pedestal
   const art = useProcessedArt(
-    customArtUrl ? [customArtUrl] : [`/assets/art/${card.id}.png`, `/assets/${card.art || `art/${card.id}.png`}`]
+    customArtUrl ? [customArtUrl] : [`/assets/art/${card.id}.png`, `/assets/${card.art || `art/${card.id}.png`}`],
+    true
   );
 
   const isPlayer1 = owner === 'player1';
@@ -133,9 +135,10 @@ export const BattlefieldCardStandee: React.FC<BattlefieldCardStandeeProps> = ({
           }`}
         />
 
-        {/* High-Resolution PNG card art container */}
+        {/* High-Resolution PNG card art container: its bottom (the figure's feet) on the middle of the pedestal. Not clipped,
+            so a halo reaching past the art's edge shows in full. */}
         <div
-          className={`w-[116px] h-[162px] rounded-xl overflow-hidden flex items-center justify-center relative transition-all drop-shadow-[0_16px_32px_rgba(0,0,0,0.95)] ${
+          className={`w-[116px] h-[162px] mb-[10px] rounded-xl flex items-center justify-center relative transition-all drop-shadow-[0_16px_32px_rgba(0,0,0,0.95)] ${
             isFusionSelected
               ? 'ring-4 ring-purple-400 shadow-purple-500/80 scale-105 animate-pulse'
               : isTributeSelected
@@ -158,7 +161,7 @@ export const BattlefieldCardStandee: React.FC<BattlefieldCardStandeeProps> = ({
             <img
               src={art.src}
               alt={card.name}
-              className="w-full h-full object-contain pointer-events-none select-none"
+              className="w-full h-full object-contain object-bottom pointer-events-none select-none"
               style={{
                 imageRendering: '-webkit-optimize-contrast',
                 WebkitBackfaceVisibility: 'hidden',
@@ -337,11 +340,11 @@ export const BattlefieldCardStandee: React.FC<BattlefieldCardStandeeProps> = ({
             </div>
           )}
 
-          {/* Cannot Promote or Fuse (Freeze Time) Badge */}
+          {/* Cannot Promote or Fuse (Ice Lance) Badge */}
           {hasCannotPromoteOrFuse && (
             <div
               className="px-1.5 py-0.5 rounded-md bg-cyan-950/95 border-2 border-cyan-400 text-cyan-200 text-xs font-mono font-black shadow-lg flex items-center gap-0.5 animate-pulse"
-              title="Freeze Time: Cannot be promoted or fused during this turn"
+              title="Ice Lance: Cannot be promoted or fused during this turn"
             >
               🧊Frostbound
             </div>

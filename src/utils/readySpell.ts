@@ -5,14 +5,19 @@ import { getCostOptions } from './promotedAbilities';
 /**
  * An ability that readies one of this unit's own abilities to interrupt with (e.g. Ready Spell: "This unit may use a
  * 2AP ability for free as a react effect when an enemy unit uses an ability until the end of your opponent's next
- * turn"). Read from { type: 'setReact', trigger: 'enemyUnitUsesAbility', effects: [{ type: 'useAbility',
- * source: 'self', filter: { cost } }] }. Returns the AP cost the readied ability must have.
+ * turn"). Read from { type: 'setReact', trigger, once?, effects: [{ type: 'useAbility', source: 'self', filter: { cost } }] }:
+ * trigger 'enemyUnitUsesAbility' interrupts abilities only, 'enemyUnitTakesAction' any action (abilities, moves, draws);
+ * once: it is used up after one interrupt. Returns the AP cost the readied ability must have.
  */
-export function getReactAbilitySpec(ability: CardAbility | null | undefined): { cost: number } | null {
+export function getReactAbilitySpec(
+  ability: CardAbility | null | undefined
+): { cost: number; once: boolean; onAnyAction: boolean } | null {
   for (const e of (ability?.effects || []) as any[]) {
-    if (e.type !== 'setReact' || e.trigger !== 'enemyUnitUsesAbility') continue;
+    if (e.type !== 'setReact' || (e.trigger !== 'enemyUnitUsesAbility' && e.trigger !== 'enemyUnitTakesAction')) continue;
     const use = (e.effects || []).find((x: any) => x.type === 'useAbility' && x.source === 'self');
-    if (use && typeof use.filter?.cost === 'number') return { cost: use.filter.cost };
+    if (use && typeof use.filter?.cost === 'number') {
+      return { cost: use.filter.cost, once: Boolean(e.once), onAnyAction: e.trigger === 'enemyUnitTakesAction' };
+    }
   }
   return null;
 }

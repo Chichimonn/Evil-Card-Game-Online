@@ -4,6 +4,10 @@ import { initialCardsData } from '../data/cardsData';
 import { CardView, CARD_HEADING_FONT, CARD_BODY_FONT, getSetBackgroundPath } from '../components/CardView';
 import { toPng } from 'html-to-image';
 import { getAllCachedCardImages, saveCachedCardImage } from '../services/cardImageDB';
+import { getTokenGalleryCards } from '../utils/tokenCards';
+
+// Every card face drawn: the real cards, then the tokens (shown after them in the gallery)
+const RENDERED_CARDS: CardItem[] = [...initialCardsData.cards, ...getTokenGalleryCards(initialCardsData)];
 
 interface CardImageContextType {
   cardImages: Record<string, string>;
@@ -17,7 +21,7 @@ const CardImageContext = createContext<CardImageContextType>({
   cardImages: {},
   isReady: false,
   loadedCount: 0,
-  totalCount: initialCardsData.cards.length,
+  totalCount: RENDERED_CARDS.length,
   getCardImage: () => undefined
 });
 
@@ -80,7 +84,7 @@ function preloadAssetImages(urls: string[]): Promise<void> {
 }
 
 export const CardImageProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const allCards = initialCardsData.cards;
+  const allCards = RENDERED_CARDS;
   const totalCount = allCards.length;
 
   const [cardImages, setCardImages] = useState<Record<string, string>>(() => window.__CARD_IMAGE_CACHE__ || {});

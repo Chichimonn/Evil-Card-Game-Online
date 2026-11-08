@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { PlayerId } from '../types/game';
 import { playCardDrawSound } from '../utils/audio';
 
@@ -7,19 +7,54 @@ interface CoinFlipModalProps {
   onComplete: (firstPlayer: PlayerId) => void;
   // The match's seeded random, so the flip is part of the replayable game (see utils/rng)
   random: () => number;
+  // Online (Phase 4): who may act on this screen, and the other player's call and choice as they arrive. Hot seat
+  // leaves these out, and this screen does everything.
+  canCall?: boolean;
+  canChoose?: (winner: PlayerId) => boolean;
+  onCall?: (side: 'heads' | 'tails') => void;
+  remoteCall?: 'heads' | 'tails' | null;
+  remoteOrder?: PlayerId | null;
 }
 
-export const CoinFlipModal: React.FC<CoinFlipModalProps> = ({ isOpen, onComplete, random }) => {
+export const CoinFlipModal: React.FC<CoinFlipModalProps> = ({
+  isOpen,
+  onComplete,
+  random,
+  canCall = true,
+  canChoose = () => true,
+  onCall,
+  remoteCall = null,
+  remoteOrder = null
+}) => {
   const [caller] = useState<PlayerId>('player2'); // Player 1 flips, Player 2 calls
   const [calledSide, setCalledSide] = useState<'heads' | 'tails' | null>(null);
   const [isFlipping, setIsFlipping] = useState(false);
   const [flipResult, setFlipResult] = useState<'heads' | 'tails' | null>(null);
   const [winner, setWinner] = useState<PlayerId | null>(null);
 
+  // Each match starts with a fresh coin (the modal stays mounted between matches)
+  useEffect(() => {
+    if (!isOpen) return;
+    setCalledSide(null);
+    setIsFlipping(false);
+    setFlipResult(null);
+    setWinner(null);
+  }, [isOpen]);
+  // The other player's call, then their choice of order (online)
+  useEffect(() => {
+    if (isOpen && remoteCall && !calledSide) handleCallAndFlip(remoteCall);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen, remoteCall, calledSide]);
+  useEffect(() => {
+    if (isOpen && remoteOrder && winner) onComplete(remoteOrder);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen, remoteOrder, winner]);
+
   if (!isOpen) return null;
 
-  const handleCallAndFlip = (side: 'heads' | 'tails') => {
-    if (isFlipping) return;
+  const handleCallAndFlip = (side: 'heads' | 'tails', local = false) => {
+    if (isFlipping || calledSide) return;
+    if (local) onCall?.(side);
     setCalledSide(side);
     setIsFlipping(true);
     setFlipResult(null);
@@ -76,8 +111,8 @@ export const CoinFlipModal: React.FC<CoinFlipModalProps> = ({ isOpen, onComplete
 
             <div className="flex gap-2.5 w-full">
               <button
-                onClick={() => handleCallAndFlip('heads')}
-                disabled={isFlipping}
+                onClick={() => handleCallAndFlip('heads', true)}
+                disabled={isFlipping || !canCall}
                 className={`flex-1 py-2.5 rounded-lg font-mono font-bold text-xs border transition-colors cursor-pointer ${
                   calledSide === 'heads'
                     ? 'bg-stone-200 text-stone-950 border-white'
@@ -87,8 +122,8 @@ export const CoinFlipModal: React.FC<CoinFlipModalProps> = ({ isOpen, onComplete
                 Heads (H)
               </button>
               <button
-                onClick={() => handleCallAndFlip('tails')}
-                disabled={isFlipping}
+                onClick={() => handleCallAndFlip('tails', true)}
+                disabled={isFlipping || !canCall}
                 className={`flex-1 py-2.5 rounded-lg font-mono font-bold text-xs border transition-colors cursor-pointer ${
                   calledSide === 'tails'
                     ? 'bg-stone-200 text-stone-950 border-white'
@@ -103,6 +138,9 @@ export const CoinFlipModal: React.FC<CoinFlipModalProps> = ({ isOpen, onComplete
               <span className="text-[11px] font-mono text-stone-400 animate-pulse">
                 Flipping...
               </span>
+            )}
+            {!canCall && !isFlipping && (
+              <span className="text-[11px] font-mono text-stone-400 animate-pulse">Waiting for Player 2 to call…</span>
             )}
           </div>
         )}
@@ -122,10 +160,15 @@ export const CoinFlipModal: React.FC<CoinFlipModalProps> = ({ isOpen, onComplete
               </span>
             </div>
 
+            {!canChoose(winner) ? (
+              <span className="text-[11px] font-mono text-stone-400 animate-pulse">
+                Waiting for {winner === 'player1' ? 'Player 1' : 'Player 2'} to choose who goes first…
+              </span>
+            ) : (
             <div className="flex gap-2.5 w-full mt-1">
               <button
                 onClick={() => handleChooseOrder(winner)}
-                className="flex-1 py-2.5 rounded-lg bg-sky-500 hover:bg-sky-400 text-stone-950 font-mono font-black text-xs transition-colors cursor-pointer active:scale-95"
+                className="flex-1 py-2.5 rounded-lg bg-red-800 hover:bg-red-700 text-red-50 font-mono font-black text-xs transition-colors cursor-pointer active:scale-95"
               >
                 Play First
               </button>
@@ -136,6 +179,7 @@ export const CoinFlipModal: React.FC<CoinFlipModalProps> = ({ isOpen, onComplete
                 Play Second
               </button>
             </div>
+            )}
           </div>
         )}
       </div>

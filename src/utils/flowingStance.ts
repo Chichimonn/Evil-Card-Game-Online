@@ -1,6 +1,7 @@
 import { BattlefieldUnit } from '../types/game';
 import { CardAbility } from '../types/card';
 import { getUnitPassives } from './unitPassives';
+import { isHexScorchedNow } from './boardContext';
 
 /**
  * Returns true if the unit has the Flowing Stance passive.
@@ -75,6 +76,26 @@ export function getRangedAttackRangeBonus(unit: BattlefieldUnit | null | undefin
 }
 
 /**
+ * Extra range a unit's passives give all its abilities (e.g. Root Conduction: +1 if it has not moved this turn;
+ * Invigorating Flame: +1 while it stands on a scorched tile). Read from
+ * { type: 'modifyRange', appliesTo: 'abilities', amount, if?: 'self.hasNotMovedThisTurn' | 'self.onScorchedTile' }.
+ */
+export function getAbilityRangePassiveBonus(unit: BattlefieldUnit | null | undefined): number {
+  if (!unit) return 0;
+  let bonus = 0;
+  getUnitPassives(unit).forEach((p) => {
+    (p.effects || []).forEach((e: any) => {
+      if (e.type !== 'modifyRange' || e.appliesTo !== 'abilities' || typeof e.amount !== 'number') return;
+      if (e.if === 'self.hasNotMovedThisTurn' && unit.movedThisTurn) return;
+      if (e.if === 'self.onScorchedTile' && !isHexScorchedNow(unit.hexId)) return;
+      if (e.if && e.if !== 'self.hasNotMovedThisTurn' && e.if !== 'self.onScorchedTile') return;
+      bonus += e.amount;
+    });
+  });
+  return bonus;
+}
+
+/**
  * Checks whether an ability is considered a melee attack.
  */
 export function isMeleeAttackAbility(ability: CardAbility | null | undefined): boolean {
@@ -131,7 +152,7 @@ export function getEffectiveAbilityRange(
     maxRange += 1;
   }
 
-  const bonusRange = attackerUnit?.bonusRangeThisTurn || 0;
+  const bonusRange = (attackerUnit?.bonusRangeThisTurn || 0) + getAbilityRangePassiveBonus(attackerUnit);
   if (bonusRange > 0) {
     maxRange += bonusRange;
   }

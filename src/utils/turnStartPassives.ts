@@ -20,7 +20,7 @@ export interface TurnStartPassivesResult {
  *
  * 2. "ownTurnStart" / "At the start of your turn":
  *    Triggers only at the start of the controlling player's turn (unit.owner === currentTurnPlayer).
- *    Example: Marsh Hydra (heals 1 damage if damaged).
+ *    Example: Marsh Hydra (heals 3 damage if damaged).
  *
  * They resolve once per turn: pass that turn's `turnKey` and a unit already marked with it is skipped, so calling
  * this again later in the same turn (e.g. when the unit is chosen to take it) changes nothing.

@@ -89,7 +89,7 @@ export const CycleModal: React.FC<CycleModalProps> = ({
               </span>
               <button
                 onClick={handleSelectAll}
-                className="text-sky-400 hover:text-sky-300 underline font-semibold cursor-pointer"
+                className="text-red-500 hover:text-red-400 underline font-semibold cursor-pointer"
               >
                 {selectedIndices.length === hand.length ? 'Deselect All' : 'Select All'}
               </button>
@@ -151,7 +151,7 @@ export const CycleModal: React.FC<CycleModalProps> = ({
               disabled={selectedIndices.length === 0}
               className={`flex items-center gap-2 px-6 py-2.5 rounded-xl font-serif font-black text-xs uppercase tracking-wider transition-all cursor-pointer ${
                 selectedIndices.length > 0
-                  ? 'bg-sky-400 hover:bg-sky-300 text-stone-950 shadow-lg ring-2 ring-sky-300'
+                  ? 'bg-red-800 hover:bg-red-700 text-red-50 shadow-lg ring-2 ring-red-600'
                   : 'bg-stone-800 text-stone-500 cursor-not-allowed'
               }`}
             >

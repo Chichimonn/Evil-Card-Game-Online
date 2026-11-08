@@ -3,7 +3,7 @@ import { CardItem } from '../types/card';
 import { CardThumbnail } from './CardThumbnail';
 import { useCardImages } from '../context/CardImageContext';
 import { playCardDrawSound } from '../utils/audio';
-import { formatFusionRequirements } from '../utils/reinforceRules';
+import { formatFusionRequirements, formatTributeRequirements } from '../utils/reinforceRules';
 import {
   Plus,
   Minus,
@@ -13,8 +13,6 @@ import {
   Check,
   Search,
   Layers,
-  LayoutGrid,
-  List,
   Edit3,
   Save,
   BookmarkCheck,
@@ -46,6 +44,26 @@ const LOCAL_STORAGE_ACTIVE_DECK = 'evil_cg_active_deck';
 // Width of each card tile in the catalog, in pixels. Change this to resize cards.
 const TILE_W = 360;
 
+// Tokens can't go in a deck
+const isTokenCard = (card: CardItem) => card.isWall || card.art?.includes('token') || card.type === 'token';
+
+const UNCLASSED = 'unclassed';
+
+// A class filter matches a card of that class, or a promote/tribute/fusion card whose requirement names it
+// The class a card is grouped under when sorting: its first class tag, else the first class its requirement names
+const getCardSortClass = (card: CardItem): string | null =>
+  card.classTags?.[0] || (card.reinforce?.requirement || []).flat().find((name) => name && name !== '*') || null;
+
+const cardMatchesClass = (card: CardItem, cls: string): boolean => {
+  // Unclassed: cards that go with no class at all (no class tag, and no class named in a requirement)
+  if (cls === UNCLASSED) return getCardSortClass(card) === null;
+  const target = cls.toLowerCase();
+  return (
+    Boolean(card.classTags?.some((t) => t.toLowerCase() === target)) ||
+    Boolean(card.reinforce?.requirement?.some((options) => options.some((o) => o.toLowerCase() === target)))
+  );
+};
+
 export const Deckbuilder: React.FC<DeckbuilderProps> = ({
   cards
 }) => {
@@ -59,7 +77,6 @@ export const Deckbuilder: React.FC<DeckbuilderProps> = ({
   const [categoryFilter, setCategoryFilter] = useState<'all' | 'basic' | 'promote' | 'fusion' | 'tribute' | 'token'>('all');
   const [classFilter, setClassFilter] = useState<string>('all');
   const [sortBy, setSortBy] = useState<'class' | 'name' | 'hp' | 'ap'>('class');
-  const [viewMode, setViewMode] = useState<'visual' | 'list'>('visual'); // Default is visual as requested
   const [copied, setCopied] = useState(false);
   const [saveSuccessMsg, setSaveSuccessMsg] = useState<string | null>(null);
  
@@ -133,23 +150,30 @@ export const Deckbuilder: React.FC<DeckbuilderProps> = ({
   }, [deckEntries, totalCards]);
  
   // Catalog filtered cards sorted by Class Tags
+  // Every class in the game (from class tags and reinforce requirements), ordered by how many deckable cards go with
+  // it (the cards that class filter shows), then alphabetically; Unclassed last. The class sort uses the same order.
+  const classOptions = useMemo(() => {
+    const deckable = cards.filter((card) => !isTokenCard(card));
+    const names = new Map<string, string>();
+    deckable.forEach((card) => {
+      [...(card.classTags || []), ...(card.reinforce?.requirement || []).flat()].forEach((name) => {
+        if (name && name !== '*' && !names.has(name.toLowerCase())) names.set(name.toLowerCase(), name);
+      });
+    });
+    const options = Array.from(names.values())
+      .map((name) => ({ id: name, label: name, count: deckable.filter((card) => cardMatchesClass(card, name)).length }))
+      .sort((a, b) => b.count - a.count || a.label.localeCompare(b.label));
+    const unclassedCount = deckable.filter((card) => cardMatchesClass(card, UNCLASSED)).length;
+    if (unclassedCount > 0) options.push({ id: UNCLASSED, label: 'Unclassed', count: unclassedCount });
+    return options;
+  }, [cards]);
+
   const catalogCards = useMemo(() => {
-    const CLASS_ORDER: Record<string, number> = {
-      knight: 1,
-      mage: 2,
-      fighter: 3,
-      assassin: 4,
-      sage: 5,
-      plunderer: 6,
-      cook: 7,
-      engineer: 8,
-      camper: 9,
-      correspondent: 10
-    };
+    const classRank = new Map(classOptions.map((cls, i) => [cls.id.toLowerCase(), i]));
  
     const filtered = cards.filter(card => {
       // Disallow tokens from player deck building
-      if (card.isWall || card.art?.includes('token') || card.type === 'token') return false;
+      if (isTokenCard(card)) return false;
  
       if (categoryFilter === 'basic' && !card.basic) return false;
       if (categoryFilter === 'promote' && card.reinforce?.mode !== 'promote') return false;
@@ -157,13 +181,7 @@ export const Deckbuilder: React.FC<DeckbuilderProps> = ({
       if (categoryFilter === 'tribute' && card.reinforce?.mode !== 'tribute') return false;
  
       // Class Tag Filter
-      if (classFilter !== 'all') {
-        if (classFilter === 'unclassed') {
-          if (card.classTags && card.classTags.length > 0) return false;
-        } else {
-          if (!card.classTags?.some(t => t.toLowerCase() === classFilter.toLowerCase())) return false;
-        }
-      }
+      if (classFilter !== 'all' && !cardMatchesClass(card, classFilter)) return false;
  
       if (searchFilter.trim()) {
         const query = searchFilter.toLowerCase();
@@ -171,19 +189,20 @@ export const Deckbuilder: React.FC<DeckbuilderProps> = ({
           card.name.toLowerCase().includes(query) ||
           card.id.toLowerCase().includes(query) ||
           card.classTags?.some(t => t.toLowerCase().includes(query)) ||
+          card.reinforce?.requirement?.some(options => options.some(o => o !== '*' && o.toLowerCase().includes(query))) ||
           card.abilities?.some(a => a.name.toLowerCase().includes(query))
         );
       }
       return true;
     });
  
-    // Sort by class tags, name, hp, or ap
+    // Sort by class (a card goes with its own class, else the class it requires), name, hp, or ap
     return [...filtered].sort((a, b) => {
       if (sortBy === 'class') {
-        const aClass = a.classTags?.[0]?.toLowerCase() || '';
-        const bClass = b.classTags?.[0]?.toLowerCase() || '';
-        const aRank = aClass ? (CLASS_ORDER[aClass] || 50) : 99;
-        const bRank = bClass ? (CLASS_ORDER[bClass] || 50) : 99;
+        const aClass = getCardSortClass(a)?.toLowerCase();
+        const bClass = getCardSortClass(b)?.toLowerCase();
+        const aRank = aClass ? (classRank.get(aClass) ?? classRank.size) : classRank.size + 1;
+        const bRank = bClass ? (classRank.get(bClass) ?? classRank.size) : classRank.size + 1;
  
         if (aRank !== bRank) return aRank - bRank;
         return a.name.localeCompare(b.name);
@@ -199,11 +218,11 @@ export const Deckbuilder: React.FC<DeckbuilderProps> = ({
       }
       return 0;
     });
-  }, [cards, categoryFilter, classFilter, searchFilter, sortBy]);
+  }, [cards, categoryFilter, classFilter, searchFilter, sortBy, classOptions]);
  
   // Add card to deck (Max 3 copies of each card, max 40 total, no tokens)
   const handleAddCard = (card: CardItem) => {
-    if (card.isWall || card.art?.includes('token') || card.type === 'token') return;
+    if (isTokenCard(card)) return;
     if (totalCards >= 40) return;
     const existing = deckEntries.find(e => e.card.id === card.id);
     if (existing && existing.quantity >= 3) return;
@@ -492,7 +511,7 @@ export const Deckbuilder: React.FC<DeckbuilderProps> = ({
                 />
                 <button
                   onClick={handleConfirmRename}
-                  className="px-2.5 py-1 bg-sky-400 text-stone-950 font-bold rounded text-xs hover:bg-sky-300"
+                  className="px-2.5 py-1 bg-red-800 text-red-50 font-bold rounded text-xs hover:bg-red-700"
                 >
                   Save
                 </button>
@@ -513,7 +532,7 @@ export const Deckbuilder: React.FC<DeckbuilderProps> = ({
                     setRenameValue(deckName);
                     setIsRenaming(true);
                   }}
-                  className="p-1 text-stone-400 hover:text-sky-400 hover:bg-stone-800 rounded transition-colors shrink-0"
+                  className="p-1 text-stone-400 hover:text-red-500 hover:bg-stone-800 rounded transition-colors shrink-0"
                   title="Rename Deck"
                 >
                   <Edit3 className="w-3.5 h-3.5" />
@@ -542,7 +561,7 @@ export const Deckbuilder: React.FC<DeckbuilderProps> = ({
             {/* Save Deck Feature */}
             <button
               onClick={handleSaveDeck}
-              className="flex items-center gap-1.5 px-3 py-1 text-xs bg-sky-400 hover:bg-sky-300 text-stone-950 font-bold rounded shadow-xs transition-colors"
+              className="flex items-center gap-1.5 px-3 py-1 text-xs bg-red-800 hover:bg-red-700 text-red-50 font-bold rounded shadow-xs transition-colors"
               title="Save Deck to online browser storage"
             >
               <Save className="w-3.5 h-3.5" />
@@ -695,7 +714,7 @@ export const Deckbuilder: React.FC<DeckbuilderProps> = ({
                         <span>·</span>
                         <span className="text-sky-400">{entry.card.ap} AP</span>
                         <span>·</span>
-                        <span className="capitalize truncate" title={entry.card.reinforce?.mode === 'fusion' ? `Fusion: ${formatFusionRequirements(entry.card)}` : undefined}>
+                        <span className="capitalize truncate" title={entry.card.reinforce?.mode === 'fusion' ? `Fusion: ${formatFusionRequirements(entry.card)}` : entry.card.reinforce?.mode === 'tribute' ? formatTributeRequirements(entry.card) : undefined}>
                           {entry.card.basic ? 'Basic' : entry.card.reinforce?.mode === 'fusion' ? `Fusion (${formatFusionRequirements(entry.card)})` : entry.card.reinforce?.mode || 'Unit'}
                         </span>
                       </div>
@@ -755,17 +774,14 @@ export const Deckbuilder: React.FC<DeckbuilderProps> = ({
           </div>
         )}
  
-        {/* Catalog Header with Search, Filter & View Toggle */}
+        {/* Catalog Header with Search & Filters */}
         <div className="p-4 border-b border-stone-800 bg-stone-900 flex flex-col gap-3">
           <div className="flex items-center justify-between gap-3 flex-wrap">
             <h3 className="font-serif font-bold text-lg text-stone-100 flex items-center gap-2">
-              <span>Card Catalog Pool</span>
-              <span className="text-xs font-mono font-normal text-stone-400">
-                ({catalogCards.length} Cards available)
-              </span>
+              <span>Available Cards ({catalogCards.length})</span>
             </h3>
  
-            {/* Controls Row: Search & View Toggle */}
+            {/* Controls Row: Search */}
             <div className="flex items-center gap-2.5">
               {/* Search box */}
               <div className="relative w-56">
@@ -777,34 +793,6 @@ export const Deckbuilder: React.FC<DeckbuilderProps> = ({
                   onChange={(e) => setSearchFilter(e.target.value)}
                   className="w-full pl-8 pr-3 py-1.5 bg-stone-950 border border-stone-700 rounded text-xs text-stone-100 placeholder:text-stone-500 focus:outline-hidden focus:border-sky-400"
                 />
-              </div>
- 
-              {/* View Toggle: Visual Picture Cards (Default) vs Text List */}
-              <div className="flex items-center bg-stone-950 p-1 rounded-lg border border-stone-800 text-xs">
-                <button
-                  onClick={() => setViewMode('visual')}
-                  className={`flex items-center gap-1.5 px-2.5 py-1 rounded font-medium transition-colors ${
-                    viewMode === 'visual'
-                      ? 'bg-sky-500 text-stone-950 font-bold shadow-xs'
-                      : 'text-stone-400 hover:text-stone-200'
-                  }`}
-                  title="Show picture of the cards as in the first tab"
-                >
-                  <LayoutGrid className="w-3.5 h-3.5" />
-                  <span>Visual Cards</span>
-                </button>
-                <button
-                  onClick={() => setViewMode('list')}
-                  className={`flex items-center gap-1.5 px-2.5 py-1 rounded font-medium transition-colors ${
-                    viewMode === 'list'
-                      ? 'bg-sky-500 text-stone-950 font-bold shadow-xs'
-                      : 'text-stone-400 hover:text-stone-200'
-                  }`}
-                  title="Show compact text details"
-                >
-                  <List className="w-3.5 h-3.5" />
-                  <span>Text List</span>
-                </button>
               </div>
             </div>
           </div>
@@ -824,7 +812,7 @@ export const Deckbuilder: React.FC<DeckbuilderProps> = ({
                   onClick={() => setCategoryFilter(cat.id as typeof categoryFilter)}
                   className={`px-2.5 py-1 rounded text-xs font-medium transition-colors ${
                     categoryFilter === cat.id
-                      ? 'bg-sky-500 text-stone-950 font-bold'
+                      ? 'bg-red-800 text-red-50 font-bold'
                       : 'bg-stone-800 text-stone-400 hover:text-stone-200'
                   }`}
                 >
@@ -833,11 +821,11 @@ export const Deckbuilder: React.FC<DeckbuilderProps> = ({
               ))}
             </div>
  
-            {/* Sort Selector: Class Tags, Name, HP, AP */}
+            {/* Sort Selector: Class, Name, HP, AP */}
             <div className="flex items-center gap-1.5 bg-stone-950 px-2 py-1 rounded-lg border border-stone-800">
               <span className="text-[10px] font-mono text-stone-400 font-bold uppercase">Sort:</span>
               {[
-                { id: 'class', label: 'Class Tag' },
+                { id: 'class', label: 'Class' },
                 { id: 'name', label: 'Name' },
                 { id: 'hp', label: 'HP' },
                 { id: 'ap', label: 'AP' }
@@ -847,7 +835,7 @@ export const Deckbuilder: React.FC<DeckbuilderProps> = ({
                   onClick={() => setSortBy(opt.id as typeof sortBy)}
                   className={`px-2 py-0.5 rounded text-[11px] font-mono transition-colors ${
                     sortBy === opt.id
-                      ? 'bg-cyan-400 text-stone-950 font-black shadow-xs'
+                      ? 'bg-red-800 text-red-50 font-black shadow-xs'
                       : 'text-stone-400 hover:text-stone-200'
                   }`}
                 >
@@ -857,31 +845,24 @@ export const Deckbuilder: React.FC<DeckbuilderProps> = ({
             </div>
           </div>
  
-          {/* Class Tag Filter Row */}
-          <div className="flex flex-wrap items-center gap-1 pt-1.5 border-t border-stone-800/80">
-            <span className="text-[10px] font-mono text-stone-400 font-bold uppercase mr-1">Class Tag:</span>
-            {[
-              { id: 'all', label: 'All' },
-              { id: 'knight', label: 'Knight' },
-              { id: 'mage', label: 'Mage' },
-              { id: 'fighter', label: 'Fighter' },
-              { id: 'assassin', label: 'Assassin' },
-              { id: 'sage', label: 'Sage' },
-              { id: 'plunderer', label: 'Plunderer' },
-              { id: 'unclassed', label: 'Other/Unclassed' }
-            ].map(cls => (
-              <button
-                key={cls.id}
-                onClick={() => setClassFilter(cls.id)}
-                className={`px-2 py-0.5 rounded text-[11px] font-mono transition-colors ${
-                  classFilter === cls.id
-                    ? 'bg-cyan-400 text-stone-950 font-black'
-                    : 'bg-stone-900 border border-stone-800 text-stone-400 hover:text-stone-200'
-                }`}
-              >
-                {cls.label}
-              </button>
-            ))}
+          {/* Class Filter: every class, matching cards of that class or that require it */}
+          <div className="flex items-center gap-2 pt-1.5 border-t border-stone-800/80">
+            <label htmlFor="deckbuilder-class-filter" className="text-[10px] font-mono text-stone-400 font-bold uppercase">
+              Class:
+            </label>
+            <select
+              id="deckbuilder-class-filter"
+              value={classFilter}
+              onChange={(e) => setClassFilter(e.target.value)}
+              className="bg-stone-950 border border-stone-700 rounded px-2 py-1 text-xs font-mono text-stone-100 focus:outline-hidden focus:border-cyan-400 cursor-pointer"
+            >
+              <option value="all">All Classes</option>
+              {classOptions.map((cls) => (
+                <option key={cls.id} value={cls.id}>
+                  {cls.label}
+                </option>
+              ))}
+            </select>
           </div>
         </div>
  
@@ -894,8 +875,8 @@ export const Deckbuilder: React.FC<DeckbuilderProps> = ({
             const currentInDeck = deckEntries.find(e => e.card.id === card.id)?.quantity || 0;
             const isAtMax = currentInDeck >= 3;
  
-            return viewMode === 'visual' ? (
-              /* Visual Card Mode: Clean card image without hover blur or overlay, with direct Add button */
+            return (
+              /* Card image with a direct Add button */
               <div
                 key={`cat-card-${card.id}`}
                 draggable={true}
@@ -961,7 +942,7 @@ export const Deckbuilder: React.FC<DeckbuilderProps> = ({
                   <button
                     onClick={() => handleAddCard(card)}
                     disabled={isAtMax || isDeckFull}
-                    className="px-3.5 py-2 bg-sky-400 hover:bg-sky-300 disabled:bg-stone-800 disabled:text-stone-500 disabled:cursor-not-allowed text-stone-950 font-bold rounded-lg text-xs transition-colors flex items-center justify-center gap-1 shadow-md active:scale-95 cursor-pointer shrink-0"
+                    className="px-3.5 py-2 bg-red-800 hover:bg-red-700 disabled:bg-stone-800 disabled:text-stone-500 disabled:cursor-not-allowed text-red-50 font-bold rounded-lg text-xs transition-colors flex items-center justify-center gap-1 shadow-md active:scale-95 cursor-pointer shrink-0"
                     title={
                       isAtMax
                         ? 'Max 3 copies reached'
@@ -973,91 +954,6 @@ export const Deckbuilder: React.FC<DeckbuilderProps> = ({
                     <Plus className="w-3.5 h-3.5" />
                     <span>{isAtMax ? 'Max (3)' : isDeckFull ? 'Deck Full' : 'Add'}</span>
                   </button>
-                </div>
-              </div>
-            ) : (
-              /* Text List Mode: Drag-and-drop enabled */
-              <div
-                key={`cat-card-${card.id}`}
-                draggable={true}
-                onDragStart={(e) => {
-                  e.dataTransfer.setData('text/plain', JSON.stringify({ type: 'pool-to-deck', cardId: card.id }));
-                  e.dataTransfer.effectAllowed = 'copy';
-                  setDraggingFrom('pool');
-                  setDraggedCardId(card.id);
-                }}
-                onDragEnd={handleGlobalDragEnd}
-                className={`p-4 rounded-xl border transition-all flex flex-col justify-between gap-3 cursor-grab active:cursor-grabbing select-none ${
-                  currentInDeck > 0
-                    ? 'bg-stone-950 border-sky-500/50 shadow-md ring-1 ring-sky-400/20'
-                    : 'bg-stone-950/40 border-stone-800/80 hover:border-sky-500/50'
-                }`}
-                title="Drag to deck to add, or click Add"
-              >
-                <div>
-                  <div className="flex items-start justify-between gap-1.5 mb-1.5">
-                    <h4 className="font-serif font-bold text-stone-100 text-base truncate flex-1">
-                      {card.name}
-                    </h4>
-                    <div className="flex items-center gap-1 font-mono text-xs shrink-0">
-                      <span className="text-rose-400 font-bold">{card.hp} HP</span>
-                      <span className="text-stone-600">·</span>
-                      <span className="text-sky-400 font-bold">{card.ap} AP</span>
-                    </div>
-                  </div>
- 
-                  <div className="text-[10px] font-mono text-stone-400 uppercase tracking-wider mb-2 flex items-center gap-1.5 flex-wrap">
-                    <span>
-                      {card.basic && 'Basic Unit'}
-                      {card.reinforce?.mode === 'promote' && `Promote · ${card.reinforce.requirement?.[0]?.[0] || 'Unit'}`}
-                      {card.reinforce?.mode === 'fusion' && `Fusion · ${formatFusionRequirements(card)}`}
-                      {card.reinforce?.mode === 'tribute' && `Tribute · ${card.reinforce.count} Cards`}
-                      {card.isWall && 'Token · Wall'}
-                    </span>
-                    {card.classTags && card.classTags.length > 0 && (
-                      <span className="text-cyan-300 font-bold bg-cyan-950/80 px-1.5 py-0.2 rounded border border-cyan-500/50">
-                        Class: {card.classTags.join(', ')}
-                      </span>
-                    )}
-                  </div>
- 
-                  {/* All Passives and Abilities */}
-                  <div className="flex flex-col gap-1.5 my-2">
-                    {card.passives && card.passives.map((p, idx) => (
-                      <p key={`list-p-${idx}`} className="text-xs text-stone-300 bg-stone-900/80 p-2 rounded">
-                        <span className="text-[10px] font-mono uppercase text-sky-400 font-bold mr-1.5">[Passive]</span>
-                        <strong className="text-stone-100">{p.name}:</strong> {p.text}
-                      </p>
-                    ))}
-                    {card.abilities && card.abilities.map((a, idx) => (
-                      <p key={`list-a-${idx}`} className="text-xs text-stone-300 bg-stone-900/80 p-2 rounded">
-                        <span className="text-[10px] font-mono uppercase text-rose-400 font-bold mr-1.5">
-                          [Ability{a.cost ? ` · ${a.cost} AP` : ''}]
-                        </span>
-                        <strong className="text-sky-400">{a.name}:</strong> {a.text}
-                      </p>
-                    ))}
-                  </div>
-                </div>
- 
-                <div className="flex items-center justify-between pt-2 border-t border-stone-800/60 text-xs">
-                  <span className="text-xs font-mono text-stone-400">
-                    In deck:{' '}
-                    <strong className={isAtMax ? 'text-sky-400 font-bold' : currentInDeck > 0 ? 'text-stone-200' : 'text-stone-500'}>
-                      {currentInDeck} / 3
-                    </strong>
-                  </span>
- 
-                  <div className="flex items-center gap-1.5">
-                    <button
-                      onClick={() => handleAddCard(card)}
-                      disabled={isAtMax || isDeckFull}
-                      className="px-3 py-1 bg-sky-400 hover:bg-sky-300 disabled:bg-stone-800 disabled:text-stone-500 disabled:cursor-not-allowed text-stone-950 font-bold rounded text-xs transition-colors flex items-center gap-1"
-                    >
-                      <Plus className="w-3.5 h-3.5" />
-                      <span>{isAtMax ? 'Max 3' : 'Add'}</span>
-                    </button>
-                  </div>
                 </div>
               </div>
             );

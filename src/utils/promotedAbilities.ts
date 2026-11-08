@@ -5,6 +5,8 @@ import { BattlefieldUnit } from '../types/game';
  * Returns true if an ability grants the use of a qualifying ability from promoted cards for free.
  */
 export function isPromotedAbilityProvider(ability: CardAbility): boolean {
+  // (one that uses the target's abilities, e.g. Synaptic Link, picks them once the target is chosen)
+  if (isTargetAbilityBorrower(ability)) return false;
   if (
     ability.effects?.some(
       (e: any) =>
@@ -16,6 +18,21 @@ export function isPromotedAbilityProvider(ability: CardAbility): boolean {
   }
   const text = (ability.text || '').toLowerCase();
   return text.includes('promoted card') && text.includes('free');
+}
+
+/**
+ * "Use a 1AP or 2AP ability of the target as this ability for free. Choose promoted units from under that unit if
+ * applicable" (e.g. Synaptic Link): { type: 'useAbility', source: 'targetUnit', filter, includeTargetsPromotedCards }.
+ */
+export function isTargetAbilityBorrower(ability: CardAbility | null | undefined): boolean {
+  return Boolean(ability?.effects?.some((e: any) => e.type === 'useAbility' && e.source === 'targetUnit'));
+}
+
+/** The cards whose abilities such a borrower may use from this target. */
+export function getBorrowableCards(ability: CardAbility, target: BattlefieldUnit): CardItem[] {
+  const eff: any = ability.effects?.find((e: any) => e.type === 'useAbility' && e.source === 'targetUnit');
+  if (!eff) return [];
+  return [target.card, ...(eff.includeTargetsPromotedCards ? target.promotedCards || [] : [])];
 }
 
 /**
@@ -83,7 +100,21 @@ const findUseAbilityIndex = (parent: CardAbility): number =>
  */
 export function getProviderPreEffects(parent: CardAbility): any[] {
   const idx = findUseAbilityIndex(parent);
-  return idx > 0 ? (parent.effects || []).slice(0, idx) : [];
+  // (a reveal that decides what the provider does, e.g. Seer's Visions, happens when the provider is activated)
+  return idx > 0 ? (parent.effects || []).slice(0, idx).filter((e: any) => e.type !== 'revealTop') : [];
+}
+
+/** Whether an effect only applies depending on a revealed card (e.g. Seer's Visions: if: '!revealed.isUnit'). */
+export const dependsOnReveal = (e: any): boolean => typeof e?.if === 'string' && e.if.replace('!', '').startsWith('revealed.');
+
+/**
+ * A provider that reveals the top card of your deck first and acts on it (Seer's Visions: "If it is a unit card, use a
+ * 2AP ability ... from among the promoted cards as this ability for free. Otherwise, draw that card and armour up to 4").
+ */
+export function isRevealGatedProvider(ability: CardAbility | null | undefined): boolean {
+  return Boolean(
+    ability?.effects?.some((e: any) => e.type === 'revealTop') && ability.effects.some((e: any) => dependsOnReveal(e))
+  );
 }
 
 /**
@@ -102,6 +133,7 @@ export function buildProviderExecutable(
   const riders = (idx >= 0 ? (parent.effects || []).slice(idx + 1) : []).filter(
     (e: any) =>
       e.type !== 'move' &&
+      !dependsOnReveal(e) &&
       // "The first unit hit by this attack each turn": only on the provider's first use this turn
       !(e.target === 'firstUnitHitByThisAbilityEachTurn' && opts.parentUsedBefore)
   );
@@ -171,6 +203,7 @@ export function getQualifyingPromotedAbilities(
       (e.source === 'promotedCards' || e.source === 'promotedCard' || e.from === 'promotedCards' || e.free === true)
   );
 
+  // (a list of costs, e.g. [1, 2] for "a 1AP or 2AP ability")
   const filterCost = useAbilityEffect?.filter?.cost;
   const filterKind = useAbilityEffect?.filter?.kind;
   const filterMelee = useAbilityEffect?.filter?.melee;
@@ -204,7 +237,7 @@ export function getQualifyingPromotedAbilities(
 
       // Filter by cost (strictly as specified by effect or text)
       if (filterCost !== undefined) {
-        if (!abCosts.includes(filterCost)) return;
+        if (Array.isArray(filterCost) ? !filterCost.some((c: number) => abCosts.includes(c)) : !abCosts.includes(filterCost)) return;
       } else if (textLower.includes('1ap') && !abCosts.includes(1)) {
         return;
       } else if (textLower.includes('2ap') && !abCosts.includes(2)) {

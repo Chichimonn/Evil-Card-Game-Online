@@ -14,6 +14,104 @@ export interface SelectableDeck {
   isValid: boolean;
 }
 
+/** The decks a player can choose from: the Deckbuilder's active and saved decks (this browser's), then the presets. */
+export function buildSelectableDecks(
+  allCards: CardItem[],
+  cardsById: Map<string, CardItem> = new Map(allCards.map((c) => [c.id, c]))
+): { customDecks: SelectableDeck[]; lockedPresetDecks: SelectableDeck[]; allDecksMap: Map<string, SelectableDeck> } {
+  const customList: SelectableDeck[] = [];
+  const presetList: SelectableDeck[] = [];
+  const map = new Map<string, SelectableDeck>();
+
+  // 1. Active deck from Deckbuilder
+  try {
+    const activeStr = localStorage.getItem('evil_cg_active_deck');
+    if (activeStr) {
+      const active = JSON.parse(activeStr);
+      if (active.cards && Array.isArray(active.cards) && active.cards.length > 0) {
+        const cardList: CardItem[] = [];
+        active.cards.forEach((entry: { id: string; quantity: number }) => {
+          const card = cardsById.get(entry.id);
+          if (card) {
+            for (let i = 0; i < entry.quantity; i++) cardList.push(card);
+          }
+        });
+
+        if (cardList.length > 0) {
+          const deck: SelectableDeck = {
+            id: 'active_deck',
+            name: active.name || 'Current Active Deck',
+            category: 'active',
+            cardCount: cardList.length,
+            cardList,
+            isValid: true
+          };
+          customList.push(deck);
+          map.set(deck.id, deck);
+        }
+      }
+    }
+  } catch {
+    // ignore
+  }
+
+  // 2. Saved custom decks from Deckbuilder
+  try {
+    const savedStr = localStorage.getItem('evil_cg_saved_decks');
+    if (savedStr) {
+      const saved = JSON.parse(savedStr);
+      if (Array.isArray(saved)) {
+        saved.forEach((deck: { id: string; name: string; cardCount: number; cards: { id: string; quantity: number }[] }) => {
+          const cardList: CardItem[] = [];
+          deck.cards.forEach((entry) => {
+            const card = cardsById.get(entry.id);
+            if (card) {
+              for (let i = 0; i < entry.quantity; i++) cardList.push(card);
+            }
+          });
+
+          if (cardList.length > 0) {
+            const savedDeckItem: SelectableDeck = {
+              id: `saved_${deck.id}`,
+              name: deck.name,
+              category: 'saved',
+              cardCount: cardList.length,
+              cardList,
+              isValid: true
+            };
+            customList.push(savedDeckItem);
+            map.set(savedDeckItem.id, savedDeckItem);
+          }
+        });
+      }
+    }
+  } catch {
+    // ignore
+  }
+
+  // 3. Preset Starter Decks
+  PRESET_DECKS.forEach((preset) => {
+    const cardList: CardItem[] = [];
+    preset.cardIds.forEach((id) => {
+      const card = cardsById.get(id) || allCards[0];
+      if (card) cardList.push(card);
+    });
+
+    const presetDeck: SelectableDeck = {
+      id: preset.id,
+      name: preset.name,
+      category: 'preset',
+      cardCount: cardList.length,
+      cardList,
+      isValid: true
+    };
+    presetList.push(presetDeck);
+    map.set(presetDeck.id, presetDeck);
+  });
+
+  return { customDecks: customList, lockedPresetDecks: presetList, allDecksMap: map };
+}
+
 interface DeckSelectModalProps {
   isOpen: boolean;
   onClose: () => void;
@@ -58,7 +156,7 @@ const PRESET_DECKS = [
       'blight_phantom', 'blight_phantom', 'blight_phantom',
       'high_seas_captain', 'high_seas_captain', 'high_seas_captain',
       'corsair_saboteur', 'corsair_saboteur', 'corsair_saboteur',
-      'goreblade_executioner', 'goreblade_executioner', 'goreblade_executioner',
+      'elite_sniper', 'elite_sniper', 'elite_sniper',
       'duelist_fighter', 'duelist_fighter', 'duelist_fighter',
       'brawl_fighter', 'brawl_fighter', 'brawl_fighter',
       'combat_cook'
@@ -106,99 +204,7 @@ export const DeckSelectModal: React.FC<DeckSelectModalProps> = ({
     return map;
   }, [allCards]);
 
-  const { customDecks, lockedPresetDecks, allDecksMap } = useMemo(() => {
-    const customList: SelectableDeck[] = [];
-    const presetList: SelectableDeck[] = [];
-    const map = new Map<string, SelectableDeck>();
-
-    // 1. Active deck from Deckbuilder
-    try {
-      const activeStr = localStorage.getItem('evil_cg_active_deck');
-      if (activeStr) {
-        const active = JSON.parse(activeStr);
-        if (active.cards && Array.isArray(active.cards) && active.cards.length > 0) {
-          const cardList: CardItem[] = [];
-          active.cards.forEach((entry: { id: string; quantity: number }) => {
-            const card = cardsById.get(entry.id);
-            if (card) {
-              for (let i = 0; i < entry.quantity; i++) cardList.push(card);
-            }
-          });
-
-          if (cardList.length > 0) {
-            const deck: SelectableDeck = {
-              id: 'active_deck',
-              name: active.name || 'Current Active Deck',
-              category: 'active',
-              cardCount: cardList.length,
-              cardList,
-              isValid: true
-            };
-            customList.push(deck);
-            map.set(deck.id, deck);
-          }
-        }
-      }
-    } catch {
-      // ignore
-    }
-
-    // 2. Saved custom decks from Deckbuilder
-    try {
-      const savedStr = localStorage.getItem('evil_cg_saved_decks');
-      if (savedStr) {
-        const saved = JSON.parse(savedStr);
-        if (Array.isArray(saved)) {
-          saved.forEach((deck: { id: string; name: string; cardCount: number; cards: { id: string; quantity: number }[] }) => {
-            const cardList: CardItem[] = [];
-            deck.cards.forEach((entry) => {
-              const card = cardsById.get(entry.id);
-              if (card) {
-                for (let i = 0; i < entry.quantity; i++) cardList.push(card);
-              }
-            });
-
-            if (cardList.length > 0) {
-              const savedDeckItem: SelectableDeck = {
-                id: `saved_${deck.id}`,
-                name: deck.name,
-                category: 'saved',
-                cardCount: cardList.length,
-                cardList,
-                isValid: true
-              };
-              customList.push(savedDeckItem);
-              map.set(savedDeckItem.id, savedDeckItem);
-            }
-          });
-        }
-      }
-    } catch {
-      // ignore
-    }
-
-    // 3. Preset Starter Decks
-    PRESET_DECKS.forEach((preset) => {
-      const cardList: CardItem[] = [];
-      preset.cardIds.forEach((id) => {
-        const card = cardsById.get(id) || allCards[0];
-        if (card) cardList.push(card);
-      });
-
-      const presetDeck: SelectableDeck = {
-        id: preset.id,
-        name: preset.name,
-        category: 'preset',
-        cardCount: cardList.length,
-        cardList,
-        isValid: true
-      };
-      presetList.push(presetDeck);
-      map.set(presetDeck.id, presetDeck);
-    });
-
-    return { customDecks: customList, lockedPresetDecks: presetList, allDecksMap: map };
-  }, [allCards, cardsById]);
+  const { customDecks, lockedPresetDecks, allDecksMap } = useMemo(() => buildSelectableDecks(allCards, cardsById), [allCards, cardsById]);
 
   // Pre-select the first available deck for each player when opening so they can proceed immediately
   useEffect(() => {
@@ -376,7 +382,7 @@ export const DeckSelectModal: React.FC<DeckSelectModalProps> = ({
             disabled={!canProceed}
             className={`flex items-center gap-2 px-6 py-2.5 text-sm font-black rounded-xl transition-all uppercase tracking-wider cursor-pointer ${
               canProceed
-                ? 'bg-sky-400 hover:bg-sky-300 text-stone-950 shadow-lg shadow-sky-500/25 ring-2 ring-sky-300 active:scale-95'
+                ? 'bg-red-800 hover:bg-red-700 text-red-50 shadow-lg shadow-red-900/25 ring-2 ring-red-600 active:scale-95'
                 : 'opacity-40 cursor-not-allowed bg-stone-800 text-stone-500'
             }`}
             title={!canProceed ? 'Choose a deck for both players to proceed' : 'Proceed to battle'}

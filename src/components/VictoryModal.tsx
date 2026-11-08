@@ -50,7 +50,7 @@ export const VictoryModal: React.FC<VictoryModalProps> = ({
           </button>
           <button
             onClick={onPlayAgain}
-            className="flex items-center gap-2 px-6 py-2.5 rounded-xl bg-sky-500 hover:bg-sky-400 text-stone-950 font-black text-sm uppercase tracking-wider shadow-lg ring-2 ring-sky-300 cursor-pointer active:scale-95"
+            className="flex items-center gap-2 px-6 py-2.5 rounded-xl bg-red-800 hover:bg-red-700 text-red-50 font-black text-sm uppercase tracking-wider shadow-lg ring-2 ring-red-600 cursor-pointer active:scale-95"
           >
             <RefreshCw className="w-4 h-4" />
             <span>Play Again</span>
