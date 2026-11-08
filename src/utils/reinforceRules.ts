@@ -56,14 +56,27 @@ export function unitMatchesRequirement(unit: BattlefieldUnit, reqString: string)
  */
 export function countUnmetTributeSlots(card: CardItem, units: BattlefieldUnit[]): number {
   const slots = card.reinforce?.requirement || [];
-  const used = new Set<number>();
-  let unmet = 0;
-  slots.forEach((options) => {
-    const idx = units.findIndex((u, i) => !used.has(i) && options.some((req) => unitMatchesRequirement(u, req)));
-    if (idx >= 0) used.add(idx);
-    else unmet += 1;
+  // The best assignment of units to slots, not the first one found: a unit can fit several slots (e.g. Flaming Fighter
+  // is both a Fighter and Flaming), and filling "Fighter" with it must not leave "Flaming" empty when another
+  // Fighter could have taken that slot. (A maximum matching, by augmenting paths.)
+  const fits = slots.map((options) => units.map((u) => options.some((req) => unitMatchesRequirement(u, req))));
+  const slotOfUnit: number[] = units.map(() => -1);
+  const assign = (slot: number, seen: boolean[]): boolean => {
+    for (let u = 0; u < units.length; u++) {
+      if (!fits[slot][u] || seen[u]) continue;
+      seen[u] = true;
+      if (slotOfUnit[u] < 0 || assign(slotOfUnit[u], seen)) {
+        slotOfUnit[u] = slot;
+        return true;
+      }
+    }
+    return false;
+  };
+  let matched = 0;
+  slots.forEach((_, slot) => {
+    if (assign(slot, units.map(() => false))) matched += 1;
   });
-  return unmet;
+  return slots.length - matched;
 }
 
 // Extract flat requirement list from card's reinforce config

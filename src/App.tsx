@@ -399,6 +399,7 @@ export default function App() {
   // The camera controls can be tucked away behind a small arrow, like the gallery bar and the version
   // (hidden at first)
   const [isCameraOpen, setIsCameraOpen] = useState(false);
+  const [isLogOpen, setIsLogOpen] = useState(false);
   const MAX_CAMERA_PAN = 900;
   const panCamera = (dx: number, dy: number) => {
     markCameraChange();
@@ -2042,6 +2043,8 @@ export default function App() {
       return;
     }
     setActiveAbility(null);
+    // Turning move mode on starts a run of moves (see the effect below); turning it off ends the run
+    moveRunRef.current = isMovingMode ? null : { unitId: activeTurnUnit.instanceId, hex: activeTurnUnitHex };
     setIsMovingMode((prev) => {
       const next = !prev;
       if (next) {
@@ -2058,6 +2061,33 @@ export default function App() {
       return next;
     });
   };
+
+  // After a move made with the Move button, move mode comes back on by itself, as if Move were pressed again, for as
+  // long as the unit can still move and nothing else has been chosen. Choosing anything else ends the run: an ability,
+  // Draw, a card from hand, an Assist, or Move again (to cancel).
+  const moveRunRef = useRef<{ unitId: string; hex: string | null } | null>(null);
+  useEffect(() => {
+    const run = moveRunRef.current;
+    if (!run) return;
+    if (!activeTurnUnit || activeTurnUnit.instanceId !== run.unitId || activeAbility || multiStageState || providerChain || selectedHandIndex !== null || isAssistModalOpen || lockedAssist) {
+      moveRunRef.current = null;
+      return;
+    }
+    // (only once a move has actually happened, and once it and anything it set off are done)
+    if (isMovingMode || activeTurnUnitHex === run.hex) return;
+    if (pendingFreeMove || pendingRabbleMove || pendingMomentumCharge || anyPopupOpen || popupQueue.length > 0 || cardChoicePrompt || isTurnTransitioning || readySpellReact) return;
+    run.hex = activeTurnUnitHex;
+    const canMoveAgain =
+      gamePhase === 'playing' &&
+      !isUnitMovementDisabled(activeTurnUnit) &&
+      canOmnipresenceUnitMove(activeTurnUnit) &&
+      activeTurnUnit.currentAp >= getUniversalMoveCost(activeTurnUnit, unitsOnBoard);
+    if (!canMoveAgain) {
+      moveRunRef.current = null;
+      return;
+    }
+    setIsMovingMode(true);
+  });
 
   // Multi-Stage Target Information (prompts and legal hexes for current stage)
   const multiStageTargetInfo = useMemo(() => {
@@ -9934,6 +9964,7 @@ export default function App() {
   // Universal Draw Action (Rule 6.2.2)
   // Allow units to use the universal draw action every time they take a turn (just once per their turn, no other restriction).
   const handleUniversalDraw = () => {
+    moveRunRef.current = null;
     if (lockedAssist || pendingAssistDeployment || providerChain || readySpellReact) {
       showNotification("Locked in or active choice pending: Resolve your current action first.");
       return;
@@ -10371,6 +10402,7 @@ export default function App() {
   // freeUse: a promoted ability a provider uses for free that takes effect at once (the provider's cost, if any, is
   // the ability's cost; its uses are recorded through the executable's provider keys)
   const handleAbilityClick = (ability: CardAbility, freeUse = false) => {
+    moveRunRef.current = null;
     // Rules keyed to a specific ability still apply when it's used for free through a provider
     const abilityId = ability.promotedAbilityId || ability.id;
     // During an Assist only its own ability may be activated, once (by the assist start effect)
@@ -14170,6 +14202,16 @@ export default function App() {
     researchPending?.player ??
     deckArrangePending?.player ??
     (isTurnTransitioning ? transitionPlayer : activePlayer);
+  // The shared match log, as a button that sits with the camera controls (see below)
+  const logControl = (
+    <GameLogPanel
+      entries={gameLog}
+      handoffStatus={handoffStatus}
+      viewer={isOnline() ? localPlayer : null}
+      open={isLogOpen}
+      onToggle={() => setIsLogOpen((o) => !o)}
+    />
+  );
   // (while reconnecting, nobody plays on: the two games would drift apart)
   const isWaitingForOpponent = activeTab === 'play' && localPlayer !== null && (localPlayer !== inputOwner || Boolean(reconnect));
 
@@ -14373,11 +14415,6 @@ export default function App() {
         </div>
       </header>
 
-      {/* The shared match log */}
-      {activeTab === 'play' && (gamePhase === 'setup' || gamePhase === 'playing') && (
-        <GameLogPanel entries={gameLog} handoffStatus={handoffStatus} viewer={isOnline() ? localPlayer : null} />
-      )}
-
       {/* Online: the link to the other player dropped; reconnecting, or a way out */}
       {reconnect && (
         <div
@@ -14418,6 +14455,17 @@ export default function App() {
           Waiting for opponent…
         </div>
       )}
+      {/* ...and its counterpart when the game is waiting on this screen's player */}
+      {activeTab === 'play' &&
+        localPlayer !== null &&
+        !isWaitingForOpponent &&
+        (gamePhase === 'setup' || gamePhase === 'playing') &&
+        !winner &&
+        !isTurnTransitioning && (
+          <div className="fixed top-20 left-1/2 -translate-x-1/2 z-[70] pointer-events-none px-5 py-2 rounded-xl bg-stone-900/95 border border-emerald-600/80 text-emerald-200 font-bold shadow-xl animate-pulse">
+            Your turn!
+          </div>
+        )}
 
       {/* Play Mode Menu: Hot Seat (this screen, the current game) or Online (not available yet) */}
       <div data-input-always>
@@ -14877,7 +14925,8 @@ export default function App() {
               )}
             </div>
 
-            {/* Leave Match button */}
+            {/* Leave Match and Concede, together on the right (clear of the turn banner in the middle) */}
+            <div className="flex items-center">
             <button
               data-input-always
               onClick={() => {
@@ -14904,6 +14953,7 @@ export default function App() {
                 <span>Concede</span>
               </button>
             )}
+            </div>
           </div>
 
           {/* Battlefield and Hand UI Area */}
@@ -14912,37 +14962,38 @@ export default function App() {
           >
             {/* Battlefield Arena Main Viewport with Flanking Graveyards AND Visual Deck Piles */}
            <div className="w-full h-full flex items-start justify-between px-6 pt-2 z-10 relative">
-              {/* Left Flank: Player 2 Deck & Graveyard on top, Player 1 Deck & Graveyard directly above hand */}
+              {/* Left Flank: the other player's Deck & Graveyard on top, this view's own (the player whose hand is shown) just
+                  above the hand, far enough up to stay clear of it */}
               <div className="z-20 self-stretch flex flex-col items-start justify-between py-1 pl-1 pointer-events-none shrink-0">
-                {/* Player 2 Deck & Graveyard (Top Left) */}
+                {/* The other player's Deck & Graveyard (Top Left) */}
                 <div className="flex flex-row items-start gap-3 pointer-events-auto">
                   <DeckPile
-                    title="Player 2 Deck"
-                    count={player2Deck.length}
+                    title={`${hiddenHandPlayer === 'player1' ? 'Player 1' : 'Player 2'} Deck`}
+                    count={(hiddenHandPlayer === 'player1' ? player1Deck : player2Deck).length}
                     owner="opponent"
                   />
 
                   <GraveyardZone
-                    title="Player 2 Graveyard"
+                    title={`${hiddenHandPlayer === 'player1' ? 'Player 1' : 'Player 2'} Graveyard`}
                     owner="opponent"
-                    cards={player2Graveyard}
+                    cards={hiddenHandPlayer === 'player1' ? player1Graveyard : player2Graveyard}
                     customArtMap={customArtMap}
                     onHoverCard={setHoveredCard}
                   />
                 </div>
 
-                {/* Player 1 Deck & Graveyard (Bottom Left, directly above hand dock) */}
-                <div className="flex flex-row items-start gap-3 mb-40 pointer-events-auto">
+                {/* This view's own Deck & Graveyard (Bottom Left, above the hand dock) */}
+                <div className="flex flex-row items-start gap-3 mb-64 pointer-events-auto">
                   <DeckPile
-                    title="Player 1 Deck"
-                    count={player1Deck.length}
+                    title={`${shownHandPlayer === 'player1' ? 'Player 1' : 'Player 2'} Deck`}
+                    count={(shownHandPlayer === 'player1' ? player1Deck : player2Deck).length}
                     owner="player"
                   />
 
                   <GraveyardZone
-                    title="Player 1 Graveyard"
+                    title={`${shownHandPlayer === 'player1' ? 'Player 1' : 'Player 2'} Graveyard`}
                     owner="player"
-                    cards={player1Graveyard}
+                    cards={shownHandPlayer === 'player1' ? player1Graveyard : player2Graveyard}
                     customArtMap={customArtMap}
                     onHoverCard={setHoveredCard}
                   />
@@ -15160,6 +15211,9 @@ export default function App() {
                   {/* Board Zoom & Rotate Controls above setup panel */}
                   {/* Two joined boxes, shrink-wrapped: the taller d-pad box, and beside it the label over the other controls.
                       They hide and show together (only the label and its arrow stay). */}
+                  {/* The match log's button: left of the camera arrow while the controls are hidden, above them when shown */}
+                  <div className={isCameraOpen ? 'flex flex-col items-end gap-1.5' : 'flex items-end gap-1.5'}>
+                  {logControl}
                   <div data-input-always className="w-fit flex items-end drop-shadow-xl">
                   {isCameraOpen && (
                     <div className="bg-stone-900/90 border border-stone-800 rounded-l-xl rounded-tr-xl p-1 backdrop-blur-md">
@@ -15274,6 +15328,7 @@ export default function App() {
                     </button>
                   </div>
                   )}
+                  </div>
                   </div>
                   </div>
 
@@ -15336,6 +15391,9 @@ export default function App() {
                   {/* Board Zoom & Rotate Controls directly above the action panel */}
                   {/* Two joined boxes, shrink-wrapped: the taller d-pad box, and beside it the label over the other controls.
                       They hide and show together (only the label and its arrow stay). */}
+                  {/* The match log's button: left of the camera arrow while the controls are hidden, above them when shown */}
+                  <div className={isCameraOpen ? 'flex flex-col items-end gap-1.5' : 'flex items-end gap-1.5'}>
+                  {logControl}
                   <div data-input-always className="w-fit flex items-end drop-shadow-xl">
                   {isCameraOpen && (
                     <div className="bg-stone-900/90 border border-stone-800 rounded-l-xl rounded-tr-xl p-1 backdrop-blur-md">
@@ -15450,6 +15508,7 @@ export default function App() {
                     </button>
                   </div>
                   )}
+                  </div>
                   </div>
                   </div>
 

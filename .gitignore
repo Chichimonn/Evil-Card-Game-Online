@@ -1,0 +1,8 @@
+# Installed packages and build output (Vercel installs and builds these itself)
+node_modules/
+dist/
+
+# Local settings that may hold credentials (e.g. the TURN relay); the example in env.example is committed
+.env
+.env.local
+.env.*.local
