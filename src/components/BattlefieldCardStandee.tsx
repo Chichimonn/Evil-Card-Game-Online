@@ -20,7 +20,7 @@ interface BattlefieldCardStandeeProps {
   boardYaw: number;
   promotedCardsCount?: number;
   grantedAbilitiesCount?: number;
-  onHoverUnitCard?: (card: CardItem | null) => void;
+  onHoverUnitCard?: (card: CardItem | null, owner?: PlayerId) => void;
   isFusionSelected?: boolean;
   isTributeSelected?: boolean;
   hasReflect?: boolean;
@@ -107,7 +107,7 @@ export const BattlefieldCardStandee: React.FC<BattlefieldCardStandeeProps> = ({
       <div
         onMouseEnter={() => {
           setIsHovered(true);
-          onHoverUnitCard?.(card);
+          onHoverUnitCard?.(card, owner);
         }}
         onMouseLeave={() => {
           setIsHovered(false);

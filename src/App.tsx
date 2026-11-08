@@ -328,6 +328,8 @@ export default function App() {
   const [customArtMap, setCustomArtMap] = useState<Record<string, string>>({});
   const [activeTab, setActiveTab] = useState<'gallery' | 'deckbuilder' | 'play'>('gallery');
   const [hoveredCard, setHoveredCard] = useState<CardItem | null>(null);
+  // The board unit being hovered, with its owner (an enemy's preview is outlined in red)
+  const [hoveredBoardUnit, setHoveredBoardUnit] = useState<{ card: CardItem; owner: PlayerId } | null>(null);
   const hoveredStandeeCard = hoveredCard;
   const setHoveredStandeeCard = setHoveredCard;
   // The other way round: hovering a full card (in the hand or the gallery) shows its standee in the preview area
@@ -15064,12 +15066,15 @@ export default function App() {
 
                 {/* Camera pan: the whole battlefield shifts opposite to the camera (no transition, so holding a d-pad
                     arrow moves it smoothly) */}
+                {/* (both layers ignore the mouse: the board tilts away, so its far rows sit behind these layers' flat
+                    planes, and the layers would otherwise catch every hover and click meant for units and tiles there.
+                    The board turns the mouse back on for its own content.) */}
                 <div
-                  className="w-full"
+                  className="w-full pointer-events-none"
                   style={{ transformStyle: 'preserve-3d', transform: `translate(${-cameraPan.x}px, ${-cameraPan.y}px)` }}
                 >
                 <div
-                  className="w-full flex items-start justify-start transition-transform duration-700 ease-in-out -mt-16"
+                  className="w-full flex items-start justify-start transition-transform duration-700 ease-in-out -mt-16 pointer-events-none"
                   style={{
                     transformStyle: 'preserve-3d',
                     transform: `rotateX(${boardPitch}deg) rotateZ(${boardYaw}deg) scale(${((boardZoom / 100)* 0.6).toFixed(2)})`
@@ -15107,7 +15112,10 @@ export default function App() {
                     boardYaw={boardYaw}
                     gamePhase={gamePhase}
                     isMovingMode={isMovingMode}
-                    onHoverUnitCard={setHoveredStandeeCard}
+                    onHoverUnitCard={(card, owner) => {
+                      setHoveredStandeeCard(card);
+                      setHoveredBoardUnit(card && owner ? { card, owner } : null);
+                    }}
                     momentumChargeHex={pendingMomentumCharge?.nextHex || pendingRabbleMove?.throughHex}
                     assistDeployHexes={assistDeployHexes}
                     scorchedTiles={scorchedTiles}
@@ -15126,12 +15134,18 @@ export default function App() {
                     customArtUrl={customArtMap[previewStandee.card.id]}
                   />
                 ) : (
-                  hoveredCard && (
-                    <CardPreview
-                      card={hoveredCard}
-                      customArtUrl={customArtMap[hoveredCard.id]}
-                    />
-                  )
+                  hoveredCard &&
+                  (hoveredBoardUnit && hoveredBoardUnit.card === hoveredCard && hoveredBoardUnit.owner !== (localPlayer ?? activePlayer) ? (
+                    // An enemy unit: the same preview, outlined in red
+                    <div className="relative inline-flex rounded-2xl ring-[3px] ring-red-600 shadow-[0_0_28px_rgba(220,38,38,0.55)]">
+                      <CardPreview card={hoveredCard} customArtUrl={customArtMap[hoveredCard.id]} />
+                      <span className="absolute -top-3 left-1/2 -translate-x-1/2 px-2 py-0.5 rounded-full bg-red-700 text-red-50 text-[10px] font-mono font-bold uppercase tracking-widest shadow">
+                        Enemy
+                      </span>
+                    </div>
+                  ) : (
+                    <CardPreview card={hoveredCard} customArtUrl={customArtMap[hoveredCard.id]} />
+                  ))
                 )}
               </div>
             </div>

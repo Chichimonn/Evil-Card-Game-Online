@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useRef, useState } from 'react';
 import { CardItem, CardAbility } from '../types/card';
 import { BattlefieldUnit, PlayerId } from '../types/game';
 import { BattlefieldCardStandee } from './BattlefieldCardStandee';
@@ -35,7 +35,8 @@ interface HexGridArenaProps {
   boardYaw?: number;
   gamePhase?: 'setup' | 'playing' | 'ended';
   isMovingMode?: boolean;
-  onHoverUnitCard?: (card: CardItem | null) => void;
+  // (owner: whose unit it is, so the preview can mark an enemy's)
+  onHoverUnitCard?: (card: CardItem | null, owner?: PlayerId) => void;
   momentumChargeHex?: string | null;
   assistDeployHexes?: string[];
   scorchedTiles?: Record<string, { expiresOnTurnEndFor?: string; casterPlayer?: string }>;
@@ -172,17 +173,59 @@ export const HexGridArena: React.FC<HexGridArenaProps> = ({
 
   // Click resolver: Always routes clicks to the actual hex tile under the cursor.
   // Fixes the persistent bug where clicking on or near standees clicked the wrong hex.
-  const handleStandeeClick = (e: React.MouseEvent, fallbackHexId: string) => {
-    e.stopPropagation();
-    const elements = document.elementsFromPoint(e.clientX, e.clientY);
-    for (const el of elements) {
+  // What the pointer is on: the board is tilted in 3D and the units stand up from it, and the browser's own
+  // hit-testing there is unreliable (a click on a unit's figure can land on a tile behind it, and units on the far side
+  // may never see the mouse). So the board asks what is drawn on top at the point and goes by that:
+  //   - neighbouring units' figures overlap, so when one of the figures under the pointer is a valid target right now
+  //     (e.g. the enemy behind your own unit, for a melee attack), it is that one;
+  //   - otherwise the figure drawn on top means that unit, unless the tile under the pointer is an empty tile that can
+  //     be acted on right now (a move, a placement, an empty-tile target), which the figure only stands in front of;
+  //   - with no figure there, the tile under the pointer.
+  const boardTargetAt = (x: number, y: number): { hex: string; isUnit: boolean } | null => {
+    const standees: string[] = [];
+    let tile: string | null = null;
+    for (const el of document.elementsFromPoint(x, y)) {
+      const standeeHex = el.closest?.('[data-standee-hex]')?.getAttribute('data-standee-hex');
+      if (standeeHex) {
+        if (!standees.includes(standeeHex)) standees.push(standeeHex);
+        continue;
+      }
       const id = el.getAttribute('data-hex-id') || el.closest?.('[data-hex-id]')?.getAttribute('data-hex-id');
       if (id) {
-        onHexClick?.(id);
-        return;
+        tile = id;
+        break;
       }
     }
-    onHexClick?.(fallbackHexId);
+    const targets = new Set([...validAttackHexes, ...pendingTargetHexes]);
+    const target = standees.find((h) => targets.has(h));
+    if (target) return { hex: target, isUnit: true };
+    if (standees.length > 0) {
+      const actionable = [...validMoveHexes, ...pendingTargetHexes, ...assistDeployHexes, ...validAttackHexes];
+      if (tile && !standees.includes(tile) && !unitsOnBoard[tile] && actionable.includes(tile)) return { hex: tile, isUnit: false };
+      return { hex: standees[0], isUnit: true };
+    }
+    return tile ? { hex: tile, isUnit: Boolean(unitsOnBoard[tile]) } : null;
+  };
+  const handleBoardClick = (e: React.MouseEvent) => {
+    const t = boardTargetAt(e.clientX, e.clientY);
+    if (!t) return;
+    // (the tiles' and figures' own handlers would otherwise act on what the browser picked)
+    e.stopPropagation();
+    onHexClick?.(t.hex);
+  };
+  const hoveredHexRef = useRef<string | null>(null);
+  const handleBoardHover = (e: React.MouseEvent) => {
+    const t = boardTargetAt(e.clientX, e.clientY);
+    const hex = t && unitsOnBoard[t.hex] ? t.hex : null;
+    if (hex === hoveredHexRef.current) return;
+    hoveredHexRef.current = hex;
+    const unit = hex ? unitsOnBoard[hex] : null;
+    onHoverUnitCard?.(unit ? unit.card : null, unit?.owner);
+  };
+  const handleBoardLeave = () => {
+    if (hoveredHexRef.current === null) return;
+    hoveredHexRef.current = null;
+    onHoverUnitCard?.(null);
   };
 
   // Check if hand card is basic
@@ -195,8 +238,11 @@ export const HexGridArena: React.FC<HexGridArenaProps> = ({
    <div className="w-full flex items-center justify-center px-2 pb-2 pt-0 relative select-none">
       <svg
         viewBox={`0 0 ${totalWidth} ${totalHeight}`}
-        className="w-full max-w-6xl h-auto drop-shadow-[0_15px_35px_rgba(0,0,0,0.9)] filter overflow-visible"
+        className="w-full max-w-6xl h-auto drop-shadow-[0_15px_35px_rgba(0,0,0,0.9)] filter overflow-visible pointer-events-auto"
         preserveAspectRatio="xMidYMid meet"
+        onClickCapture={handleBoardClick}
+        onMouseMove={handleBoardHover}
+        onMouseLeave={handleBoardLeave}
       >
         <defs>
           <filter id="hex-shadow" x="-20%" y="-20%" width="140%" height="140%">
@@ -369,10 +415,6 @@ export const HexGridArena: React.FC<HexGridArenaProps> = ({
                 key={cell.id}
                 data-hex-id={cell.id}
                 onClick={() => onHexClick?.(cell.id)}
-                onMouseEnter={() => {
-                  if (unitOnHex) onHoverUnitCard?.(unitOnHex.card);
-                }}
-                onMouseLeave={() => onHoverUnitCard?.(null)}
                 className="cursor-pointer group transition-all duration-200"
               >
                 {/* Hexagon Body */}
@@ -606,9 +648,7 @@ export const HexGridArena: React.FC<HexGridArenaProps> = ({
                 >
                   <div
                     className={isMovingThisUnit ? "pointer-events-none" : "pointer-events-auto cursor-pointer"}
-                    onClick={(e) => handleStandeeClick(e, hexId)}
-                    onMouseEnter={() => onHoverUnitCard?.(unit.card)}
-                    onMouseLeave={() => onHoverUnitCard?.(null)}
+                    data-standee-hex={hexId}
                   >
                     <BattlefieldCardStandee
                       card={unit.card}
@@ -627,7 +667,6 @@ export const HexGridArena: React.FC<HexGridArenaProps> = ({
                       boardYaw={boardYaw}
                       promotedCardsCount={unit.promotedCards?.length || 0}
                       grantedAbilitiesCount={unit.grantedAbilities?.length || 0}
-                      onHoverUnitCard={onHoverUnitCard}
                       isFusionSelected={!activeTurnUnitHex && fusionSelectedHexes.includes(hexId)}
                       isTributeSelected={!activeTurnUnitHex && tributeSacrificeHexes.includes(hexId)}
                       hasReflect={Boolean(unit.reflectStance)}
