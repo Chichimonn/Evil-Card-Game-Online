@@ -55,6 +55,36 @@ async function buildCardFontEmbedCSS(): Promise<string> {
   return rules.join('\n');
 }
 
+/**
+ * Whether a captured card face came out whole: a card is an opaque black-framed rectangle with a dark stone top bar.
+ * A capture that lost the card's styles has see-through edges or loose pictures where the top bar should be.
+ */
+async function isWholeCardFace(dataUrl: string): Promise<boolean> {
+  try {
+    const bitmap = await createImageBitmap(await (await fetch(dataUrl)).blob());
+    const w = 60;
+    const h = 84;
+    const canvas = document.createElement('canvas');
+    canvas.width = w;
+    canvas.height = h;
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
+    if (!ctx) return true;
+    ctx.drawImage(bitmap, 0, 0, w, h);
+    bitmap.close?.();
+    const pixel = (x: number, y: number) => ctx.getImageData(Math.round(x * (w - 1)), Math.round(y * (h - 1)), 1, 1).data;
+    // The middle of each edge, just inside it
+    const edges = [pixel(0.5, 0.02), pixel(0.03, 0.5), pixel(0.97, 0.5), pixel(0.5, 0.98)];
+    if (edges.some((p) => p[3] < 200)) return false;
+    // Both ends of the top bar are its dark stone colour (stone-900, rgb 28 25 23) on every card
+    const isBar = (p: Uint8ClampedArray) =>
+      p[3] >= 200 && Math.abs(p[0] - 28) <= 12 && Math.abs(p[1] - 25) <= 12 && Math.abs(p[2] - 23) <= 12;
+    return isBar(pixel(0.03, 0.03)) && isBar(pixel(0.97, 0.03));
+  } catch {
+    // Can't check here: take the capture as it is
+    return true;
+  }
+}
+
 // Preloads an array of image URLs to ensure browser cache is primed
 function preloadAssetImages(urls: string[]): Promise<void> {
   return new Promise((resolve) => {
@@ -157,15 +187,22 @@ export const CardImageProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         try {
           setCurrentRenderCard(card);
 
-          // Allow React to mount and layout the card with key={card.id} in the host element
-          await new Promise((r) => setTimeout(r, 30));
+          // Allow React to mount and lay out this card (its face is marked with its id) in the host element
+          const mountBy = Date.now() + 3000;
+          do {
+            await new Promise((r) => setTimeout(r, 30));
+          } while (
+            Date.now() < mountBy &&
+            (hostRef.current?.firstElementChild as HTMLElement | null)?.dataset.cardFace !== card.id
+          );
 
           if (hostRef.current && hostRef.current.firstElementChild) {
             const targetEl = hostRef.current.firstElementChild as HTMLElement;
 
             // Wait until the image for this exact card is loaded and verified to be card.id
             // (the art is cleaned up first, behind a pending marker; with neither, no art file loaded and the placeholder shows)
-            const maxWait = Date.now() + 4000;
+            // (each picture gets its own wait, so a slow art file doesn't use up the background's time)
+            let maxWait = Date.now() + 8000;
             let hasArt = false;
             while (Date.now() < maxWait) {
               const cardImg = targetEl.querySelector(
@@ -180,9 +217,14 @@ export const CardImageProvider: React.FC<{ children: React.ReactNode }> = ({ chi
             }
 
             // And for the set's background picture (removed if it fails to load)
+            maxWait = Date.now() + 8000;
+            let hasBackground = false;
             while (Date.now() < maxWait) {
               const background = targetEl.querySelector('img[data-set-background]') as HTMLImageElement | null;
-              if (!background || (background.complete && background.naturalWidth > 0)) break;
+              if (!background || (background.complete && background.naturalWidth > 0)) {
+                hasBackground = true;
+                break;
+              }
               await new Promise((r) => setTimeout(r, 20));
             }
 
@@ -195,16 +237,31 @@ export const CardImageProvider: React.FC<{ children: React.ReactNode }> = ({ chi
               }
             }
 
-            const dataUrl = await toPng(targetEl, {
-              fontEmbedCSS,
-              skipFonts: !fontEmbedCSS,
-              pixelRatio: 2,
-              cacheBust: false
-            });
+            // Capture the face, checking the picture came out whole: now and then a capture loses the card's styles
+            // (its black frame, layout and white text), leaving the pictures loose and the text invisible. Such a
+            // capture is taken again, and never kept.
+            let dataUrl = '';
+            let whole = false;
+            for (let attempt = 0; attempt < 3 && !whole; attempt++) {
+              if (attempt > 0) {
+                await new Promise((r) => requestAnimationFrame(() => r(null)));
+                await new Promise((r) => setTimeout(r, 150));
+              }
+              const shot = await toPng(targetEl, {
+                fontEmbedCSS,
+                skipFonts: !fontEmbedCSS,
+                pixelRatio: 2,
+                cacheBust: false
+              });
+              whole = targetEl.isConnected && targetEl.dataset.cardFace === card.id && (await isWholeCardFace(shot));
+              if (whole || !dataUrl) dataUrl = shot;
+            }
+            if (!whole) console.warn(`Card face for ${card.name} (${card.id}) came out incomplete; it will be redrawn next load`);
 
             currentMap[card.id] = dataUrl;
-            // Only keep faces drawn with real art, so art added later shows on the next load
-            if (hasArt) saveCachedCardImage(card.id, dataUrl);
+            // Only keep whole faces drawn with their real art and background, so a face drawn before a picture arrived
+            // (a slow connection), a broken capture, or art added later is drawn again on the next load
+            if (whole && hasArt && hasBackground) saveCachedCardImage(card.id, dataUrl);
           }
         } catch (err) {
           console.warn(`Failed to capture image for card ${card.name} (${card.id}):`, err);

@@ -179,6 +179,7 @@ export const CardView: React.FC<CardViewProps> = ({
       }}
       className="relative shrink-0 shadow-2xl rounded-sm select-none bg-black overflow-hidden text-white flex flex-col"
       id={id}
+      data-card-face={card.id}
     >
       {/* ================= TOP BAR: the name across the whole bar, type and HP/AP beneath ================= */}
       <div
