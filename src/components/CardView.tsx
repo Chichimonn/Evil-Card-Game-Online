@@ -70,9 +70,19 @@ const withNumerals = (value: string | number): React.ReactNode =>
     .split(/(\d+)/)
     .map((part, i) => (i % 2 === 1 ? <span key={i} style={NUMERAL_STYLE}>{part}</span> : part));
 
-/** The picture behind a card's art: its set's name as a file in the art folder (e.g. wrath_of_the_elements.png). */
+/**
+ * A set's background picture at full size: its set's name as a file in the art folder (e.g. wrath_of_the_elements.png).
+ * Used for the battlefield background in matches.
+ */
 export const getSetBackgroundPath = (card: CardItem): string | null =>
   card.set ? `/assets/art/${card.set.trim().toLowerCase().replace(/[^a-z0-9]+/g, '_')}.png` : null;
+
+/**
+ * The same picture as drawn behind a card's art: a small copy (about 480p) in art/card-backgrounds, made by
+ * "npm run card-backgrounds". Every card face embeds it, so the full-size file made loading slow.
+ */
+export const getCardBackgroundPath = (card: CardItem): string | null =>
+  card.set ? `/assets/art/card-backgrounds/${card.set.trim().toLowerCase().replace(/[^a-z0-9]+/g, '_')}.webp` : null;
 
 export const CardView: React.FC<CardViewProps> = ({
   card,
@@ -85,8 +95,11 @@ export const CardView: React.FC<CardViewProps> = ({
   const headerRef = useRef<HTMLDivElement>(null);
   const nameRef = useRef<HTMLHeadingElement>(null);
   const textRef = useRef<HTMLDivElement>(null);
-  const setBackgroundSrc = getSetBackgroundPath(card);
-  const [setBackgroundFailed, setSetBackgroundFailed] = useState<string | null>(null);
+  // The small copy of the set's background, else (a set whose copy hasn't been made yet) the full-size one
+  const [setBackgroundFailed, setSetBackgroundFailed] = useState<string[]>([]);
+  const setBackgroundSrc = [getCardBackgroundPath(card), getSetBackgroundPath(card)].find(
+    (p): p is string => Boolean(p) && !setBackgroundFailed.includes(p!)
+  );
 
   // Art to try, in order (custom art alone when given), with the white halo drawn around the figure
   const art = useProcessedArt(
@@ -213,13 +226,14 @@ export const CardView: React.FC<CardViewProps> = ({
         style={{ minHeight: `${MIN_ART_HEIGHT}px` }}
       >
         {/* The set's background picture, if provided (else the plain background shows) */}
-        {setBackgroundSrc && setBackgroundFailed !== setBackgroundSrc && (
+        {setBackgroundSrc && (
           <img
+            key={setBackgroundSrc}
             src={setBackgroundSrc}
             alt=""
             data-set-background
             className="absolute inset-0 w-full h-full object-cover"
-            onError={() => setSetBackgroundFailed(setBackgroundSrc)}
+            onError={() => setSetBackgroundFailed((f) => [...f, setBackgroundSrc])}
           />
         )}
 

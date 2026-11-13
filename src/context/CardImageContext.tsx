@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
 import { CardItem } from '../types/card';
 import { initialCardsData } from '../data/cardsData';
-import { CardView, CARD_HEADING_FONT, CARD_BODY_FONT, getSetBackgroundPath } from '../components/CardView';
+import { CardView, CARD_HEADING_FONT, CARD_BODY_FONT, getCardBackgroundPath } from '../components/CardView';
 import { toPng } from 'html-to-image';
 import { getAllCachedCardImages, saveCachedCardImage } from '../services/cardImageDB';
 import { getTokenGalleryCards } from '../utils/tokenCards';
@@ -132,7 +132,8 @@ export const CardImageProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       const artUrls = [
         '/assets/frames/cardback.png',
         ...missingCards.map((c) => `/assets/art/${c.id}.png`),
-        ...Array.from(new Set(missingCards.map(getSetBackgroundPath).filter((p): p is string => Boolean(p))))
+        // (the small copies of the set backgrounds that the card faces use, not the full-size ones)
+        ...Array.from(new Set(missingCards.map(getCardBackgroundPath).filter((p): p is string => Boolean(p))))
       ];
       await preloadAssetImages(artUrls);
 

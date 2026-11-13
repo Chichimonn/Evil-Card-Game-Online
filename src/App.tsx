@@ -30,6 +30,7 @@ import { isModifyRangeAbility, getModifyRangeAmount, getUnitBonusRange } from '.
 import { FacelessKingPassiveChoiceModal } from './components/FacelessKingPassiveChoiceModal';
 import { generateEarthyHexColors } from './utils/earthyColors';
 import { playCardDrawSound } from './utils/audio';
+import { FLAVOUR_TEXT } from './data/flavourText';
 import {
   getSurroundingHexes,
   getHexDistance,
@@ -14806,8 +14807,23 @@ export default function App() {
         <div className="flex-1 flex flex-col overflow-hidden">
           {/* Standee preview for the hovered card, where the card preview sits in a match (top right) */}
           {previewStandee && (
-            <div className="fixed top-24 right-6 z-40 pointer-events-none">
+            <div className="fixed top-24 right-6 z-40 pointer-events-none flex flex-col items-center">
               <StandeePreview card={previewStandee.card} customArtUrl={customArtMap[previewStandee.card.id]} showPedestal={false} />
+              {/* The card's flavour text (gallery only; written in src/data/flavourText.ts) */}
+              {/* (longer passages get a wider box in smaller type so they still fit under the standee on screen) */}
+              <p
+                className={`mt-2 px-3 py-2 rounded-xl bg-stone-950/85 border border-stone-800 text-center font-serif italic leading-snug text-stone-300 whitespace-pre-line shadow-xl ${
+                  (FLAVOUR_TEXT[previewStandee.card.id] || '').length > 320
+                    ? 'w-[460px] text-xs'
+                    : (FLAVOUR_TEXT[previewStandee.card.id] || '').length > 180
+                      ? 'w-[360px] text-[13px]'
+                      : 'w-[300px] text-sm'
+                }`}
+              >
+                {FLAVOUR_TEXT[previewStandee.card.id] || (
+                  <span className="text-stone-500">Flavour text for {previewStandee.card.name} goes here.</span>
+                )}
+              </p>
             </div>
           )}
           {/* The title, search and filter bar: fixed right under the page bar (the cards scroll below it). A small tab
