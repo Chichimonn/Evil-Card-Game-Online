@@ -17215,7 +17215,7 @@ export const initialCardsData: CardsDataSchema = {
           "name": "Galvanic Harmony",
           "trigger": "static",
           "optional": true,
-          "text": "If this unit has no cards under it, it may move onto a friendly unit's tile to attach to it. While this card is attached to a unit with exactly 2 promoted cards of different types, that unit's AP is set to 1 more than the AP printed on that unit when it takes a turn. This effect does not stack.",
+          "text": "If this unit has no cards under it, it may move onto a friendly unit's tile to attach to it. If it does, your turn ends. While this card is attached to a unit with exactly 2 promoted cards of different types, that unit's AP is set to 1 more than the AP printed on that unit when it takes a turn. This effect does not stack.",
           "effects": [
             {
               "type": "attach",
@@ -17284,7 +17284,7 @@ export const initialCardsData: CardsDataSchema = {
           "name": "Echoing Harmony",
           "trigger": "static",
           "optional": true,
-          "text": "If this unit has no cards under it, it may move onto a friendly unit's tile to attach to it. While this card is attached to a unit with exactly 2 promoted cards that are of the same type or have a word in common in their names, once during each of that unit's turns, after it uses a 1AP attack, it may use that attack again for free, except it deals 2 damage less on the first hit (to a minimum of 1). This effect does not stack.",
+          "text": "If this unit has no cards under it, it may move onto a friendly unit's tile to attach to it. If it does, your turn ends. While this card is attached to a unit with exactly 2 promoted cards that are of the same type or have a word in common in their names, once during each of that unit's turns, after it uses a 1AP attack, it may use that attack again for free, except it deals 2 damage less on the first hit (to a minimum of 1). This effect does not stack.",
           "effects": [
             {
               "type": "attach",
@@ -17365,7 +17365,7 @@ export const initialCardsData: CardsDataSchema = {
           "name": "Agile Harmony",
           "trigger": "static",
           "optional": true,
-          "text": "If this unit has no cards under it, it may move onto a friendly unit's tile to attach to it. While this card is attached to a unit with exactly 2 promoted cards, once during each of that unit's turns, that unit may place itself on an empty surrounding tile for free. This effect does not stack.",
+          "text": "If this unit has no cards under it, it may move onto a friendly unit's tile to attach to it. If it does, your turn ends. While this card is attached to a unit with exactly 2 promoted cards, once during each of that unit's turns, that unit may place itself on an empty surrounding tile for free. This effect does not stack.",
           "effects": [
             {
               "type": "attach",
@@ -17435,7 +17435,7 @@ export const initialCardsData: CardsDataSchema = {
           "name": "Fortifying Harmony",
           "trigger": "static",
           "optional": true,
-          "text": "If this unit has no cards under it, it may move onto a friendly unit's tile to attach to it. While this card is attached to a unit with exactly 1 promoted card, that unit has 6 more HP. This effect does not stack.",
+          "text": "If this unit has no cards under it, it may move onto a friendly unit's tile to attach to it. If it does, your turn ends. While this card is attached to a unit with exactly 1 promoted card, that unit has 6 more HP. This effect does not stack.",
           "effects": [
             {
               "type": "attach",
@@ -17500,7 +17500,7 @@ export const initialCardsData: CardsDataSchema = {
           "name": "Bountiful Harmony",
           "trigger": "static",
           "optional": true,
-          "text": "If this unit has no cards under it, it may move onto a friendly unit's tile to attach to it. While this card is attached to a unit with Tribute 2, once during each of that unit's turns, when it kills an enemy non-token unit, draw 1 card. This effect does not stack.",
+          "text": "If this unit has no cards under it, it may move onto a friendly unit's tile to attach to it. If it does, your turn ends. While this card is attached to a unit with Tribute 2, once during each of that unit's turns, when it kills an enemy non-token unit, draw 1 card. This effect does not stack.",
           "effects": [
             {
               "type": "attach",
@@ -17566,7 +17566,7 @@ export const initialCardsData: CardsDataSchema = {
           "name": "Mending Harmony",
           "trigger": "static",
           "optional": true,
-          "text": "If this unit has no cards under it, it may move onto a friendly unit's tile to attach to it. While this card is attached to a unit with Tribute 3, at the end of each of your turns, if that unit is damaged and was not healed this turn, it heals 1 damage. This effect does not stack.",
+          "text": "If this unit has no cards under it, it may move onto a friendly unit's tile to attach to it. If it does, your turn ends. While this card is attached to a unit with Tribute 3, at the end of each of your turns, if that unit is damaged and was not healed this turn, it heals 1 damage. This effect does not stack.",
           "effects": [
             {
               "type": "attach",
@@ -17631,7 +17631,7 @@ export const initialCardsData: CardsDataSchema = {
           "name": "Prescient Harmony",
           "trigger": "static",
           "optional": true,
-          "text": "If this unit has no cards under it, it may move onto a friendly unit's tile to attach to it. While this card is attached to a unit with exactly 3 promoted cards, at the start of each of your turns, look at the top card of your deck. You may put it on the bottom of your deck. This effect does not stack.",
+          "text": "If this unit has no cards under it, it may move onto a friendly unit's tile to attach to it. If it does, your turn ends. While this card is attached to a unit with exactly 3 promoted cards, at the start of each of your turns, look at the top card of your deck. You may put it on the bottom of your deck. This effect does not stack.",
           "effects": [
             {
               "type": "attach",
