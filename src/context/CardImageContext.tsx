@@ -1,9 +1,17 @@
 import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
 import { CardItem } from '../types/card';
 import { initialCardsData } from '../data/cardsData';
-import { CardView, CARD_HEADING_FONT, CARD_BODY_FONT, getCardBackgroundPath } from '../components/CardView';
-import { toPng } from 'html-to-image';
-import { getAllCachedCardImages, saveCachedCardImage } from '../services/cardImageDB';
+import {
+  CardView,
+  CARD_HEADING_FONT,
+  CARD_BODY_FONT,
+  getCardBackgroundPath,
+  getSetBackgroundPath,
+  getCardArtPaths
+} from '../components/CardView';
+import { toSvg } from 'html-to-image';
+import { getAllCachedCardFaces, saveCachedCardFace, removeCachedCardFaces } from '../services/cardImageDB';
+import { getProcessedArt } from '../utils/artHalo';
 import { getTokenGalleryCards } from '../utils/tokenCards';
 
 // Every card face drawn: the real cards, then the tokens (shown after them in the gallery)
@@ -59,9 +67,8 @@ async function buildCardFontEmbedCSS(): Promise<string> {
  * Whether a captured card face came out whole: a card is an opaque black-framed rectangle with a dark stone top bar.
  * A capture that lost the card's styles has see-through edges or loose pictures where the top bar should be.
  */
-async function isWholeCardFace(dataUrl: string): Promise<boolean> {
+function isWholeCardFace(face: HTMLCanvasElement): boolean {
   try {
-    const bitmap = await createImageBitmap(await (await fetch(dataUrl)).blob());
     const w = 60;
     const h = 84;
     const canvas = document.createElement('canvas');
@@ -69,8 +76,7 @@ async function isWholeCardFace(dataUrl: string): Promise<boolean> {
     canvas.height = h;
     const ctx = canvas.getContext('2d', { willReadFrequently: true });
     if (!ctx) return true;
-    ctx.drawImage(bitmap, 0, 0, w, h);
-    bitmap.close?.();
+    ctx.drawImage(face, 0, 0, w, h);
     const pixel = (x: number, y: number) => ctx.getImageData(Math.round(x * (w - 1)), Math.round(y * (h - 1)), 1, 1).data;
     // The middle of each edge, just inside it
     const edges = [pixel(0.5, 0.02), pixel(0.03, 0.5), pixel(0.97, 0.5), pixel(0.5, 0.98)];
@@ -85,31 +91,170 @@ async function isWholeCardFace(dataUrl: string): Promise<boolean> {
   }
 }
 
-// Preloads an array of image URLs to ensure browser cache is primed
-function preloadAssetImages(urls: string[]): Promise<void> {
+// ---- Which saved faces are still good ----
+// Each face is saved with a signature of what it was drawn from: the card's data, the stamps (size and time modified) of
+// its art and set background files, and the face-drawing code (see vite.config.ts). A face is drawn again only when its
+// own signature changes, so adding or changing a few cards (or anything that isn't about card faces) redraws just those.
+declare const __ART_STAMPS__: Record<string, string>;
+declare const __FACE_CODE_ID__: string;
+const ART_STAMPS: Record<string, string> = typeof __ART_STAMPS__ === 'object' && __ART_STAMPS__ ? __ART_STAMPS__ : {};
+const FACE_CODE_ID: string = typeof __FACE_CODE_ID__ === 'string' ? __FACE_CODE_ID__ : 'unknown';
+
+// The stamp of a file in the art folder ('' when there is no such file)
+const artStamp = (url: string | null): string => (url ? ART_STAMPS[url.replace(/^\/assets\/art\//, '')] || '' : '');
+
+// A short hash of a string (two 32-bit FNV-1a style hashes with different starting points)
+function hashString(text: string): string {
+  let a = 0x811c9dc5;
+  let b = 0x9e3779b9;
+  for (let i = 0; i < text.length; i++) {
+    const c = text.charCodeAt(i);
+    a = Math.imul(a ^ c, 0x01000193);
+    b = Math.imul(b ^ c, 0x01000393);
+  }
+  return (a >>> 0).toString(16).padStart(8, '0') + (b >>> 0).toString(16).padStart(8, '0');
+}
+
+const getCardFaceSignature = (card: CardItem): string =>
+  hashString(
+    [
+      FACE_CODE_ID,
+      JSON.stringify(card),
+      ...getCardArtPaths(card).map(artStamp),
+      artStamp(getCardBackgroundPath(card)),
+      artStamp(getSetBackgroundPath(card))
+    ].join('|')
+  );
+
+// ---- Loading and drawing ----
+
+// How long to wait on any one file before going on without it
+const FILE_TIMEOUT_MS = 60000;
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+const withTimeout = <T,>(p: Promise<T>, ms: number): Promise<T | null> =>
+  Promise.race([p.catch(() => null), sleep(ms).then(() => null)]);
+
+function loadImage(src: string): Promise<boolean> {
   return new Promise((resolve) => {
-    let completed = 0;
-    const total = urls.length;
-    if (total === 0) return resolve();
+    const img = new Image();
+    img.onload = () => resolve(true);
+    img.onerror = () => resolve(false);
+    img.src = src;
+  });
+}
 
-    const checkDone = () => {
-      completed++;
-      if (completed >= total) resolve();
-    };
+// ---- Copying only the styles a card face needs ----
+// html-to-image copies every computed style property of every element into the captured picture: hundreds per element,
+// most of them at their defaults or Tailwind's own variables, which made each capture about a megabyte and slow. It is
+// given instead the properties that differ from the browser's defaults on some element of a face drawn so far. The
+// library keeps the first list it is given and reads it on every capture, so this one array is passed and grows as
+// faces using more properties are drawn (each face adds its own before it is captured), so every face is drawn with
+// all the properties it uses, the same as before.
+const NEEDED_STYLE_PROPERTIES: string[] = [];
+const neededStyleSet = new Set<string>();
+let defaultStylesFrame: HTMLIFrameElement | null = null;
+const defaultStyles = new Map<string, Record<string, string>>();
 
-    urls.forEach((url) => {
-      const img = new Image();
-      img.src = url;
-      if (img.complete) {
-        checkDone();
-      } else {
-        img.onload = checkDone;
-        img.onerror = checkDone;
+// The browser's own default styles for an element of this kind (in a blank page, without the game's stylesheet)
+function getDefaultStyles(el: Element): Record<string, string> {
+  const key = `${el.namespaceURI}|${el.tagName}`;
+  let styles = defaultStyles.get(key);
+  if (styles) return styles;
+  if (!defaultStylesFrame) {
+    defaultStylesFrame = document.createElement('iframe');
+    defaultStylesFrame.setAttribute('aria-hidden', 'true');
+    defaultStylesFrame.style.cssText = 'position:fixed;left:-30000px;top:0;width:10px;height:10px;border:0';
+    document.body.appendChild(defaultStylesFrame);
+    const doc = defaultStylesFrame.contentDocument!;
+    doc.open();
+    doc.write('<!doctype html><html><body></body></html>');
+    doc.close();
+  }
+  const doc = defaultStylesFrame.contentDocument!;
+  const probe = doc.createElementNS(el.namespaceURI || 'http://www.w3.org/1999/xhtml', el.tagName.toLowerCase());
+  doc.body.appendChild(probe);
+  const computed = defaultStylesFrame.contentWindow!.getComputedStyle(probe);
+  styles = {};
+  for (let i = 0; i < computed.length; i++) styles[computed[i]] = computed.getPropertyValue(computed[i]);
+  probe.remove();
+  defaultStyles.set(key, styles);
+  return styles;
+}
+
+// Adds the style properties this face uses (any not at the browser's default on one of its elements)
+function addNeededStyleProperties(face: HTMLElement) {
+  for (const el of [face, ...Array.from(face.querySelectorAll('*'))]) {
+    const computed = getComputedStyle(el);
+    const defaults = getDefaultStyles(el);
+    for (let i = 0; i < computed.length; i++) {
+      const name = computed[i];
+      // (Tailwind's variables are already worked into the computed values)
+      if (neededStyleSet.has(name) || name.startsWith('--')) continue;
+      if (computed.getPropertyValue(name) !== defaults[name]) {
+        neededStyleSet.add(name);
+        NEEDED_STYLE_PROPERTIES.push(name);
       }
-    });
+    }
+  }
+}
 
-    // Safety timeout in case any asset hangs
-    setTimeout(resolve, 2000);
+/**
+ * Draws an element onto a canvas at pixelRatio times its size, as html-to-image's toCanvas does, except that it never
+ * waits for an animation frame: those don't come while the page is in a background tab, which would stall the loading.
+ */
+async function captureToCanvas(
+  el: HTMLElement,
+  options: { fontEmbedCSS?: string; skipFonts?: boolean; pixelRatio: number }
+): Promise<HTMLCanvasElement> {
+  const width = el.clientWidth;
+  const height = el.clientHeight;
+  addNeededStyleProperties(el);
+  const svg = await toSvg(el, { ...options, width, height, cacheBust: false, includeStyleProperties: NEEDED_STYLE_PROPERTIES });
+  const img = new Image();
+  img.decoding = 'async';
+  await new Promise<void>((resolve, reject) => {
+    img.onload = () => resolve();
+    img.onerror = () => reject(new Error('The captured card face could not be read'));
+    img.src = svg;
+  });
+  try {
+    await img.decode();
+  } catch {
+    // (drawn as loaded)
+  }
+  const canvas = document.createElement('canvas');
+  canvas.width = width * options.pixelRatio;
+  canvas.height = height * options.pixelRatio;
+  canvas.getContext('2d')?.drawImage(img, 0, 0, canvas.width, canvas.height);
+  return canvas;
+}
+
+/**
+ * Waits until the check passes or the time runs out; whether it passed. The check is run again whenever something
+ * inside root changes or a picture in it finishes loading, not on a timer: the browser slows timers right down while the
+ * window is in the background or covered, which made every face wait about a second.
+ */
+function waitFor(root: HTMLElement | null, check: () => boolean, ms: number): Promise<boolean> {
+  if (check()) return Promise.resolve(true);
+  if (!root) return Promise.resolve(false);
+  return new Promise((resolve) => {
+    const done = (passed: boolean) => {
+      observer.disconnect();
+      root.removeEventListener('load', recheck, true);
+      root.removeEventListener('error', recheck, true);
+      clearTimeout(timer);
+      resolve(passed);
+    };
+    const recheck = () => {
+      if (check()) done(true);
+    };
+    const observer = new MutationObserver(recheck);
+    observer.observe(root, { childList: true, subtree: true, attributes: true });
+    // (load and error don't bubble, but can be caught on their way down)
+    root.addEventListener('load', recheck, true);
+    root.addEventListener('error', recheck, true);
+    const timer = setTimeout(() => done(check()), ms);
   });
 }
 
@@ -171,7 +316,8 @@ export const CardImageProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     return memory ? Object.keys(memory).length : 0;
   });
 
-  const [currentRenderCard, setCurrentRenderCard] = useState<CardItem | null>(null);
+  // The cards being drawn right now, one per drawing slot
+  const [drawSlots, setDrawSlots] = useState<(CardItem | null)[]>([]);
   const downloadMbps = useDownloadSpeed(!isReady);
   // What the loading screen is doing, shown in brackets while nothing is downloading
   const [loadStep, setLoadStep] = useState('checking saved cards');
@@ -183,17 +329,21 @@ export const CardImageProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     isRunningRef.current = true;
 
     async function initCardImages() {
-      // 1. Check in-memory global cache first
-      let currentMap: Record<string, string> = { ...(window.__CARD_IMAGE_CACHE__ || {}) };
-      
-      // 2. Check IndexedDB
+      const startedAt = performance.now();
+      const signatures: Record<string, string> = {};
+      allCards.forEach((c) => (signatures[c.id] = getCardFaceSignature(c)));
+
+      // 1. Faces already drawn: this session's (in memory), else the saved ones whose signature still matches
+      const currentMap: Record<string, string> = { ...(window.__CARD_IMAGE_CACHE__ || {}) };
       if (Object.keys(currentMap).length < totalCount) {
-        const idbMap = await getAllCachedCardImages();
-        currentMap = { ...idbMap, ...currentMap };
+        const saved = await getAllCachedCardFaces();
+        Object.entries(saved).forEach(([id, face]) => {
+          if (!currentMap[id] && face.sig === signatures[id]) currentMap[id] = URL.createObjectURL(face.png);
+        });
+        removeCachedCardFaces(Object.keys(saved).filter((id) => !(id in signatures)));
       }
 
       const missingCards = allCards.filter((c) => !currentMap[c.id]);
-      setLoadStep('fetching card art');
 
       if (missingCards.length === 0) {
         window.__CARD_IMAGE_CACHE__ = currentMap;
@@ -206,127 +356,133 @@ export const CardImageProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       setCardImages({ ...currentMap });
       setLoadedCount(Object.keys(currentMap).length);
 
-      // Preload all art and cardback images
-      const artUrls = [
-        '/assets/frames/cardback.png',
-        ...missingCards.map((c) => `/assets/art/${c.id}.png`),
-        // (the small copies of the set backgrounds that the card faces use, not the full-size ones)
-        ...Array.from(new Set(missingCards.map(getCardBackgroundPath).filter((p): p is string => Boolean(p))))
-      ];
-      await preloadAssetImages(artUrls);
+      // 2. Download everything the missing faces need, all at once: each card's art (cleaned up with its white halo,
+      // ready for the face to use), the set backgrounds and the card fonts
+      setLoadStep('downloading card art');
+      const backgrounds = Array.from(
+        new Set(missingCards.map(getCardBackgroundPath).filter((p): p is string => Boolean(p)))
+      );
+      let fontEmbedCSS = '';
+      await Promise.all([
+        ...missingCards.map((c) => withTimeout(getProcessedArt(getCardArtPaths(c)), FILE_TIMEOUT_MS)),
+        ...backgrounds.map((url) => withTimeout(loadImage(url), FILE_TIMEOUT_MS)),
+        // The card fonts must be loaded before cards are laid out (the text is sized to fit with their metrics), and
+        // are embedded into each captured face
+        withTimeout(
+          Promise.all([document.fonts.load(`40px ${CARD_HEADING_FONT}`), document.fonts.load(`40px ${CARD_BODY_FONT}`)]).then(
+            () => document.fonts.ready
+          ),
+          FILE_TIMEOUT_MS
+        ),
+        buildCardFontEmbedCSS()
+          .then((css) => (fontEmbedCSS = css))
+          .catch((err) => console.warn('Could not embed card fonts:', err))
+      ]);
+      const downloadedAt = performance.now();
 
-      setLoadStep('loading card fonts');
-      // The card fonts must be loaded before cards are laid out (the text is sized to fit with their metrics)
-      try {
-        await Promise.all([
-          document.fonts.load(`40px ${CARD_HEADING_FONT}`),
-          document.fonts.load(`40px ${CARD_BODY_FONT}`)
-        ]);
-        await document.fonts.ready;
-      } catch {
-        // Fall back to the serif stack
-      }
-
-      // The card fonts are embedded into each captured face (built once, on the first card, and reused)
-      let fontEmbedCSS: string | undefined;
-
-      // Render missing cards one by one
+      // 3. Draw the faces one after another (drawing is the page's own work, so several at once only get in each
+      // other's way), each face's PNG being encoded off the page's main work while the next face is drawn
       setLoadStep('drawing card faces');
-      for (let i = 0; i < missingCards.length; i++) {
-        const card = missingCards[i];
+      const queue = [...missingCards];
+      const setSlot = (slot: number, card: CardItem | null) =>
+        setDrawSlots((prev) => {
+          const next = prev.slice();
+          next[slot] = card;
+          return next;
+        });
+
+      // Time spent in each part of drawing, for the log
+      const spent = { mount: 0, pictures: 0, capture: 0 };
+      const encoding: Promise<void>[] = [];
+      const drawCard = async (card: CardItem, slot: number) => {
+        let mark = performance.now();
+        const lap = (part: keyof typeof spent) => {
+          const now = performance.now();
+          spent[part] += now - mark;
+          mark = now;
+        };
+        setSlot(slot, card);
+        const find = () => hostRef.current?.querySelector(`[data-card-face="${card.id}"]`) as HTMLElement | null;
+        // Mounted and laid out
+        await waitFor(hostRef.current, () => Boolean(find()), 3000);
+        const el = find();
+        lap('mount');
+        if (!el) return;
+
+        // Its art: loaded, else (no art file at all) the drawn placeholder. The art was cleaned up in step 2, so this
+        // is quick unless a file was slow to arrive.
+        const artImg = () => el.querySelector(`img[data-art-card-id="${card.id}"]`) as HTMLImageElement | null;
+        await waitFor(el, () => {
+          const img = artImg();
+          return img ? img.complete : !el.querySelector(`[data-art-pending="${card.id}"]`);
+        }, 8000);
+        const img = artImg();
+        const hasArt = Boolean(img && img.naturalWidth > 0);
+        const expectsArt = getCardArtPaths(card).some((p) => artStamp(p));
+
+        // Its set background (removed if it fails to load)
+        const background = () => el.querySelector('img[data-set-background]') as HTMLImageElement | null;
+        await waitFor(el, () => {
+          const bg = background();
+          return !bg || (bg.complete && bg.naturalWidth > 0);
+        }, 8000);
+        const bg = background();
+        const hasBackground = !bg || (bg.complete && bg.naturalWidth > 0);
+        lap('pictures');
+
+        // Capture the face, checking the picture came out whole: now and then a capture loses the card's styles
+        // (its black frame, layout and white text), leaving the pictures loose and the text invisible. Such a capture
+        // is taken again, and never kept.
+        let face: HTMLCanvasElement | null = null;
+        let whole = false;
+        for (let attempt = 0; attempt < 3 && !whole; attempt++) {
+          if (attempt > 0) await sleep(150);
+          const shot = await captureToCanvas(el, { fontEmbedCSS, skipFonts: !fontEmbedCSS, pixelRatio: 2 });
+          whole = el.isConnected && el.dataset.cardFace === card.id && isWholeCardFace(shot);
+          if (whole || !face) face = shot;
+        }
+        lap('capture');
+        if (!face) return;
+        if (!whole) console.warn(`Card face for ${card.name} (${card.id}) came out incomplete; it will be redrawn next load`);
+
+        // Only keep whole faces drawn with all their pictures, so a face drawn before a picture arrived (a slow
+        // connection) or a broken capture is drawn again on the next load. (A card with no art file keeps its placeholder
+        // face until art is added, which changes its signature.)
+        const keep = whole && (hasArt || !expectsArt) && hasBackground;
+        const canvas = face;
+        encoding.push(
+          new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/png')).then((png) => {
+            if (!png) return;
+            currentMap[card.id] = URL.createObjectURL(png);
+            setLoadedCount(Object.keys(currentMap).length);
+            if (keep) saveCachedCardFace(card.id, { sig: signatures[card.id], png });
+          })
+        );
+      };
+
+      for (let card = queue.shift(); card; card = queue.shift()) {
         try {
-          setCurrentRenderCard(card);
-
-          // Allow React to mount and lay out this card (its face is marked with its id) in the host element
-          const mountBy = Date.now() + 3000;
-          do {
-            await new Promise((r) => setTimeout(r, 30));
-          } while (
-            Date.now() < mountBy &&
-            (hostRef.current?.firstElementChild as HTMLElement | null)?.dataset.cardFace !== card.id
-          );
-
-          if (hostRef.current && hostRef.current.firstElementChild) {
-            const targetEl = hostRef.current.firstElementChild as HTMLElement;
-
-            // Wait until the image for this exact card is loaded and verified to be card.id
-            // (the art is cleaned up first, behind a pending marker; with neither, no art file loaded and the placeholder shows)
-            // (each picture gets its own wait, so a slow art file doesn't use up the background's time)
-            let maxWait = Date.now() + 8000;
-            let hasArt = false;
-            while (Date.now() < maxWait) {
-              const cardImg = targetEl.querySelector(
-                `img[data-art-card-id="${card.id}"]`
-              ) as HTMLImageElement | null;
-              if (cardImg && cardImg.complete && cardImg.naturalWidth > 0) {
-                hasArt = true;
-                break;
-              }
-              if (!cardImg && !targetEl.querySelector(`[data-art-pending="${card.id}"]`)) break;
-              await new Promise((r) => setTimeout(r, 20));
-            }
-
-            // And for the set's background picture (removed if it fails to load)
-            maxWait = Date.now() + 8000;
-            let hasBackground = false;
-            while (Date.now() < maxWait) {
-              const background = targetEl.querySelector('img[data-set-background]') as HTMLImageElement | null;
-              if (!background || (background.complete && background.naturalWidth > 0)) {
-                hasBackground = true;
-                break;
-              }
-              await new Promise((r) => setTimeout(r, 20));
-            }
-
-            if (fontEmbedCSS === undefined) {
-              try {
-                fontEmbedCSS = await buildCardFontEmbedCSS();
-              } catch (err) {
-                console.warn('Could not embed card fonts:', err);
-                fontEmbedCSS = '';
-              }
-            }
-
-            // Capture the face, checking the picture came out whole: now and then a capture loses the card's styles
-            // (its black frame, layout and white text), leaving the pictures loose and the text invisible. Such a
-            // capture is taken again, and never kept.
-            let dataUrl = '';
-            let whole = false;
-            for (let attempt = 0; attempt < 3 && !whole; attempt++) {
-              if (attempt > 0) {
-                await new Promise((r) => requestAnimationFrame(() => r(null)));
-                await new Promise((r) => setTimeout(r, 150));
-              }
-              const shot = await toPng(targetEl, {
-                fontEmbedCSS,
-                skipFonts: !fontEmbedCSS,
-                pixelRatio: 2,
-                cacheBust: false
-              });
-              whole = targetEl.isConnected && targetEl.dataset.cardFace === card.id && (await isWholeCardFace(shot));
-              if (whole || !dataUrl) dataUrl = shot;
-            }
-            if (!whole) console.warn(`Card face for ${card.name} (${card.id}) came out incomplete; it will be redrawn next load`);
-
-            currentMap[card.id] = dataUrl;
-            // Only keep whole faces drawn with their real art and background, so a face drawn before a picture arrived
-            // (a slow connection), a broken capture, or art added later is drawn again on the next load
-            if (whole && hasArt && hasBackground) saveCachedCardImage(card.id, dataUrl);
-          }
+          await drawCard(card, 0);
         } catch (err) {
           console.warn(`Failed to capture image for card ${card.name} (${card.id}):`, err);
         }
-
-        setLoadedCount(Object.keys(currentMap).length);
-        // Yield to browser to keep UI responsive and smooth
-        await new Promise((r) => requestAnimationFrame(r));
       }
+      setSlot(0, null);
+      await Promise.all(encoding);
 
       // Cleanup
-      setCurrentRenderCard(null);
+      setDrawSlots([]);
       window.__CARD_IMAGE_CACHE__ = currentMap;
       setCardImages({ ...currentMap });
       setIsReady(true);
+      const doneAt = performance.now();
+      console.info(
+        `Card faces: drew ${missingCards.length} of ${totalCount} in ${((doneAt - startedAt) / 1000).toFixed(1)}s ` +
+          `(downloading ${((downloadedAt - startedAt) / 1000).toFixed(1)}s, drawing ${((doneAt - downloadedAt) / 1000).toFixed(1)}s; ` +
+          `per card: ${Object.entries(spent)
+            .map(([part, ms]) => `${part} ${Math.round(ms / missingCards.length)}ms`)
+            .join(', ')})`
+      );
     }
 
     initCardImages();
@@ -396,16 +552,14 @@ export const CardImageProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         }}
         aria-hidden="true"
       >
-        {currentRenderCard && (
-          <CardView
-            key={currentRenderCard.id}
-            card={currentRenderCard}
-            id="card-preload-canvas"
-          />
+        {drawSlots.map(
+          (card, slot) => card && <CardView key={card.id} card={card} id={`card-preload-canvas-${slot}`} />
         )}
       </div>
 
-      {children}
+      {/* The game mounts once the faces are drawn: behind the loading screen it would draw every card live a second time
+          (the gallery shows a live card until its face exists), and its large page slows down every capture */}
+      {isReady ? children : null}
     </CardImageContext.Provider>
   );
 };

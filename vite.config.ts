@@ -29,6 +29,65 @@ function computeArtId(): string {
   return hash.digest('hex').slice(0, 12);
 }
 
+/**
+ * Each art file's stamp (its size and time modified), by its path under public/assets/art, e.g. "skeleton_fighter.png".
+ * A saved card face is drawn again when the stamp of its art or set background changes (see src/context/CardImageContext).
+ */
+function computeArtStamps(): Record<string, string> {
+  const stamps: Record<string, string> = {};
+  const walk = (dir: string) => {
+    if (!fs.existsSync(dir)) return;
+    for (const entry of fs.readdirSync(dir, {withFileTypes: true})) {
+      const full = path.join(dir, entry.name);
+      if (entry.isDirectory()) walk(full);
+      else {
+        const stat = fs.statSync(full);
+        stamps[path.relative(ART_DIR, full).split(path.sep).join('/')] = `${stat.size}-${Math.round(stat.mtimeMs)}`;
+      }
+    }
+  };
+  walk(ART_DIR);
+  return stamps;
+}
+
+/**
+ * A fingerprint of the code and styles that draw a card face: CardView and every file it imports (followed through their
+ * own imports), the stylesheet and the card fonts. Saved card faces are drawn again when it changes; a change anywhere
+ * else in the game leaves them alone.
+ */
+function computeFaceCodeId(): string {
+  const srcDir = path.resolve(import.meta.dirname, 'src');
+  const seen = new Set<string>();
+  const queue = [path.join(srcDir, 'components/CardView.tsx')];
+  while (queue.length) {
+    const file = queue.pop()!;
+    if (seen.has(file)) continue;
+    seen.add(file);
+    const text = fs.readFileSync(file, 'utf8');
+    for (const m of text.matchAll(/(?:import|export)[^;]*?from\s+['"](\.[^'"]+)['"]/g)) {
+      const base = path.resolve(path.dirname(file), m[1]);
+      const found = ['.ts', '.tsx', '/index.ts', ''].map((ext) => base + ext).find((f) => fs.existsSync(f) && fs.statSync(f).isFile());
+      if (found) queue.push(found);
+    }
+  }
+  seen.add(path.join(srcDir, 'index.css'));
+  const fontDir = path.resolve(import.meta.dirname, 'public/assets/fonts');
+  const hash = crypto.createHash('sha256');
+  [...seen]
+    .map((f) => path.relative(srcDir, f).split(path.sep).join('/'))
+    .sort()
+    .forEach((rel) => {
+      hash.update(rel);
+      hash.update(fs.readFileSync(path.join(srcDir, rel), 'utf8').replace(/\r\n/g, '\n'));
+    });
+  if (fs.existsSync(fontDir)) {
+    fs.readdirSync(fontDir)
+      .sort()
+      .forEach((f) => hash.update(`${f}|${fs.statSync(path.join(fontDir, f)).size}`));
+  }
+  return hash.digest('hex').slice(0, 12);
+}
+
 /** While the dev server runs, adding, replacing or removing art restarts it, so the art fingerprint is recomputed. */
 function restartOnArtChange(): Plugin {
   return {
@@ -83,6 +142,8 @@ export default defineConfig(() => {
     define: {
       __BUILD_ID__: JSON.stringify(computeBuildId()),
       __ART_ID__: JSON.stringify(computeArtId()),
+      __ART_STAMPS__: JSON.stringify(computeArtStamps()),
+      __FACE_CODE_ID__: JSON.stringify(computeFaceCodeId()),
     },
     resolve: {
       alias: {

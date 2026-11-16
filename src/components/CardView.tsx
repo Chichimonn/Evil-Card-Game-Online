@@ -84,6 +84,12 @@ export const getSetBackgroundPath = (card: CardItem): string | null =>
 export const getCardBackgroundPath = (card: CardItem): string | null =>
   card.set ? `/assets/art/card-backgrounds/${card.set.trim().toLowerCase().replace(/[^a-z0-9]+/g, '_')}.webp` : null;
 
+/** The art files a card face tries, in order: the art named after the card's id, else the one its data names. */
+export const getCardArtPaths = (card: CardItem): string[] => [
+  `/assets/art/${card.id}.png`,
+  `/assets/${card.art || `art/${card.id}.png`}`
+];
+
 export const CardView: React.FC<CardViewProps> = ({
   card,
   customArtUrl,
@@ -102,9 +108,7 @@ export const CardView: React.FC<CardViewProps> = ({
   );
 
   // Art to try, in order (custom art alone when given), with the white halo drawn around the figure
-  const art = useProcessedArt(
-    customArtUrl ? [customArtUrl] : [`/assets/art/${card.id}.png`, `/assets/${card.art || `art/${card.id}.png`}`]
-  );
+  const art = useProcessedArt(customArtUrl ? [customArtUrl] : getCardArtPaths(card));
 
   useEffect(() => {
     let cancelled = false;
