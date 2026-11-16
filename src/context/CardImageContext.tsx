@@ -113,6 +113,50 @@ function preloadAssetImages(urls: string[]): Promise<void> {
   });
 }
 
+/**
+ * The download speed while the loading screen is up, in megabits per second, from the browser's network timings of
+ * every file this page has fetched (each file's bytes spread over the time it took to arrive). Measured over the last
+ * few seconds; null when nothing is downloading (e.g. the card art is all in, and the faces are being drawn).
+ */
+function useDownloadSpeed(active: boolean): number | null {
+  const [mbps, setMbps] = useState<number | null>(null);
+  useEffect(() => {
+    if (!active || typeof PerformanceObserver === 'undefined') return;
+    const WINDOW_MS = 3000;
+    const transfers: { start: number; end: number; bytes: number }[] = [];
+    const add = (entries: PerformanceEntryList) =>
+      entries.forEach((e) => {
+        const r = e as PerformanceResourceTiming;
+        // (transferSize is 0 for files already in the browser's cache, and for other sites that don't share timings)
+        if (r.transferSize > 0) transfers.push({ start: r.fetchStart, end: Math.max(r.responseEnd, r.fetchStart + 1), bytes: r.transferSize });
+      });
+    let observer: PerformanceObserver | null = null;
+    try {
+      observer = new PerformanceObserver((list) => add(list.getEntries()));
+      observer.observe({ type: 'resource', buffered: true });
+    } catch {
+      return;
+    }
+    const tick = setInterval(() => {
+      const now = performance.now();
+      const from = now - WINDOW_MS;
+      let bytes = 0;
+      transfers.forEach((t) => {
+        const overlap = Math.min(t.end, now) - Math.max(t.start, from);
+        if (overlap > 0) bytes += (t.bytes * overlap) / (t.end - t.start);
+      });
+      setMbps(bytes > 0 ? (bytes * 8) / (WINDOW_MS / 1000) / 1e6 : null);
+    }, 500);
+    return () => {
+      clearInterval(tick);
+      observer?.disconnect();
+    };
+  }, [active]);
+  return mbps;
+}
+
+const formatMbps = (mbps: number) => (mbps >= 10 ? mbps.toFixed(0) : mbps >= 0.1 ? mbps.toFixed(1) : mbps.toFixed(2));
+
 export const CardImageProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const allCards = RENDERED_CARDS;
   const totalCount = allCards.length;
@@ -128,6 +172,9 @@ export const CardImageProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   });
 
   const [currentRenderCard, setCurrentRenderCard] = useState<CardItem | null>(null);
+  const downloadMbps = useDownloadSpeed(!isReady);
+  // What the loading screen is doing, shown in brackets while nothing is downloading
+  const [loadStep, setLoadStep] = useState('checking saved cards');
   const hostRef = useRef<HTMLDivElement>(null);
   const isRunningRef = useRef(false);
 
@@ -146,6 +193,7 @@ export const CardImageProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       }
 
       const missingCards = allCards.filter((c) => !currentMap[c.id]);
+      setLoadStep('fetching card art');
 
       if (missingCards.length === 0) {
         window.__CARD_IMAGE_CACHE__ = currentMap;
@@ -167,6 +215,7 @@ export const CardImageProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       ];
       await preloadAssetImages(artUrls);
 
+      setLoadStep('loading card fonts');
       // The card fonts must be loaded before cards are laid out (the text is sized to fit with their metrics)
       try {
         await Promise.all([
@@ -182,6 +231,7 @@ export const CardImageProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       let fontEmbedCSS: string | undefined;
 
       // Render missing cards one by one
+      setLoadStep('drawing card faces');
       for (let i = 0; i < missingCards.length; i++) {
         const card = missingCards[i];
         try {
@@ -312,9 +362,10 @@ export const CardImageProvider: React.FC<{ children: React.ReactNode }> = ({ chi
             </div>
           </div>
 
-          <div className="w-64 sm:w-80 flex flex-col items-center gap-2.5 px-4">
+          <div className="w-80 sm:w-96 flex flex-col items-center gap-2.5 px-4">
             <div className="flex items-center justify-between w-full text-xs font-mono text-stone-400">
-              <span>Loading Cards</span>
+              {/* (with how fast the files are arriving, so a slow connection shows as one, or else what it is doing) */}
+              <span>Loading Cards {downloadMbps !== null ? `@ ${formatMbps(downloadMbps)} Mbps` : `(${loadStep})`}</span>
               <span>
                 {loadedCount} / {totalCount}
               </span>

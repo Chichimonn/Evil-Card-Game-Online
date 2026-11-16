@@ -6,11 +6,13 @@
  *   SET    +1 for each set released (its cards added), resetting PATCH to 0
  *   PATCH  +1 for card fixes, balance changes and engine fixes between sets
  * 0.3.1: two small set releases after 0.1.0 (Wrath of the Elements, Fury of the Skies), then a balance pass.
+ * 0.6.2: six sets (Realms of Man, Wrath of the Elements, Fury of the Skies, Soul Festival 2026, Hidden Avatars, Flutter of
+ *   Fairies), plus fixes since.
  * BUILD_ID: made automatically from all of the game's code and card data (see vite.config.ts), so two copies with any
  * rules difference never match even if GAME_VERSION wasn't bumped. The dev server makes it when it starts, so restart
  * it after editing to get the new fingerprint.
  */
-export const GAME_VERSION = '0.3.1';
+export const GAME_VERSION = '0.6.2';
 
 declare const __BUILD_ID__: string;
 export const BUILD_ID: string = typeof __BUILD_ID__ === 'string' ? __BUILD_ID__ : 'unknown';
