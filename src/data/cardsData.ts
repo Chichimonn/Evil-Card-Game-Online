@@ -14094,10 +14094,11 @@ export const initialCardsData: CardsDataSchema = {
           "id": "reassemble",
           "name": "Reassemble",
           "trigger": "self.dies",
-          "text": "When this unit dies, you may discard a card. If you do, reinforce it again immediately from your graveyard for free. When this unit is reinforced this way, place 8 damage on it.",
+          "text": "When this unit dies, you may discard a card. If this unit is a Skeleton, and you do, reinforce it again immediately from your graveyard for free. When this unit is reinforced this way, place 8 damage on it.",
           "effects": [
             {
               "type": "reassemble",
+              "if": "self.isSkeleton",
               "discard": 1,
               "damage": 8
             }
@@ -14165,10 +14166,11 @@ export const initialCardsData: CardsDataSchema = {
           "id": "reassemble",
           "name": "Reassemble",
           "trigger": "self.dies",
-          "text": "When this unit dies, you may discard a card. If you do, reinforce it again immediately from your graveyard for free. When this unit is reinforced this way, place 7 damage on it.",
+          "text": "When this unit dies, you may discard a card. If this unit is a Skeleton, and you do, reinforce it again immediately from your graveyard for free. When this unit is reinforced this way, place 7 damage on it.",
           "effects": [
             {
               "type": "reassemble",
+              "if": "self.isSkeleton",
               "discard": 1,
               "damage": 7
             }
@@ -14243,10 +14245,11 @@ export const initialCardsData: CardsDataSchema = {
           "id": "reassemble",
           "name": "Reassemble",
           "trigger": "self.dies",
-          "text": "When this unit dies, you may discard a card. If you do, reinforce it again immediately from your graveyard for free. When this unit is reinforced this way, place 6 damage on it.",
+          "text": "When this unit dies, you may discard a card. If this unit is a Skeleton, and you do, reinforce it again immediately from your graveyard for free. When this unit is reinforced this way, place 6 damage on it.",
           "effects": [
             {
               "type": "reassemble",
+              "if": "self.isSkeleton",
               "discard": 1,
               "damage": 6
             }
@@ -14310,10 +14313,11 @@ export const initialCardsData: CardsDataSchema = {
           "id": "reassemble",
           "name": "Reassemble",
           "trigger": "self.dies",
-          "text": "When this unit dies, you may discard a card. If you do, reinforce it again immediately from your graveyard for free. When this unit is reinforced this way, place 10 damage on it.",
+          "text": "When this unit dies, you may discard a card. If this unit is a Skeleton, and you do, reinforce it again immediately from your graveyard for free. When this unit is reinforced this way, place 10 damage on it.",
           "effects": [
             {
               "type": "reassemble",
+              "if": "self.isSkeleton",
               "discard": 1,
               "damage": 10
             }
@@ -14395,10 +14399,11 @@ export const initialCardsData: CardsDataSchema = {
           "id": "reassemble",
           "name": "Reassemble",
           "trigger": "self.dies",
-          "text": "When this unit dies, you may discard a card. If you do, reinforce it again immediately from your graveyard for free. When this unit is reinforced this way, place 7 damage on it.",
+          "text": "When this unit dies, you may discard a card. If this unit is a Skeleton, and you do, reinforce it again immediately from your graveyard for free. When this unit is reinforced this way, place 7 damage on it.",
           "effects": [
             {
               "type": "reassemble",
+              "if": "self.isSkeleton",
               "discard": 1,
               "damage": 7
             }
@@ -14469,10 +14474,11 @@ export const initialCardsData: CardsDataSchema = {
           "id": "reassemble",
           "name": "Reassemble",
           "trigger": "self.dies",
-          "text": "When this unit dies, you may discard a card. If you do, reinforce it again immediately from your graveyard for free. When this unit is reinforced this way, place 9 damage on it.",
+          "text": "When this unit dies, you may discard a card. If this unit is a Skeleton, and you do, reinforce it again immediately from your graveyard for free. When this unit is reinforced this way, place 9 damage on it.",
           "effects": [
             {
               "type": "reassemble",
+              "if": "self.isSkeleton",
               "discard": 1,
               "damage": 9
             }

@@ -1871,22 +1871,34 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [unitsOnBoard, activeTurnUnitHex]);
 
-  // "When this unit dies, you may discard a card. If you do, reinforce it again immediately from your graveyard for
-  // free. When this unit is reinforced this way, place N damage on it" (e.g. Reassemble): { trigger: 'self.dies',
-  // effects: [{ type: 'reassemble', discard: 1, damage: N }] }. Its owner picks a card to discard (or declines), then an
-  // empty tile on their back row.
+  // "When this unit dies, you may discard a card. If this unit is a Skeleton, and you do, reinforce it again immediately
+  // from your graveyard for free. When this unit is reinforced this way, place N damage on it" (e.g. Reassemble):
+  // { trigger: 'self.dies', effects: [{ type: 'reassemble', if: 'self.isSkeleton', discard: 1, damage: N }] }. Its owner
+  // picks a card to discard (or declines), then an empty tile on their back row. A unit that isn't a Skeleton (e.g.
+  // Faceless King carrying the passive) may still discard, but is not reinforced.
   // (the board as last rendered, for choices answered later)
   const unitsOnBoardRef = useRef(unitsOnBoard);
   unitsOnBoardRef.current = unitsOnBoard;
   const handsRef = useRef({ player1: player1Hand, player2: player2Hand });
   handsRef.current = { player1: player1Hand, player2: player2Hand };
-  const getReassembleDamage = (unit: BattlefieldUnit): number | null => {
+  const getReassembleEffect = (unit: BattlefieldUnit): any | null => {
     for (const p of getUnitPassives(unit)) {
       if (p.trigger !== 'self.dies') continue;
       const e: any = (p.effects || []).find((x: any) => x.type === 'reassemble');
-      if (e) return typeof e.damage === 'number' ? e.damage : 0;
+      if (e) return e;
     }
     return null;
+  };
+  const getReassembleDamage = (unit: BattlefieldUnit): number | null => {
+    const e = getReassembleEffect(unit);
+    return e ? (typeof e.damage === 'number' ? e.damage : 0) : null;
+  };
+  // "If this unit is a Skeleton" (if: 'self.isSkeleton'): its card has the Skeleton class
+  const reassembleRises = (unit: BattlefieldUnit): boolean => {
+    const e = getReassembleEffect(unit);
+    if (!e) return false;
+    if (e.if === 'self.isSkeleton') return (unit.card.classTags || []).some((t) => t.toLowerCase() === 'skeleton');
+    return true;
   };
   // (several at once are offered one after another, each with the hand and board as they are by then)
   const offerReassemble = (queue: BattlefieldUnit[]) => {
@@ -1910,16 +1922,32 @@ export default function App() {
       return;
     }
     const DECLINE = '__decline__';
+    const rises = reassembleRises(dead);
     askCardChoice(
       {
         title: `Reassemble: ${card.name}`,
         player: owner,
-        message: `${card.name} died. Discard a card to reinforce it again from your graveyard for free, with ${damage} damage on it?`,
+        message: rises
+          ? `${card.name} died. Discard a card to reinforce it again from your graveyard for free, with ${damage} damage on it?`
+          : `${card.name} died. You may discard a card, but it isn't a Skeleton, so it won't be reinforced.`,
         options: [...hand.map((c, i) => ({ label: `Discard ${c.name}`, value: String(i) })), { label: "Don't discard", value: DECLINE }]
       },
       (v) => {
         const discarded = v === DECLINE ? undefined : hand[parseInt(v, 10)];
         if (!discarded) {
+          next();
+          return;
+        }
+        const setHand = owner === 'player1' ? setPlayer1Hand : setPlayer2Hand;
+        const setGrave = owner === 'player1' ? setPlayer1Graveyard : setPlayer2Graveyard;
+        // Not a Skeleton: the discard happens, nothing is reinforced
+        if (!rises) {
+          setHand((h) => {
+            const at = h.indexOf(discarded);
+            return at < 0 ? h : [...h.slice(0, at), ...h.slice(at + 1)];
+          });
+          setGrave((g) => [...g, discarded]);
+          showNotification(`Reassemble: discarded ${discarded.name}; ${card.name} isn't a Skeleton, so it stays in the graveyard.`);
           next();
           return;
         }
@@ -1930,8 +1958,6 @@ export default function App() {
           next();
           return;
         }
-        const setHand = owner === 'player1' ? setPlayer1Hand : setPlayer2Hand;
-        const setGrave = owner === 'player1' ? setPlayer1Graveyard : setPlayer2Graveyard;
         setHand((h) => {
           const at = h.indexOf(discarded);
           return at < 0 ? h : [...h.slice(0, at), ...h.slice(at + 1)];
