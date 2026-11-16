@@ -49,14 +49,36 @@ const isTokenCard = (card: CardItem) => card.isWall || card.art?.includes('token
 
 const UNCLASSED = 'unclassed';
 
-// A class filter matches a card of that class, or a promote/tribute/fusion card whose requirement names it
-// The class a card is grouped under when sorting: its first class tag, else the first class its requirement names
-const getCardSortClass = (card: CardItem): string | null =>
-  card.classTags?.[0] || (card.reinforce?.requirement || []).flat().find((name) => name && name !== '*') || null;
+// A class is a class tag that more than one deckable card has AND that a promote/fusion/tribute requirement names.
+// Other tags (or requirement names, e.g. The Cyclotron's "Cook") get no filter and don't group cards. Keys are lower case.
+// Classes that always get a filter while any card has the tag, even before a requirement names them (lower case)
+const ALWAYS_CLASSES = new Set(['fairy']);
+const getDeckClasses = (cards: CardItem[]): Map<string, string> => {
+  const deckable = cards.filter((card) => !isTokenCard(card));
+  const tagged = new Map<string, { name: string; count: number }>();
+  deckable.forEach((card) =>
+    (card.classTags || []).forEach((t) => {
+      const k = t.toLowerCase();
+      tagged.set(k, { name: tagged.get(k)?.name || t, count: (tagged.get(k)?.count || 0) + 1 });
+    })
+  );
+  const required = new Set<string>();
+  deckable.forEach((card) => (card.reinforce?.requirement || []).flat().forEach((r) => r && r !== '*' && required.add(r.toLowerCase())));
+  const classes = new Map<string, string>();
+  tagged.forEach((v, k) => ((v.count > 1 && required.has(k)) || ALWAYS_CLASSES.has(k)) && classes.set(k, v.name));
+  return classes;
+};
 
-const cardMatchesClass = (card: CardItem, cls: string): boolean => {
-  // Unclassed: cards that go with no class at all (no class tag, and no class named in a requirement)
-  if (cls === UNCLASSED) return getCardSortClass(card) === null;
+// A class filter matches a card of that class, or a promote/tribute/fusion card whose requirement names it
+// The class a card is grouped under when sorting: its first class, else the first class its requirement names
+const getCardSortClass = (card: CardItem, classes: Map<string, string>): string | null =>
+  (card.classTags || []).find((t) => classes.has(t.toLowerCase())) ||
+  (card.reinforce?.requirement || []).flat().find((name) => name && classes.has(name.toLowerCase())) ||
+  null;
+
+const cardMatchesClass = (card: CardItem, cls: string, classes: Map<string, string>): boolean => {
+  // Unclassed: cards that go with no class at all (no class, and no class named in a requirement)
+  if (cls === UNCLASSED) return getCardSortClass(card, classes) === null;
   const target = cls.toLowerCase();
   return (
     Boolean(card.classTags?.some((t) => t.toLowerCase() === target)) ||
@@ -152,21 +174,16 @@ export const Deckbuilder: React.FC<DeckbuilderProps> = ({
   // Catalog filtered cards sorted by Class Tags
   // Every class in the game (from class tags and reinforce requirements), ordered by how many deckable cards go with
   // it (the cards that class filter shows), then alphabetically; Unclassed last. The class sort uses the same order.
+  const deckClasses = useMemo(() => getDeckClasses(cards), [cards]);
   const classOptions = useMemo(() => {
     const deckable = cards.filter((card) => !isTokenCard(card));
-    const names = new Map<string, string>();
-    deckable.forEach((card) => {
-      [...(card.classTags || []), ...(card.reinforce?.requirement || []).flat()].forEach((name) => {
-        if (name && name !== '*' && !names.has(name.toLowerCase())) names.set(name.toLowerCase(), name);
-      });
-    });
-    const options = Array.from(names.values())
-      .map((name) => ({ id: name, label: name, count: deckable.filter((card) => cardMatchesClass(card, name)).length }))
+    const options = Array.from(deckClasses.values())
+      .map((name) => ({ id: name, label: name, count: deckable.filter((card) => cardMatchesClass(card, name, deckClasses)).length }))
       .sort((a, b) => b.count - a.count || a.label.localeCompare(b.label));
-    const unclassedCount = deckable.filter((card) => cardMatchesClass(card, UNCLASSED)).length;
+    const unclassedCount = deckable.filter((card) => cardMatchesClass(card, UNCLASSED, deckClasses)).length;
     if (unclassedCount > 0) options.push({ id: UNCLASSED, label: 'Unclassed', count: unclassedCount });
     return options;
-  }, [cards]);
+  }, [cards, deckClasses]);
 
   const catalogCards = useMemo(() => {
     const classRank = new Map(classOptions.map((cls, i) => [cls.id.toLowerCase(), i]));
@@ -181,7 +198,7 @@ export const Deckbuilder: React.FC<DeckbuilderProps> = ({
       if (categoryFilter === 'tribute' && card.reinforce?.mode !== 'tribute') return false;
  
       // Class Tag Filter
-      if (classFilter !== 'all' && !cardMatchesClass(card, classFilter)) return false;
+      if (classFilter !== 'all' && !cardMatchesClass(card, classFilter, deckClasses)) return false;
  
       if (searchFilter.trim()) {
         const query = searchFilter.toLowerCase();
@@ -199,8 +216,8 @@ export const Deckbuilder: React.FC<DeckbuilderProps> = ({
     // Sort by class (a card goes with its own class, else the class it requires), name, hp, or ap
     return [...filtered].sort((a, b) => {
       if (sortBy === 'class') {
-        const aClass = getCardSortClass(a)?.toLowerCase();
-        const bClass = getCardSortClass(b)?.toLowerCase();
+        const aClass = getCardSortClass(a, deckClasses)?.toLowerCase();
+        const bClass = getCardSortClass(b, deckClasses)?.toLowerCase();
         const aRank = aClass ? (classRank.get(aClass) ?? classRank.size) : classRank.size + 1;
         const bRank = bClass ? (classRank.get(bClass) ?? classRank.size) : classRank.size + 1;
  
@@ -218,7 +235,7 @@ export const Deckbuilder: React.FC<DeckbuilderProps> = ({
       }
       return 0;
     });
-  }, [cards, categoryFilter, classFilter, searchFilter, sortBy, classOptions]);
+  }, [cards, categoryFilter, classFilter, searchFilter, sortBy, classOptions, deckClasses]);
  
   // Add card to deck (Max 3 copies of each card, max 40 total, no tokens)
   const handleAddCard = (card: CardItem) => {
