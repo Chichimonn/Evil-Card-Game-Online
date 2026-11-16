@@ -126,6 +126,14 @@ import {
   PASSIVES_REMOVED_THIS_TURN
 } from './utils/unitPassives';
 import { syncLeaderOfTheBunch, hasLeaderOfTheBunch, getSurroundingFriendlyCount } from './utils/leaderOfTheBunch';
+import {
+  canAttachOnto,
+  attachUnitOnto,
+  getAttachPassive,
+  getAttachBonuses,
+  getAttachMaxHpBonus,
+  meetsAttachRequirement
+} from './utils/fairyAttachments';
 import { getAbilityHitStructure, executeSequentialHits, AttackExecutionOptions, AttackHit, getAbilitySelfDamage, applyAttackerBonusPassives, reduceNonAttackDamage, getFalloffDamageBase } from './utils/attackLogic';
 import {
   MultiStageState,
@@ -1156,10 +1164,12 @@ export default function App() {
   useEffect(() => {
     let hasChange = false;
     for (const [hex, unit] of Object.entries(unitsOnBoard)) {
-      if (hasLeaderOfTheBunch(unit)) {
+      // (also extra HP from an attached card, e.g. Fortifying Harmony, gained or lost)
+      const attachHp = getAttachMaxHpBonus(unit);
+      if (hasLeaderOfTheBunch(unit) || attachHp > 0 || unit.baseMaxHp !== undefined) {
         const baseHp = unit.baseMaxHp ?? allCardList.find((c) => c.id === unit.card.id)?.hp ?? unit.card.hp;
-        const surroundingCount = getSurroundingFriendlyCount(hex, unit.owner, unitsOnBoard, unit.instanceId);
-        const expectedHp = baseHp + surroundingCount;
+        const surroundingCount = hasLeaderOfTheBunch(unit) ? getSurroundingFriendlyCount(hex, unit.owner, unitsOnBoard, unit.instanceId) : 0;
+        const expectedHp = baseHp + surroundingCount + attachHp;
         if (unit.card.hp !== expectedHp || unit.baseMaxHp !== baseHp) {
           hasChange = true;
           break;
@@ -1179,13 +1189,108 @@ export default function App() {
               setPlayer2Graveyard((g) => [...g, defUnit.card]);
             }
           }
-          showNotification(`👑 ${defUnit.card.name} lost surrounding allies and succumbed to its wounds!`);
+          showNotification(`👑 ${defUnit.card.name} lost its bonus HP and succumbed to its wounds!`);
         });
         checkVictory(syncRes.updatedBoard);
         return syncRes.updatedBoard;
       });
     }
   }, [unitsOnBoard, allCardList]);
+
+  // Cards attached to a unit (e.g. the fairies) go to their owner's graveyard when that unit leaves play. They stay
+  // while they are on any unit on the board (a promoted or fused unit keeps them), so this compares the attached cards
+  // on the board before and after each change. Only this screen's own play counts (not a loaded board).
+  const attachedTrackRef = useRef<{ counts: Map<CardItem, { owner: PlayerId; n: number }>; gen: number; turn: number }>({
+    counts: new Map(),
+    gen: 0,
+    turn: 0
+  });
+  const attachLoadGenRef = useRef(0);
+  useEffect(() => {
+    const counts = new Map<CardItem, { owner: PlayerId; n: number }>();
+    const add = (u: BattlefieldUnit) =>
+      (u.attachedCards || []).forEach((c) => counts.set(c, { owner: u.owner, n: (counts.get(c)?.n || 0) + 1 }));
+    Object.values(unitsOnBoard).forEach((u) => {
+      add(u);
+      if (u.carriedUnit) add(u.carriedUnit.unit);
+    });
+    const prev = attachedTrackRef.current;
+    if (prev.gen === attachLoadGenRef.current && gamePhase === 'playing' && turnCount >= prev.turn) {
+      const gone: Record<PlayerId, CardItem[]> = { player1: [], player2: [] };
+      prev.counts.forEach((v, card) => {
+        for (let i = counts.get(card)?.n || 0; i < v.n; i++) gone[v.owner].push(card);
+      });
+      if (gone.player1.length) setPlayer1Graveyard((g) => [...g, ...gone.player1]);
+      if (gone.player2.length) setPlayer2Graveyard((g) => [...g, ...gone.player2]);
+      const names = [...gone.player1, ...gone.player2].map((c) => c.name);
+      if (names.length) showNotification(`🧚 ${names.join(', ')} went to the graveyard with the unit ${names.length > 1 ? 'they were' : 'it was'} attached to.`);
+    }
+    attachedTrackRef.current = { counts, gen: attachLoadGenRef.current, turn: turnCount };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [unitsOnBoard]);
+
+  // A card in a graveyard is its printed card: extra max HP it had in play (e.g. Leader of the Bunch, an attached
+  // Fortifying Harmony) is gone
+  useEffect(() => {
+    const restore = (g: CardItem[]) => {
+      let changed = false;
+      const out = g.map((c) => {
+        const printed = allCardList.find((x) => x.id === c.id);
+        if (printed && printed.hp !== c.hp) {
+          changed = true;
+          return { ...c, hp: printed.hp };
+        }
+        return c;
+      });
+      return changed ? out : g;
+    };
+    if (restore(player1Graveyard) !== player1Graveyard) setPlayer1Graveyard(restore);
+    if (restore(player2Graveyard) !== player2Graveyard) setPlayer2Graveyard(restore);
+  }, [player1Graveyard, player2Graveyard, allCardList]);
+
+  // Units healed this turn (their damage went down), for "if that unit is damaged and was not healed this turn"
+  // (e.g. Mending Harmony). Read at the end of the turn; a loaded board starts over.
+  const healedThisTurnRef = useRef<{ turn: number; gen: number; ids: Set<string>; damage: Map<string, number> }>({
+    turn: 0,
+    gen: 0,
+    ids: new Set(),
+    damage: new Map()
+  });
+  useEffect(() => {
+    const t = healedThisTurnRef.current;
+    const fresh = t.gen !== attachLoadGenRef.current;
+    if (t.turn !== turnCount || fresh) t.ids = new Set();
+    Object.values(unitsOnBoard).forEach((u) => {
+      const before = t.damage.get(u.instanceId);
+      if (!fresh && before !== undefined && u.damageCounters < before) t.ids.add(u.instanceId);
+    });
+    healedThisTurnRef.current = {
+      turn: turnCount,
+      gen: attachLoadGenRef.current,
+      ids: t.ids,
+      damage: new Map(Object.values(unitsOnBoard).map((u) => [u.instanceId, u.damageCounters]))
+    };
+  }, [unitsOnBoard, turnCount]);
+
+  // "At the start of each of your turns, look at the top card of your deck. You may put it on the bottom of your deck"
+  // (e.g. Prescient Harmony, attached): asked once the new turn has started on this screen (see
+  // handleTurnTransitionComplete), once per unit it is attached to
+  const turnStartScryRef = useRef<PlayerId | null>(null);
+  useEffect(() => {
+    const player = turnStartScryRef.current;
+    if (!player || player !== activePlayer || gamePhase !== 'playing') return;
+    turnStartScryRef.current = null;
+    Object.values(unitsOnBoard).forEach((u) => {
+      if (u.owner !== player) return;
+      getAttachBonuses(u, 'scry').forEach((b) => {
+        enqueuePopup(player, `${b.passive.name}: Scry 1`, (ctx) => {
+          const d = player === 'player1' ? ctx.p1Deck : ctx.p2Deck;
+          if (d.length > 0) setScryPending({ card: d[0], player, unitName: u.card.name, abilityName: b.passive.name, sourceTitle: `${b.passive.name}: Scry 1` });
+        });
+      });
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activePlayer, turnCount]);
 
   // Helper to draw a card for a player (handles Sanguine Offering, Loot, etc.)
   // "Whenever this unit draws a card, this unit heals N damage" (e.g. Tapestry of Fate). Queued and applied once the
@@ -1395,6 +1500,32 @@ export default function App() {
     });
   };
 
+  // Attaching (e.g. the fairies' Harmony passives): `mover` moved onto the friendly unit on `toHex` (by `via`: the Move
+  // action, or a moving ability such as Fairy Flutter). It leaves play onto that unit, which ends the turn. It always
+  // attaches; its bonus applies only while that unit meets the requirement (see utils/fairyAttachments).
+  const attachMoverOnto = (fromHex: string, toHex: string, mover: BattlefieldUnit, via: string) => {
+    const target = unitsOnBoard[toHex];
+    if (!target) return;
+    const attach = getAttachPassive(mover.card);
+    const withIt: BattlefieldUnit = { ...target, attachedCards: [...(target.attachedCards || []), mover.card] };
+    const sameAlready = (target.attachedCards || []).some((c) => getAttachPassive(c)?.passive.id === attach?.passive.id);
+    const live = attach ? meetsAttachRequirement(withIt, attach.effect.requires) : false;
+    setUnitsOnBoard((prev) => (prev[fromHex]?.instanceId === mover.instanceId && prev[toHex] ? attachUnitOnto(prev, fromHex, toHex) : prev));
+    setActiveTurnUnitHex(null);
+    setSelectedHex(toHex);
+    playCardDrawSound();
+    const state = !attach
+      ? ''
+      : sameAlready
+      ? ` ${attach.passive.name} is already on it, and does not stack.`
+      : live
+      ? ` ${attach.passive.name} now applies to it.`
+      : ` ${attach.passive.name} won't apply until it meets the requirement.`;
+    showNotification(`🧚 ${mover.card.name} (${via}) attached to ${target.card.name} on ${toHex}.${state}`);
+    appendLog('move', `${mover.card.name} attached to ${target.card.name} (${via})`, mover.owner);
+    switchTurn(false);
+  };
+
   // Damage from passives (moving, knockback riders, splashes, ...) resolved on a board: graveyard, Embedded Press and
   // "takes damage" reactions included. Use inside a setUnitsOnBoard updater.
   const resolvePassiveDamage = (board: Record<string, BattlefieldUnit>, requests: PassiveDamage[]) => {
@@ -1577,6 +1708,18 @@ export default function App() {
             showNotification(`${u.card.name}'s ${p.name}: armoured up to ${eff.upTo}.`);
           });
         }
+        // "At the end of each of your turns, if that unit is damaged and was not healed this turn, it heals 1 damage"
+        // (e.g. Mending Harmony, attached)
+        if (u.owner === activePlayer && unitToUpdate.damageCounters > 0) {
+          const healed = healedThisTurnRef.current;
+          const wasHealed = healed.turn === turnCount && healed.ids.has(u.instanceId);
+          const mend = getAttachBonuses(unitToUpdate, 'heal').find((b) => b.effect.trigger === 'ownerTurnEnd');
+          if (mend && !wasHealed) {
+            const amount = typeof mend.effect.amount === 'number' ? mend.effect.amount : 1;
+            unitToUpdate = { ...unitToUpdate, damageCounters: Math.max(0, unitToUpdate.damageCounters - amount) };
+            showNotification(`🧚 ${mend.passive.name} (${mend.card.name}): ${u.card.name} heals ${amount} damage.`);
+          }
+        }
         if (unitToUpdate.tookDamageThisTurn || unitToUpdate.movedThisTurn || unitToUpdate.movedDirectionsThisTurn) {
           unitToUpdate = { ...unitToUpdate, tookDamageThisTurn: false, movedThisTurn: false, movedDirectionsThisTurn: undefined, movesThisTurn: undefined };
         }
@@ -1665,6 +1808,7 @@ export default function App() {
     appendLog('turn', 'turn starts', transitionPlayer, gamePhase === 'playing' ? turnCount + 1 : 1);
     // Once the new turn has settled, its state is handed over (see the turn handoff below)
     handoffPendingRef.current = true;
+    turnStartScryRef.current = gamePhase === 'playing' ? transitionPlayer : null;
     setActivePlayer(transitionPlayer);
     setTurnCount((prev) => (gamePhase === 'playing' ? prev + 1 : 1));
     setIsTurnTransitioning(false);
@@ -1955,6 +2099,53 @@ export default function App() {
         notes.push(`Critical Forecast: use ${original.name} an additional time for free (in the action menu)`);
       }
     }
+    // Bonuses from cards attached to it (e.g. the fairies' Harmony passives), once during each of its turns:
+    //   place: it may place itself on an empty surrounding tile for free (Agile Harmony)
+    //   repeatAttack: after it uses a 1AP attack, it may use that attack again for free, dealing 2 less on the first hit
+    //   (to a minimum of 1) (Echoing Harmony)
+    // Both are granted as free abilities in the action menu for the rest of the turn.
+    getAttachBonuses(u).forEach((b) => {
+      const markKey = `attach_${b.key}`;
+      if ((patch.passiveTurnMarks || marks)[markKey] === turnCount) return;
+      if (b.effect.type === 'place') {
+        patch.passiveTurnMarks = { ...(patch.passiveTurnMarks || marks), [markKey]: turnCount };
+        const place: CardAbility = {
+          id: `${b.key}_place`,
+          name: b.passive.name,
+          cost: 0,
+          text: 'Place this unit on an empty surrounding tile for free.',
+          range: [1, 1],
+          rangeText: '1',
+          target: 'emptyTile',
+          targetText: 'empty tile target',
+          limits: { oncePerTurn: true },
+          effects: [{ type: 'place', target: 'self', tile: 'target' }]
+        } as CardAbility;
+        patch.grantedAbilities = [...(patch.grantedAbilities || u.grantedAbilities || []), place];
+        notes.push(`${b.passive.name} (${b.card.name}): you may place it on an empty surrounding tile for free (in the action menu)`);
+      }
+      if (b.effect.type === 'repeatAttack') {
+        const cost = b.effect.appliesTo?.attackCost ?? 1;
+        const used = (u.card.abilities || []).find(
+          (a) => a.cost === cost && (u.usedTurnCounts?.[a.id] || 0) >= 1 && (a.effects || []).some((e: any) => e.type === 'damage')
+        );
+        if (!used) return;
+        const mod: any = (b.effect.modifiers || []).find((m: any) => m.scope === 'firstHit');
+        patch.passiveTurnMarks = { ...(patch.passiveTurnMarks || marks), [markKey]: turnCount };
+        const copy: CardAbility = {
+          ...used,
+          id: `${b.key}_${used.id}`,
+          name: `${used.name} (${b.passive.name})`,
+          cost: 0,
+          limits: { oncePerTurn: true },
+          ...(mod && typeof mod.addAmount === 'number' && mod.addAmount < 0
+            ? { firstHitPenalty: { amount: -mod.addAmount, min: mod.minAmount ?? 0, source: b.passive.name } }
+            : {})
+        } as CardAbility;
+        patch.grantedAbilities = [...(patch.grantedAbilities || u.grantedAbilities || []), copy];
+        notes.push(`${b.passive.name} (${b.card.name}): use ${used.name} again for free${mod ? `, dealing ${-mod.addAmount} less on the first hit` : ''} (in the action menu)`);
+      }
+    });
     lastArmourRef.current = { id: u.instanceId, armour: patch.armour ?? u.armour };
     if (Object.keys(patch).length === 0) return;
     setUnitsOnBoard((prev) => (prev[hex]?.instanceId === u.instanceId ? { ...prev, [hex]: { ...prev[hex], ...patch } } : prev));
@@ -2020,6 +2211,10 @@ export default function App() {
         if (getLandingTilesAround(h, activeTurnUnitHex, unitsOnBoard).length > 0) moveHexes.push(h);
       });
     }
+    // Attaching (e.g. a fairy's Harmony passive): a surrounding friendly unit's tile, to attach to that unit
+    getSurroundingHexes(activeTurnUnitHex).forEach((h) => {
+      if (!moveHexes.includes(h) && canAttachOnto(unit, unitsOnBoard[h])) moveHexes.push(h);
+    });
     return moveHexes;
   }, [isMovingMode, activeTurnUnitHex, unitsOnBoard, activePlayer, activeAbility, pendingRabbleMove, turnCount]);
 
@@ -2658,7 +2853,9 @@ export default function App() {
         damageCounters: forcedDamage,
         armour: 0,
         currentAp: cardToPlace.ap,
-        promotedCards: [...(targetUnit.promotedCards || []), targetUnit.card]
+        promotedCards: [...(targetUnit.promotedCards || []), targetUnit.card],
+        // Cards attached to it (e.g. a fairy) stay attached to the promoted unit
+        ...(targetUnit.attachedCards?.length ? { attachedCards: targetUnit.attachedCards } : {})
       };
 
       setUnitsOnBoard((prev) => {
@@ -2797,6 +2994,8 @@ export default function App() {
       // Collect all cards from the fused units to keep associated information for abilities (Rule: promoted cards)
       // Fusion does NOT send cards to the graveyard
       const allPromotedCards: CardItem[] = [];
+      // (cards attached to the fused units, e.g. fairies, stay attached to the fused unit)
+      const fusedAttached: CardItem[] = [];
       combo.hexes.forEach((mHex: string) => {
         const u = unitsOnBoard[mHex];
         if (u) {
@@ -2804,6 +3003,7 @@ export default function App() {
             allPromotedCards.push(...u.promotedCards);
           }
           allPromotedCards.push(u.card);
+          fusedAttached.push(...(u.attachedCards || []));
         }
       });
 
@@ -2823,7 +3023,8 @@ export default function App() {
         damageCounters: combo.totalDamage,
         armour: 0,
         currentAp: cardToPlace.ap,
-        promotedCards: allPromotedCards
+        promotedCards: allPromotedCards,
+        ...(fusedAttached.length ? { attachedCards: fusedAttached } : {})
       };
 
       setUnitsOnBoard((prev) => {
@@ -4198,6 +4399,15 @@ export default function App() {
     const cost = getAbilityApCost(ability);
     if (activeTurnUnit.currentAp < cost) {
       showNotification(`Not enough AP to use ${ability.name} (Requires ${cost} AP, has ${activeTurnUnit.currentAp} AP).`);
+      return;
+    }
+
+    // A path that ends on a friendly unit this one attaches to (e.g. Fairy Flutter onto an ally): it attaches there
+    const pathEnd = targets[targets.length - 1];
+    if (unitsOnBoard[pathEnd] && canAttachOnto(activeTurnUnit, unitsOnBoard[pathEnd])) {
+      setActiveAbility(null);
+      setMultiStageState(null);
+      attachMoverOnto(casterHex, pathEnd, activeTurnUnit, ability.name);
       return;
     }
 
@@ -9075,7 +9285,7 @@ export default function App() {
         setSelectedHandIndex(null);
         setIsMovingMode(false);
         // Refresh unit AP to full (or 1 less AP if afflicted with Noxious Burst), and refresh 1/Turn counts to 0
-        const { startingAp, hadNoxiousBurst, windchill } = getStartingApForTurn(unitOnHex, unitsOnBoard);
+        const { startingAp, hadNoxiousBurst, windchill, attachAp } = getStartingApForTurn(unitOnHex, unitsOnBoard);
         const refreshedAp = startingAp;
         setUnitsOnBoard((prev) => {
           const current = prev[hexId] || unitOnHex;
@@ -9103,7 +9313,7 @@ export default function App() {
           };
         });
         playCardDrawSound();
-        const nbNote = `${hadNoxiousBurst ? ' (Afflicted by Noxious Burst: Starts turn with 1 less AP!)' : ''}${windchill ? ` (${windchill}: 1 less AP)` : ''}`;
+        const nbNote = `${attachAp ? ` (${attachAp}: AP set to ${unitOnHex.card.ap + 1})` : ''}${hadNoxiousBurst ? ' (Afflicted by Noxious Burst: Starts turn with 1 less AP!)' : ''}${windchill ? ` (${windchill}: 1 less AP)` : ''}`;
         showNotification(`${unitOnHex.card.name} is taking the turn! (${refreshedAp} AP available)${nbNote}`);
         triggerForesight(unitOnHex);
         triggerTurnTakenPassives(unitOnHex);
@@ -9229,9 +9439,16 @@ export default function App() {
     if (
       !isFreeMove &&
       activeTurnUnitHex === fromHexId &&
-      (!unitsOnBoard[toHexId] || moveThrough) &&
+      (!unitsOnBoard[toHexId] || moveThrough || canAttachOnto(currentUnit, unitsOnBoard[toHexId])) &&
       offerReadySpellInterrupt({ kind: 'move', fromHex: fromHexId, toHex: toHexId })
     ) {
+      return;
+    }
+    // Attaching (e.g. the fairies' Harmony passives): moving onto a friendly unit's tile attaches this unit to it
+    if (unitsOnBoard[toHexId] && canAttachOnto(currentUnit, unitsOnBoard[toHexId])) {
+      setIsMovingMode(false);
+      if (isFreeMove) setPendingFreeMove(null);
+      attachMoverOnto(fromHexId, toHexId, currentUnit, isFreeMove ? pendingFreeMove?.sourceName || 'a free move' : 'Move');
       return;
     }
     const trample = getTramplingMove(currentUnit);
@@ -12156,6 +12373,8 @@ export default function App() {
 
   // Puts a captured match back exactly as it was, closing any choice in progress
   const loadGameState = (s: GameState) => {
+    // (a loaded board is not this screen's play: attached cards that vanish with it are not sent to a graveyard)
+    attachLoadGenRef.current += 1;
     const byId: Record<string, { unit: BattlefieldUnit; hex: string }> = {};
     const tiles: Record<string, { hex: string; cardId: string; tiles: number }> = {};
     Object.entries(s.unitsOnBoard).forEach(([h, u]) => {
@@ -13504,6 +13723,27 @@ export default function App() {
       const rewards = applyKillRewards(killer, next);
       next = rewards.board;
       if (rewards.log.length > 0) showNotification(`🏅 ${rewards.log.join(' • ')}`);
+    }
+    // "Once during each of that unit's turns, when it kills an enemy non-token unit, draw 1 card" (e.g. Bountiful
+    // Harmony, attached to the killer)
+    if (
+      killer &&
+      killer.owner === activePlayer &&
+      activeTurnUnit?.instanceId === killer.instanceId &&
+      killed.owner !== killer.owner &&
+      killed.card.type !== 'token' &&
+      !killed.card.isWall
+    ) {
+      getAttachBonuses(killer, 'draw').forEach((b) => {
+        const kHex = Object.keys(next).find((h) => next[h].instanceId === killer.instanceId);
+        const cur = kHex ? next[kHex] : null;
+        const markKey = `attach_${b.key}`;
+        if (!kHex || !cur || cur.passiveTurnMarks?.[markKey] === turnCount) return;
+        next = { ...next, [kHex]: { ...cur, passiveTurnMarks: { ...(cur.passiveTurnMarks || {}), [markKey]: turnCount } } };
+        const amount = typeof b.effect.amount === 'number' ? b.effect.amount : 1;
+        for (let i = 0; i < amount; i++) drawCardForPlayer(killer.owner);
+        showNotification(`🧚 ${b.passive.name} (${b.card.name}): ${killer.card.name} killed ${killed.card.name}, so you draw ${amount} card${amount === 1 ? '' : 's'}.`);
+      });
     }
     return next;
   };

@@ -5,6 +5,7 @@ import {
   offsetToCube,
   getSurroundingHexes
 } from './hexGridMath';
+import { canAttachOnto } from './fairyAttachments';
 
 export interface ChargeFlightSpec {
   possiblePathLengths: number[];
@@ -292,7 +293,8 @@ export function validateChargeFlightPath(
   }
 
   const finalTile = path[path.length - 1];
-  if (spec.finalTileMustBeEmpty && unitsOnBoard[finalTile]) {
+  // A unit that attaches (e.g. a fairy) may end its move on a friendly unit's tile: it attaches to it
+  if (spec.finalTileMustBeEmpty && unitsOnBoard[finalTile] && !canAttachOnto(unitsOnBoard[casterHex], unitsOnBoard[finalTile])) {
     const occupant = unitsOnBoard[finalTile];
     return {
       valid: false,
@@ -314,6 +316,10 @@ export function getNextChargeFlightHexes(
 ): string[] {
   const maxLength = Math.max(...spec.possiblePathLengths);
   if (path.length >= maxLength) return [];
+  // A path that ends on a unit to attach to (e.g. a fairy) stops there
+  const mover = unitsOnBoard[casterHex];
+  const attachesAt = (h: string) => canAttachOnto(mover, unitsOnBoard[h]);
+  if (path.length > 0 && !spec.mayMoveOverUnits && unitsOnBoard[path[path.length - 1]]) return [];
 
   const currentTip = path.length === 0 ? casterHex : path[path.length - 1];
   const neighbors = getSurroundingHexes(currentTip);
@@ -348,21 +354,21 @@ export function getNextChargeFlightHexes(
     if (spec.requiredTurns !== null && nextTurnCount > spec.requiredTurns) continue;
     // "Never the same direction twice in a row" (e.g. Sky Slither)
     if (spec.noSameDirectionTwice && currentAnalysis.directions.length > 0 && !isTurn) continue;
-    // A path on empty tiles only (e.g. Zephyr Step)
-    if (!spec.mayMoveOverUnits && unitsOnBoard[cand]) continue;
+    // A path on empty tiles only (e.g. Zephyr Step), except a last step onto a unit this one attaches to
+    if (!spec.mayMoveOverUnits && unitsOnBoard[cand] && !(attachesAt(cand) && spec.possiblePathLengths.includes(nextLength))) continue;
 
     // If this candidate would be the maximum length of the path:
     if (nextLength === maxLength) {
       // Must have made all its turns by now
       if (spec.requiredTurns !== null && nextTurnCount < (spec.minTurns ?? spec.requiredTurns)) continue;
-      // Final tile must be unoccupied
-      if (spec.finalTileMustBeEmpty && unitsOnBoard[cand]) continue;
+      // Final tile must be unoccupied (or a unit this one attaches to)
+      if (spec.finalTileMustBeEmpty && unitsOnBoard[cand] && !attachesAt(cand)) continue;
     }
 
     // If this candidate reaches a possible completion length (e.g. 3 for Drake's Flight which can end at 3 or 4)
     // If it is occupied, it can only be chosen if the path can legally continue further!
     if (spec.possiblePathLengths.includes(nextLength)) {
-      if (unitsOnBoard[cand]) {
+      if (unitsOnBoard[cand] && !attachesAt(cand)) {
         // Must be able to take at least one more step to reach a valid empty final tile
         if (nextLength >= maxLength) continue;
       }

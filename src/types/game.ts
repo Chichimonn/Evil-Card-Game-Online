@@ -63,6 +63,8 @@ export interface BattlefieldUnit {
   knockbackImmuneThisTurn?: boolean; // e.g. Hold the Gate chosen, Brace for Impact: cleared when a turn of its opponent ends
   knockedBackBy?: { instanceId: string; turn: number }; // the unit that last knocked it back, and on which turn (e.g. Crescent Blade)
   engulfedCard?: CardItem | null; // e.g. Engulf: the enemy unit placed under this one (out of play; counts as its promoted unit)
+  // e.g. the fairies' Harmony passives: cards attached to this unit (out of play, riding on it); see utils/fairyAttachments
+  attachedCards?: CardItem[];
   engulfedOwner?: PlayerId; // who controls the engulfed unit when it takes this unit's place (on this unit's death)
   // e.g. Hidden Strings: the unit this one picked up by moving onto its tile (out of play while carried), and the last
   // empty tile this unit left, where the carried unit is put down when the turn ends (or when this unit leaves play)

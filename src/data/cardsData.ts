@@ -17207,6 +17207,488 @@ export const initialCardsData: CardsDataSchema = {
         }
       ],
       "classTags": []
+    },
+    {
+      "id": "catalytic_fairy",
+      "set": "Flutter of Fairies",
+      "name": "Catalytic Fairy",
+      "type": "unit",
+      "basic": true,
+      "reinforce": {
+        "mode": "basic"
+      },
+      "hp": 9,
+      "ap": 2,
+      "art": "art/catalytic_fairy.png",
+      "passives": [
+        {
+          "id": "galvanic_harmony",
+          "name": "Galvanic Harmony",
+          "trigger": "static",
+          "optional": true,
+          "text": "If this unit has no cards under it, it may attach to a friendly unit with exactly 2 promoted cards of different types. While this card is attached to a unit, that unit's AP is set to 1 more than the AP printed on that unit when it takes a turn. This effect does not stack.",
+          "effects": [
+            {
+              "type": "attach",
+              "target": "friendlyUnit",
+              "if": "self.hasNoCardsUnder",
+              "requires": {
+                "promotedCards": {
+                  "exactly": 2,
+                  "differentTypes": true
+                }
+              },
+              "stacks": false,
+              "whileAttached": [
+                {
+                  "type": "setAp",
+                  "target": "attachedUnit",
+                  "timing": "attachedUnitTurnStart",
+                  "amount": {
+                    "printedApPlus": 1
+                  }
+                }
+              ]
+            }
+          ],
+          "script": "fairy_attach"
+        }
+      ],
+      "abilities": [
+        {
+          "id": "fairy_flutter",
+          "name": "Fairy Flutter",
+          "cost": 1,
+          "text": "Move this unit 2 tiles for free.",
+          "effects": [
+            {
+              "type": "move",
+              "target": "self",
+              "distance": 2,
+              "path": {},
+              "mayMoveOverUnits": false,
+              "finalTileMustBeEmpty": true,
+              "free": true
+            }
+          ]
+        }
+      ],
+      "classTags": [
+        "Fairy"
+      ]
+    },
+    {
+      "id": "reverberant_fairy",
+      "set": "Flutter of Fairies",
+      "name": "Reverberant Fairy",
+      "type": "unit",
+      "basic": true,
+      "reinforce": {
+        "mode": "basic"
+      },
+      "hp": 9,
+      "ap": 2,
+      "art": "art/reverberant_fairy.png",
+      "passives": [
+        {
+          "id": "echoing_harmony",
+          "name": "Echoing Harmony",
+          "trigger": "static",
+          "optional": true,
+          "text": "If this unit has no cards under it, it may attach to a friendly unit with exactly 2 promoted cards that are of the same type or have a word in common in their names. While this card is attached to a unit, once during each of that unit's turns, after it uses a 1AP attack, it may use that attack again for free, except it deals 2 damage less on the first hit (to a minimum of 1). This effect does not stack.",
+          "effects": [
+            {
+              "type": "attach",
+              "target": "friendlyUnit",
+              "if": "self.hasNoCardsUnder",
+              "requires": {
+                "promotedCards": {
+                  "exactly": 2,
+                  "sameTypeOrSharedNameWord": true
+                }
+              },
+              "stacks": false,
+              "whileAttached": [
+                {
+                  "type": "repeatAttack",
+                  "target": "attachedUnit",
+                  "trigger": "attachedUnit.usedAttack",
+                  "appliesTo": {
+                    "attackCost": 1
+                  },
+                  "optional": true,
+                  "free": true,
+                  "limits": {
+                    "oncePerAttachedUnitTurn": true
+                  },
+                  "modifiers": [
+                    {
+                      "scope": "firstHit",
+                      "addAmount": -2,
+                      "minAmount": 1
+                    }
+                  ]
+                }
+              ]
+            }
+          ],
+          "script": "fairy_attach"
+        }
+      ],
+      "abilities": [
+        {
+          "id": "fairy_flutter",
+          "name": "Fairy Flutter",
+          "cost": 1,
+          "text": "Move this unit 2 tiles for free.",
+          "effects": [
+            {
+              "type": "move",
+              "target": "self",
+              "distance": 2,
+              "path": {},
+              "mayMoveOverUnits": false,
+              "finalTileMustBeEmpty": true,
+              "free": true
+            }
+          ]
+        }
+      ],
+      "classTags": [
+        "Fairy"
+      ]
+    },
+    {
+      "id": "nimble_fairy",
+      "set": "Flutter of Fairies",
+      "name": "Nimble Fairy",
+      "type": "unit",
+      "basic": true,
+      "reinforce": {
+        "mode": "basic"
+      },
+      "hp": 9,
+      "ap": 2,
+      "art": "art/nimble_fairy.png",
+      "passives": [
+        {
+          "id": "agile_harmony",
+          "name": "Agile Harmony",
+          "trigger": "static",
+          "optional": true,
+          "text": "If this unit has no cards under it, it may attach to a friendly unit with exactly 2 promoted cards. While this card is attached to a unit, once during each of that unit's turns, that unit may place itself on an empty surrounding tile for free. This effect does not stack.",
+          "effects": [
+            {
+              "type": "attach",
+              "target": "friendlyUnit",
+              "if": "self.hasNoCardsUnder",
+              "requires": {
+                "promotedCards": {
+                  "exactly": 2
+                }
+              },
+              "stacks": false,
+              "whileAttached": [
+                {
+                  "type": "place",
+                  "target": "attachedUnit",
+                  "tile": "chosenEmptySurrounding",
+                  "optional": true,
+                  "free": true,
+                  "limits": {
+                    "oncePerAttachedUnitTurn": true
+                  }
+                }
+              ]
+            }
+          ],
+          "script": "fairy_attach"
+        }
+      ],
+      "abilities": [
+        {
+          "id": "fairy_flutter",
+          "name": "Fairy Flutter",
+          "cost": 1,
+          "text": "Move this unit 2 tiles for free.",
+          "effects": [
+            {
+              "type": "move",
+              "target": "self",
+              "distance": 2,
+              "path": {},
+              "mayMoveOverUnits": false,
+              "finalTileMustBeEmpty": true,
+              "free": true
+            }
+          ]
+        }
+      ],
+      "classTags": [
+        "Fairy"
+      ]
+    },
+    {
+      "id": "bolstering_fairy",
+      "set": "Flutter of Fairies",
+      "name": "Bolstering Fairy",
+      "type": "unit",
+      "basic": true,
+      "reinforce": {
+        "mode": "basic"
+      },
+      "hp": 9,
+      "ap": 2,
+      "art": "art/bolstering_fairy.png",
+      "passives": [
+        {
+          "id": "fortifying_harmony",
+          "name": "Fortifying Harmony",
+          "trigger": "static",
+          "optional": true,
+          "text": "If this unit has no cards under it, it may attach to a friendly unit with exactly 1 promoted card. While this card is attached to a unit, that unit has 6 more HP. This effect does not stack.",
+          "effects": [
+            {
+              "type": "attach",
+              "target": "friendlyUnit",
+              "if": "self.hasNoCardsUnder",
+              "requires": {
+                "promotedCards": {
+                  "exactly": 1
+                }
+              },
+              "stacks": false,
+              "whileAttached": [
+                {
+                  "type": "modifyMaxHp",
+                  "target": "attachedUnit",
+                  "amount": 6
+                }
+              ]
+            }
+          ],
+          "script": "fairy_attach"
+        }
+      ],
+      "abilities": [
+        {
+          "id": "fairy_flutter",
+          "name": "Fairy Flutter",
+          "cost": 1,
+          "text": "Move this unit 2 tiles for free.",
+          "effects": [
+            {
+              "type": "move",
+              "target": "self",
+              "distance": 2,
+              "path": {},
+              "mayMoveOverUnits": false,
+              "finalTileMustBeEmpty": true,
+              "free": true
+            }
+          ]
+        }
+      ],
+      "classTags": [
+        "Fairy"
+      ]
+    },
+    {
+      "id": "lucrative_fairy",
+      "set": "Flutter of Fairies",
+      "name": "Lucrative Fairy",
+      "type": "unit",
+      "basic": true,
+      "reinforce": {
+        "mode": "basic"
+      },
+      "hp": 9,
+      "ap": 2,
+      "art": "art/lucrative_fairy.png",
+      "passives": [
+        {
+          "id": "bountiful_harmony",
+          "name": "Bountiful Harmony",
+          "trigger": "static",
+          "optional": true,
+          "text": "If this unit has no cards under it, it may attach to a friendly unit with Tribute 2. While this card is attached to a unit, once during each of that unit's turns, when it kills an enemy non-token unit, draw 1 card. This effect does not stack.",
+          "effects": [
+            {
+              "type": "attach",
+              "target": "friendlyUnit",
+              "if": "self.hasNoCardsUnder",
+              "requires": {
+                "tribute": 2
+              },
+              "stacks": false,
+              "whileAttached": [
+                {
+                  "type": "draw",
+                  "amount": 1,
+                  "trigger": "attachedUnit.killsEnemyNonToken",
+                  "limits": {
+                    "oncePerAttachedUnitTurn": true
+                  }
+                }
+              ]
+            }
+          ],
+          "script": "fairy_attach"
+        }
+      ],
+      "abilities": [
+        {
+          "id": "fairy_flutter",
+          "name": "Fairy Flutter",
+          "cost": 1,
+          "text": "Move this unit 2 tiles for free.",
+          "effects": [
+            {
+              "type": "move",
+              "target": "self",
+              "distance": 2,
+              "path": {},
+              "mayMoveOverUnits": false,
+              "finalTileMustBeEmpty": true,
+              "free": true
+            }
+          ]
+        }
+      ],
+      "classTags": [
+        "Fairy"
+      ]
+    },
+    {
+      "id": "restorative_fairy",
+      "set": "Flutter of Fairies",
+      "name": "Restorative Fairy",
+      "type": "unit",
+      "basic": true,
+      "reinforce": {
+        "mode": "basic"
+      },
+      "hp": 9,
+      "ap": 2,
+      "art": "art/restorative_fairy.png",
+      "passives": [
+        {
+          "id": "mending_harmony",
+          "name": "Mending Harmony",
+          "trigger": "static",
+          "optional": true,
+          "text": "If this unit has no cards under it, it may attach to a friendly unit with Tribute 3. While this card is attached to a unit, at the end of each of your turns, if that unit is damaged and was not healed this turn, it heals 1 damage. This effect does not stack.",
+          "effects": [
+            {
+              "type": "attach",
+              "target": "friendlyUnit",
+              "if": "self.hasNoCardsUnder",
+              "requires": {
+                "tribute": 3
+              },
+              "stacks": false,
+              "whileAttached": [
+                {
+                  "type": "heal",
+                  "target": "attachedUnit",
+                  "amount": 1,
+                  "trigger": "ownerTurnEnd",
+                  "if": "attachedUnit.isDamaged && !attachedUnit.healedThisTurn"
+                }
+              ]
+            }
+          ],
+          "script": "fairy_attach"
+        }
+      ],
+      "abilities": [
+        {
+          "id": "fairy_flutter",
+          "name": "Fairy Flutter",
+          "cost": 1,
+          "text": "Move this unit 2 tiles for free.",
+          "effects": [
+            {
+              "type": "move",
+              "target": "self",
+              "distance": 2,
+              "path": {},
+              "mayMoveOverUnits": false,
+              "finalTileMustBeEmpty": true,
+              "free": true
+            }
+          ]
+        }
+      ],
+      "classTags": [
+        "Fairy"
+      ]
+    },
+    {
+      "id": "foresighted_fairy",
+      "set": "Flutter of Fairies",
+      "name": "Foresighted Fairy",
+      "type": "unit",
+      "basic": true,
+      "reinforce": {
+        "mode": "basic"
+      },
+      "hp": 9,
+      "ap": 2,
+      "art": "art/foresighted_fairy.png",
+      "passives": [
+        {
+          "id": "prescient_harmony",
+          "name": "Prescient Harmony",
+          "trigger": "static",
+          "optional": true,
+          "text": "If this unit has no cards under it, it may attach to a friendly unit with exactly 3 promoted cards. While this card is attached to a unit, at the start of each of your turns, look at the top card of your deck. You may put it on the bottom of your deck. This effect does not stack.",
+          "effects": [
+            {
+              "type": "attach",
+              "target": "friendlyUnit",
+              "if": "self.hasNoCardsUnder",
+              "requires": {
+                "promotedCards": {
+                  "exactly": 3
+                }
+              },
+              "stacks": false,
+              "whileAttached": [
+                {
+                  "type": "scry",
+                  "amount": 1,
+                  "trigger": "ownerTurnStart",
+                  "mayPutOnBottom": true
+                }
+              ]
+            }
+          ],
+          "script": "fairy_attach"
+        }
+      ],
+      "abilities": [
+        {
+          "id": "fairy_flutter",
+          "name": "Fairy Flutter",
+          "cost": 1,
+          "text": "Move this unit 2 tiles for free.",
+          "effects": [
+            {
+              "type": "move",
+              "target": "self",
+              "distance": 2,
+              "path": {},
+              "mayMoveOverUnits": false,
+              "finalTileMustBeEmpty": true,
+              "free": true
+            }
+          ]
+        }
+      ],
+      "classTags": [
+        "Fairy"
+      ]
     }
   ]
 };

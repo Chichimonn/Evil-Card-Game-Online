@@ -1,6 +1,7 @@
 import { BattlefieldUnit } from '../types/game';
 import { getSurroundingHexes } from './hexGridMath';
 import { getUnitPassives } from './unitPassives';
+import { getAttachTurnAp } from './fairyAttachments';
 
 export const NOXIOUS_BURST = 'noxious_burst';
 
@@ -96,9 +97,13 @@ export function getStartingApForTurn(
   startingAp: number;
   hadNoxiousBurst: boolean;
   windchill?: string;
+  attachAp?: string;
 } {
   const hadNoxiousBurst = hasNoxiousBurstEffect(unit);
-  const baseAp = unit.card.ap;
+  // "That unit's AP is set to 1 more than the AP printed on that unit when it takes a turn" (e.g. Galvanic Harmony,
+  // attached): the turn starts from that, and the usual reductions still apply
+  const attachAp = getAttachTurnAp(unit, unit.card.ap);
+  const baseAp = attachAp ? attachAp.ap : unit.card.ap;
   // "Must spend an additional 1AP to take its first action" (Terrifying Roar, Glacial Bolt): AP left unspent is lost
   // at turn end, so this is the same as starting the turn with 1 less AP
   const actionTax = unit.statuses?.includes('action_tax') ? 1 : 0;
@@ -108,7 +113,7 @@ export function getStartingApForTurn(
   // 'enemyUnitStartsTurnSurroundingSelf'
   const windchill = board ? getWindchill(unit, board) : null;
   if (windchill) startingAp = Math.max(Math.min(startingAp, windchill.minAP), startingAp - windchill.amount);
-  return { startingAp, hadNoxiousBurst, windchill: windchill?.name };
+  return { startingAp, hadNoxiousBurst, windchill: windchill?.name, attachAp: attachAp?.source };
 }
 
 function getWindchill(

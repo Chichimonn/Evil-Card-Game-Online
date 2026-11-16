@@ -493,6 +493,15 @@ export function applyAttackerBonusPassives(
     });
   }
 
+  // A free repeat of an attack that "deals 2 damage less on the first hit (to a minimum of 1)" (e.g. Echoing Harmony):
+  // set on the granted copy as firstHitPenalty { amount, min, source }
+  const penalty: any = (ability as any)?.firstHitPenalty;
+  if (penalty && hits[0] && !hits[0].appliedBonuses?.includes('first_hit_penalty')) {
+    hits[0].damage = Math.max(Math.min(hits[0].damage, penalty.min ?? 0), hits[0].damage - penalty.amount);
+    hits[0].appliedBonuses = [...(hits[0].appliedBonuses || []), 'first_hit_penalty'];
+    hits[0].conditionalNote = hits[0].conditionalNote ? `${hits[0].conditionalNote}, -${penalty.amount} ${penalty.source}` : `-${penalty.amount} ${penalty.source}`;
+  }
+
   const reduction = attacker.firstHitReduction || 0;
   if (reduction > 0 && hits[0] && !hits[0].appliedBonuses?.includes('first_hit_reduction')) {
     hits[0].damage = Math.max(0, hits[0].damage - reduction);

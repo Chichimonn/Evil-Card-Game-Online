@@ -1,6 +1,7 @@
 import { BattlefieldUnit, PlayerId } from '../types/game';
 import { CardItem, CardPassive } from '../types/card';
 import { getHexDistance } from './hexGridMath';
+import { getAttachMaxHpBonus } from './fairyAttachments';
 import { getUnitPassives } from './unitPassives';
 
 /**
@@ -87,28 +88,37 @@ export function syncLeaderOfTheBunch(
   let hasChanges = false;
 
   for (const [hexId, unit] of Object.entries(board)) {
-    if (!unit || !hasLeaderOfTheBunch(unit)) continue;
+    // (also extra HP from an attached card, e.g. Fortifying Harmony, and a unit that has lost such a bonus)
+    const attachHp = unit ? getAttachMaxHpBonus(unit) : 0;
+    const isLeader = Boolean(unit && hasLeaderOfTheBunch(unit));
+    if (!unit || (!isLeader && attachHp === 0 && unit.baseMaxHp === undefined)) continue;
 
     // Determine the unit's base HP before any dynamic aura bonuses
     const originalCard = cardsDataList?.find((c) => c.id === unit.card.id);
     const baseHp = unit.baseMaxHp ?? originalCard?.hp ?? unit.card.hp;
 
     // Count friendly units on adjacent tiles (distance 1)
-    const surroundingFriendlyCount = getSurroundingFriendlyCount(
+    const surroundingFriendlyCount = isLeader ? getSurroundingFriendlyCount(
       hexId,
       unit.owner,
       board,
       unit.instanceId
-    );
+    ) : 0;
 
-    const targetMaxHp = baseHp + surroundingFriendlyCount;
+    const targetMaxHp = baseHp + surroundingFriendlyCount + attachHp;
     const currentMaxHp = unit.card.hp;
 
     if (currentMaxHp !== targetMaxHp || unit.baseMaxHp !== baseHp) {
       hasChanges = true;
       const diff = targetMaxHp - currentMaxHp;
 
-      if (diff > 0) {
+      if (!isLeader) {
+        if (diff !== 0) logMessages.push(
+          diff > 0
+            ? `🧚 ${unit.card.name}: +${diff} HP from an attached card (now ${targetMaxHp} max HP).`
+            : `🧚 ${unit.card.name}: lost ${Math.abs(diff)} HP from an attached card (now ${targetMaxHp} max HP).`
+        );
+      } else if (diff > 0) {
         logMessages.push(
           `👑 ${unit.card.name}'s Leader of the Bunch: +${diff} HP (now ${targetMaxHp} max HP) with ${surroundingFriendlyCount} surrounding friendly unit${surroundingFriendlyCount === 1 ? '' : 's'}!`
         );

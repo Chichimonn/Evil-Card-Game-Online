@@ -1,4 +1,5 @@
 import React, { useMemo, useRef, useState } from 'react';
+import { describeAttachments } from '../utils/fairyAttachments';
 import { CardItem, CardAbility } from '../types/card';
 import { BattlefieldUnit, PlayerId } from '../types/game';
 import { BattlefieldCardStandee } from './BattlefieldCardStandee';
@@ -666,6 +667,7 @@ export const HexGridArena: React.FC<HexGridArenaProps> = ({
                       boardPitch={boardPitch}
                       boardYaw={boardYaw}
                       promotedCardsCount={unit.promotedCards?.length || 0}
+                      attachedCards={describeAttachments(unit).map((a) => ({ name: a.card.name, passiveName: a.passive?.name, active: a.active }))}
                       grantedAbilitiesCount={unit.grantedAbilities?.length || 0}
                       isFusionSelected={!activeTurnUnitHex && fusionSelectedHexes.includes(hexId)}
                       isTributeSelected={!activeTurnUnitHex && tributeSacrificeHexes.includes(hexId)}

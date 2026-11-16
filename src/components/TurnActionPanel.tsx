@@ -13,6 +13,7 @@ import { isStraightLineAbility } from '../utils/hexGridMath';
 import { getAbilityHitStructure } from '../utils/attackLogic';
 import { MultiStageState, MultiStageTargetInfo } from '../utils/multiStageAbilities';
 import { getUnitPassives, isUnitMindless } from '../utils/unitPassives';
+import { describeAttachments } from '../utils/fairyAttachments';
 import { getUniversalMoveCost, hasColdFeetEffect, isUnitMovementDisabled, getMoveBlockedMessage } from '../utils/turnRestrictions';
 import { hasEsotericPathways, hasMagicalOmnipresence } from '../utils/movementAbilities';
 import { isFlowingStanceActive, hasCephalopodReach } from '../utils/flowingStance';
@@ -688,6 +689,35 @@ export const TurnActionPanel: React.FC<TurnActionPanelProps> = ({
               )}
             </div>
           )}
+          {/* Cards attached to this unit (e.g. fairies): each one's bonus, and whether it applies now */}
+          {(() => {
+            const attached = describeAttachments(activeTurnUnit);
+            if (attached.length === 0) return null;
+            return (
+              <div className="flex flex-col gap-1 pt-1.5 border-t border-stone-800">
+                <span className="text-[10px] font-mono text-emerald-400/80 font-bold uppercase tracking-wider">Attached</span>
+                <div className="flex flex-col gap-1 max-h-24 overflow-y-auto custom-scrollbar">
+                  {attached.map((a, i) => (
+                    <div
+                      key={`attached_${a.card.id}_${i}`}
+                      onMouseEnter={() => onHoverCard?.(a.card)}
+                      onMouseLeave={() => onHoverCard?.(null)}
+                      className={`w-full flex items-center justify-between px-2 py-1 rounded-md text-xs font-serif border cursor-pointer ${
+                        a.active ? 'bg-stone-900/90 border-emerald-900/50 text-emerald-200' : 'bg-stone-900/60 border-stone-800/80 text-stone-500'
+                      }`}
+                      title={a.passive ? `${a.passive.name}: ${a.passive.text}` : a.card.name}
+                    >
+                      <span className="truncate font-bold">
+                        🧚 {a.card.name}
+                        {a.passive ? ` · ${a.passive.name}` : ''}
+                      </span>
+                      <span className="shrink-0 ml-1 text-[10px] font-mono">{a.active ? 'active' : 'no bonus'}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            );
+          })()}
           {/* Unit Passives (Rule: Passives and 1/Turn status) */}
           {(() => {
             const passives = getUnitPassives(activeTurnUnit);

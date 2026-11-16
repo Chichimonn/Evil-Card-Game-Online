@@ -19,6 +19,8 @@ interface BattlefieldCardStandeeProps {
   boardPitch: number;
   boardYaw: number;
   promotedCardsCount?: number;
+  // Cards attached to it (e.g. fairies): their names, and whether each one's bonus applies now
+  attachedCards?: { name: string; passiveName?: string; active: boolean }[];
   grantedAbilitiesCount?: number;
   onHoverUnitCard?: (card: CardItem | null, owner?: PlayerId) => void;
   isFusionSelected?: boolean;
@@ -61,6 +63,7 @@ export const BattlefieldCardStandee: React.FC<BattlefieldCardStandeeProps> = ({
   boardPitch,
   boardYaw,
   promotedCardsCount = 0,
+  attachedCards = [],
   grantedAbilitiesCount = 0,
   onHoverUnitCard,
   isFusionSelected = false,
@@ -249,6 +252,22 @@ export const BattlefieldCardStandee: React.FC<BattlefieldCardStandeeProps> = ({
               title={`Contains ${promotedCardsCount} promoted/fusion card${promotedCardsCount > 1 ? 's' : ''}`}
             >
               ★{promotedCardsCount}
+            </div>
+          )}
+
+          {/* Attached Cards Badge (e.g. fairies): bright while a bonus applies, dim while none does */}
+          {attachedCards.length > 0 && (
+            <div
+              className={`px-1.5 py-0.5 rounded-md border-2 text-xs font-mono font-black shadow-lg ${
+                attachedCards.some((a) => a.active)
+                  ? 'bg-emerald-950/90 border-emerald-400 text-emerald-200'
+                  : 'bg-stone-900/90 border-stone-500 text-stone-400'
+              }`}
+              title={`Attached: ${attachedCards
+                .map((a) => `${a.name}${a.passiveName ? ` (${a.passiveName})` : ''}: ${a.active ? 'active' : 'no bonus right now'}`)
+                .join(', ')}`}
+            >
+              🧚{attachedCards.length}
             </div>
           )}
 
