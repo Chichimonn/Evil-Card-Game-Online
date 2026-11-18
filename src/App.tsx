@@ -310,7 +310,7 @@ import {
 import { getExtraSameDirectionMove } from './utils/movementAbilities';
 import { getAbilityRangePassiveBonus } from './utils/flowingStance';
 import { getGrantedAllyAttack, getAllyAttackChoices } from './utils/multiStageAbilities';
-import { getStartingScale } from './utils/device';
+import { STARTING_SCALE } from './utils/device';
 import {
   hasFlowingStancePassive,
   isFlowingStanceActive,
@@ -340,9 +340,6 @@ const HoveredStandeeCardPreview: React.FC<{
   );
 };
 
-// The game's starting size on this screen (1 is as designed, for a 1440p screen); see utils/device
-const STARTING_SCALE = getStartingScale();
-
 export default function App() {
   const { cardImages } = useCardImages();
   const [cardsData, setCardsData] = useState(initialCardsData);
@@ -352,6 +349,8 @@ export default function App() {
   // The gallery's title, search and filter bar (stays at the top while scrolling; the arrow hides or shows it)
   // (hidden when the page loads, for a clean first look)
   const [isGalleryBarOpen, setIsGalleryBarOpen] = useState(false);
+  // The top bar hidden in a match (its tab brings it back; it's always shown outside matches)
+  const [isTopBarHidden, setIsTopBarHidden] = useState(false);
   // The version and set next to the title, behind a small arrow on their left (hidden at first, like the gallery bar)
   const [isVersionOpen, setIsVersionOpen] = useState(false);
   const [customArtMap, setCustomArtMap] = useState<Record<string, string>>({});
@@ -15362,6 +15361,11 @@ export default function App() {
         </div>
       )}
       {/* ================= TOP NAV BAR ================= */}
+      {/* Always at its designed size, whatever the game's starting size (the zoom here undoes the page's). In a match it
+          can be hidden with the small tab under its middle; while hidden, the tab hangs from the top of the page to bring
+          it back. */}
+      <div className="relative shrink-0 z-40" style={{ zoom: 1 / STARTING_SCALE }}>
+      {!(isTopBarHidden && activeTab === 'play') && (
       <header
         data-input-always
         className="relative h-16 shrink-0 border-b px-6 flex items-center justify-between backdrop-blur-md z-40 transition-colors shadow-md"
@@ -15540,6 +15544,18 @@ export default function App() {
           </button>
         </div>
       </header>
+      )}
+      {activeTab === 'play' && (
+        <button
+          data-input-always
+          onClick={() => setIsTopBarHidden((hidden) => !hidden)}
+          title={isTopBarHidden ? 'Show the top bar' : 'Hide the top bar'}
+          className="absolute top-full left-1/2 -translate-x-1/2 px-3 py-0.5 rounded-b-md bg-[#2f2829] border border-t-0 border-[#433738] text-stone-400 hover:text-stone-100 transition-colors cursor-pointer"
+        >
+          {isTopBarHidden ? <ChevronDown className="w-4 h-4" /> : <ChevronUp className="w-4 h-4" />}
+        </button>
+      )}
+      </div>
 
       {/* Online: the link to the other player dropped; reconnecting, or a way out */}
       {reconnect && (

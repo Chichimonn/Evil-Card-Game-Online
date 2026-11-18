@@ -14,7 +14,7 @@ import { getAllCachedCardFaces, saveCachedCardFace, removeCachedCardFaces, type 
 import { getProcessedArt } from '../utils/artHalo';
 import { getTokenGalleryCards } from '../utils/tokenCards';
 import { LOADING_MESSAGES } from '../data/loadingMessages';
-import { IS_MOBILE_DEVICE, FACE_PIXEL_RATIO } from '../utils/device';
+import { IS_MOBILE_DEVICE, FACE_PIXEL_RATIO, STARTING_SCALE } from '../utils/device';
 
 // Every card face drawn: the real cards, then the tokens (shown after them in the gallery)
 const RENDERED_CARDS: CardItem[] = [...initialCardsData.cards, ...getTokenGalleryCards(initialCardsData)];
@@ -536,8 +536,8 @@ export const CardImageProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         <div className="fixed inset-0 bg-[#0c0a09] z-[99999] flex items-center justify-center select-none text-stone-200 p-2 sm:p-4 overflow-hidden">
           <LoadingBackdrop />
 
-          {/* Everything shown while loading, in one panel over the backdrop */}
-          <div className="relative flex flex-col items-center gap-6 px-3 pt-8 pb-5 sm:px-10 rounded-3xl border border-stone-700/60 bg-stone-950/75 backdrop-blur-md shadow-[0_30px_80px_rgba(0,0,0,0.8)] max-w-full">
+          {/* Everything shown while loading, in one panel over the backdrop, at the game's starting size (see utils/device) */}
+          <div style={{ zoom: STARTING_SCALE }} className="relative flex flex-col items-center gap-6 px-3 pt-8 pb-5 sm:px-10 rounded-3xl border border-stone-700/60 bg-stone-950/75 backdrop-blur-md shadow-[0_30px_80px_rgba(0,0,0,0.8)] max-w-full">
           {/* Card back image rotated 90 degrees clockwise at full size and resolution */}
           <div className="relative flex items-center justify-center drop-shadow-[0_25px_60px_rgba(0,0,0,0.95)]">
             <div className="w-[336px] sm:w-[420px] h-[240px] sm:h-[300px] relative overflow-hidden rounded-2xl border-2 border-stone-800 shadow-2xl flex items-center justify-center bg-[#1e191a] animate-in fade-in zoom-in-95 duration-200">

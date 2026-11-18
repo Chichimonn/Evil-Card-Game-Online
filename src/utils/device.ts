@@ -60,6 +60,9 @@ export function getStartingScale(): number {
   return table[table.length - 1].scale;
 }
 
+/** The game's starting size on this screen (worked out once, when the game loads). */
+export const STARTING_SCALE = getStartingScale();
+
 /**
  * How sharply card faces are drawn on this screen: the face (750 x 1050 page pixels) is drawn at this many pixels per
  * page pixel. 2 (1500 x 2100) is what looks right on a 1440p screen. A smaller screen shows cards smaller (the game's
@@ -71,7 +74,7 @@ export function getStartingScale(): number {
 const MAX_FACE_PIXEL_RATIO = 2;
 export function getFacePixelRatio(): number {
   const density = typeof window !== 'undefined' && window.devicePixelRatio > 0 ? window.devicePixelRatio : 1;
-  const ratio = MAX_FACE_PIXEL_RATIO * getStartingScale() * density;
+  const ratio = MAX_FACE_PIXEL_RATIO * STARTING_SCALE * density;
   return Math.round(Math.min(MAX_FACE_PIXEL_RATIO, Math.max(1, ratio)) * 10) / 10;
 }
 

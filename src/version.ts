@@ -12,11 +12,13 @@
  *   the card changes and rules updates from the November 2026 notes.
  * 0.7.1: art fixes for Bridging the Gap.
  * 0.7.2: Endless singleplayer mode (Campaign coming 2027) and a Lead the Charge fix.
+ * 0.7.3: quicker loading (card faces saved properly again, drawn at a resolution that suits the screen), a new loading
+ *   screen, smaller set backgrounds, a starting size that suits the screen, and a top bar that can be hidden in matches.
  * BUILD_ID: made automatically from all of the game's code and card data (see vite.config.ts), so two copies with any
  * rules difference never match even if GAME_VERSION wasn't bumped. The dev server makes it when it starts, so restart
  * it after editing to get the new fingerprint.
  */
-export const GAME_VERSION = '0.7.2';
+export const GAME_VERSION = '0.7.3';
 
 declare const __BUILD_ID__: string;
 export const BUILD_ID: string = typeof __BUILD_ID__ === 'string' ? __BUILD_ID__ : 'unknown';
