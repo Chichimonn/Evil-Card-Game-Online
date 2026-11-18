@@ -26,6 +26,8 @@ export interface AttackHit {
   blockWithoutDepleting?: boolean;
   conditionalNote?: string;
   appliedBonuses?: string[];
+  /** "Then, if the target has no armour, this attack hits again" (e.g. Plunge and Twist): checked when this hit comes up, after the earlier hits */
+  onlyIfTargetHasNoArmour?: boolean;
 }
 
 export interface AbilityHitStructure {
@@ -53,6 +55,47 @@ export interface AttackExecutionOptions {
   targetHex?: string | null;
   unitsOnBoard?: Record<string, BattlefieldUnit>;
   scorchedTiles?: Record<string, any> | null;
+  /** Armour the attack removed from the target before its damage (e.g. Rip and Tear), when the caller knows it */
+  armourRemovedBeforeAttack?: number;
+}
+
+/** Whether the target's tile is scorched right now, with whatever board the caller gave (else the current one). */
+function isTargetOnScorchedTile(target: BattlefieldUnit | null | undefined, options?: AttackExecutionOptions): boolean {
+  const hex = options?.targetHex || target?.hexId;
+  if (!hex) return false;
+  return options?.unitsOnBoard && options?.scorchedTiles
+    ? isTileScorched(hex, options.unitsOnBoard, options.scorchedTiles)
+    : isHexScorchedNow(hex, options?.unitsOnBoard);
+}
+
+/**
+ * Whether an attack's conditional extra hit ({ extraHit: { amount, if } }) happens. With no target (a preview of the
+ * ability on its own) the hit is shown as possible. 'target.noArmour' is checked later, as the hit comes up (see
+ * onlyIfTargetHasNoArmour), so it holds here. A condition this doesn't know never adds the hit.
+ */
+export function extraHitConditionHolds(
+  cond: unknown,
+  ability: CardAbility,
+  attacker: BattlefieldUnit | null | undefined,
+  target: BattlefieldUnit | null | undefined,
+  options?: AttackExecutionOptions
+): boolean {
+  if (cond === undefined || cond === null) return true;
+  if (typeof cond !== 'string') return false;
+  if (cond === 'thisAbilityNotUsedEarlierThisTurn') {
+    return !(attacker?.usedTurnCounts?.[ability.baseAbilityId || ability.id] || 0);
+  }
+  if (!target) return true;
+  if (cond === 'target.noArmour') return true;
+  if (cond === 'noArmourWasRemoved') {
+    return typeof options?.armourRemovedBeforeAttack === 'number' ? options.armourRemovedBeforeAttack === 0 : target.armour === 0;
+  }
+  if (cond === 'target.wasAtFullHpBeforeAttack') return target.damageCounters === 0;
+  if (cond === 'target.onScorchedTile') return isTargetOnScorchedTile(target, options);
+  if (!attacker) return false;
+  if (cond.startsWith('target.')) return targetConditionHolds(cond, attacker, target, options);
+  const isBehind = isAttackFromBehind(options?.attackerHex || attacker.hexId, options?.targetHex || target.hexId, target.owner, ability);
+  return evalAttackerCondition(cond, attacker, isBehind) ?? false;
 }
 
 /** Whether an ability's damage comes from its user's own movement (e.g. Mounted Charge, Sky Slither, Lead the Charge). */
@@ -1179,13 +1222,17 @@ export function getAbilityHitStructure(
     };
   }
 
-  if (ability.id === 'rip_and_tear') {
+  // The ability itself, also when it is used through another (e.g. Knightly Armament's copy of Plunge and Twist)
+  const coreId = ability.promotedAbilityId || ability.id;
+
+  if (coreId === 'rip_and_tear') {
     const hits: AttackHit[] = [{ hitIndex: 1, damage: 7 }];
-    const noArmour = !target || target.armour === 0;
+    // "If no armour was removed this way": the caller says how much it removed, else the target's armour beforehand
+    const noArmour = extraHitConditionHolds('noArmourWasRemoved', ability, attacker || options?.attacker, target, options);
     if (noArmour) {
       hits.push({ hitIndex: 2, damage: 5, conditionalNote: 'no armour was removed' });
     }
-    applyAttackerBonusPassives(hits, ability, attacker, target);
+    applyAttackerBonusPassives(hits, ability, attacker || options?.attacker, target, options);
     return {
       isBladefury: false,
       isMultiHit: noArmour,
@@ -1227,12 +1274,12 @@ export function getAbilityHitStructure(
     };
   }
 
-  if (ability.id === 'arcane_surge') {
+  if (coreId === 'arcane_surge') {
     const hits: AttackHit[] = [{ hitIndex: 1, damage: 6, bypassArmour: true }];
-    if (!target || target.damageCounters === 0) {
+    if (extraHitConditionHolds('target.wasAtFullHpBeforeAttack', ability, attacker || options?.attacker, target, options)) {
       hits.push({ hitIndex: 2, damage: 4, bypassArmour: false, conditionalNote: 'target was at full HP' });
     }
-    applyAttackerBonusPassives(hits, ability, attacker, target);
+    applyAttackerBonusPassives(hits, ability, attacker || options?.attacker, target, options);
     return {
       isBladefury: false,
       isMultiHit: true,
@@ -1260,12 +1307,13 @@ export function getAbilityHitStructure(
       badgeText: venomed ? '10 Dmg' : '1 Dmg'
     };
   }
-  if (ability.id === 'plunge_and_twist') {
-    const hits: AttackHit[] = [{ hitIndex: 1, damage: 5 }];
-    if (!target || target.armour === 0) {
-      hits.push({ hitIndex: 2, damage: 3, conditionalNote: 'target has no armour' });
-    }
-    applyAttackerBonusPassives(hits, ability, attacker, target);
+  if (coreId === 'plunge_and_twist') {
+    // "Then, if the target has no armour": checked after the first hit, as the second comes up
+    const hits: AttackHit[] = [
+      { hitIndex: 1, damage: 5 },
+      { hitIndex: 2, damage: 3, conditionalNote: 'target has no armour', onlyIfTargetHasNoArmour: true }
+    ];
+    applyAttackerBonusPassives(hits, ability, attacker || options?.attacker, target, options);
     return {
       isBladefury: false,
       isMultiHit: true,
@@ -1275,15 +1323,14 @@ export function getAbilityHitStructure(
     };
   }
 
-  if (ability.id === 'prismatic_slash') {
-    const isScorched = Boolean(
-      options?.targetHex && options?.unitsOnBoard && isTileScorched(options.targetHex, options.unitsOnBoard, options?.scorchedTiles)
-    );
+  if (coreId === 'prismatic_slash') {
+    // Only with a target to check (a preview on its own shows the 7)
+    const isScorched = Boolean(target) && isTargetOnScorchedTile(target, options);
     const hits: AttackHit[] = [{ hitIndex: 1, damage: 7 }];
     if (isScorched) {
       hits.push({ hitIndex: 2, damage: 4, conditionalNote: 'standing on scorched tile' });
     }
-    applyAttackerBonusPassives(hits, ability, attacker, target);
+    applyAttackerBonusPassives(hits, ability, attacker || options?.attacker, target, options);
     const isMulti = hits.length > 1;
     return {
       isBladefury: false,
@@ -1298,11 +1345,11 @@ export function getAbilityHitStructure(
 
   // Check structured extraHit:
   const firstEffAny = damageEffects[0] as Record<string, any> | undefined;
-  // { extraHit: { amount, if?: 'thisAbilityNotUsedEarlierThisTurn' } } (e.g. Monkey Smash: first use this turn only)
+  // { extraHit: { amount, if? } }: the condition is checked (see extraHitConditionHolds), e.g. Monkey Smash's
+  // 'thisAbilityNotUsedEarlierThisTurn', Borrowed Blaster's 'selfOnTileBehindTarget'
+  const extraHitAttacker = attacker || options?.attacker;
   const extraHitApplies =
-    firstEffAny?.extraHit &&
-    (firstEffAny.extraHit.if !== 'thisAbilityNotUsedEarlierThisTurn' ||
-      !((attacker || options?.attacker)?.usedTurnCounts?.[ability.baseAbilityId || ability.id] || 0));
+    firstEffAny?.extraHit && extraHitConditionHolds(firstEffAny.extraHit.if, ability, extraHitAttacker, target, options);
   if (firstEffAny && firstEffAny.extraHit && extraHitApplies) {
     // { if, addAmountPerHit } on the target (e.g. Crescent Blade: +1 per hit against a unit it knocked back this turn)
     const perHitAdd = ((firstEffAny.modifiers || []) as any[])
@@ -1312,7 +1359,12 @@ export function getAbilityHitStructure(
     const d2 = (typeof firstEffAny.extraHit.amount === 'number' ? firstEffAny.extraHit.amount : d1 - perHitAdd) + perHitAdd;
     const hits: AttackHit[] = [
       { hitIndex: 1, damage: d1 },
-      { hitIndex: 2, damage: d2 }
+      {
+        hitIndex: 2,
+        damage: d2,
+        ...(firstEffAny.extraHit.if === 'target.noArmour' ? { onlyIfTargetHasNoArmour: true } : {}),
+        ...(typeof firstEffAny.extraHit.bypassArmour === 'boolean' ? { bypassArmour: firstEffAny.extraHit.bypassArmour } : {})
+      }
     ];
     applyAttackerBonusPassives(hits, ability, attacker || options?.attacker, target, options);
     return {
@@ -1704,6 +1756,8 @@ export function executeSequentialHits(
     if (currentCounters >= targetHp) {
       break;
     }
+    // "Then, if the target has no armour, this attack hits again" (e.g. Plunge and Twist): armour left after the earlier hits
+    if (hit.onlyIfTargetHasNoArmour && currentArmour > 0) continue;
 
     let hitDmg = hit.damage;
     let notes = hit.conditionalNote || '';

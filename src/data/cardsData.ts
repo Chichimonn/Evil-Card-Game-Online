@@ -15613,12 +15613,12 @@ export const initialCardsData: CardsDataSchema = {
           "id": "death_wail",
           "name": "Death Wail",
           "cost": 3,
-          "text": "All other units in range that are not Apparitions take 9 damage, minus their range from this unit.",
+          "text": "All other units in range that are not Apparitions take 8 damage, minus twice their range from this unit.",
           "effects": [
             {
               "type": "damage",
               "amount": {
-                "formula": "9 - range"
+                "formula": "8 - 2 * range"
               },
               "hits": 1,
               "area": "otherUnitsWithinRange:5",
@@ -19108,11 +19108,11 @@ export const initialCardsData: CardsDataSchema = {
           "id": "downward_swing",
           "name": "Downward Swing",
           "cost": 1,
-          "text": "Deals 4 damage.",
+          "text": "Deals 5 damage.",
           "effects": [
             {
               "type": "damage",
-              "amount": 4,
+              "amount": 5,
               "hits": 1
             }
           ],
@@ -19127,7 +19127,7 @@ export const initialCardsData: CardsDataSchema = {
           "id": "meteor_hammer",
           "name": "Meteor Hammer",
           "cost": 1,
-          "text": "Deals 4 damage to all units on the path.",
+          "text": "Deals 4 damage to all units on the path. Use only once per turn.",
           "effects": [
             {
               "type": "damage",

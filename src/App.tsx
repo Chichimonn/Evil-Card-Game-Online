@@ -8268,7 +8268,9 @@ export default function App() {
           attackerHex: activeTurnUnitHex,
           targetHex: hexId,
           unitsOnBoard,
-          scorchedTiles
+          scorchedTiles,
+          // "If no armour was removed this way" (e.g. Rip and Tear)
+          armourRemovedBeforeAttack
         };
 
         // Multi-hit and damage determination:
@@ -8287,20 +8289,9 @@ export default function App() {
 
         let hitsToExecute: AttackHit[] = [];
 
-        // Custom ability damage formulas:
-        if (activeAbility.id === 'rip_and_tear') {
-          // Rip and Tear: If no armour was removed this way, deal 5 damage (as an additional hit)
-          if (armourRemovedBeforeAttack === 0) {
-            hitsToExecute = [
-              { hitIndex: 1, damage: 7 },
-              { hitIndex: 2, damage: 5, conditionalNote: 'no armour was removed' }
-            ];
-          } else {
-            hitsToExecute = [
-              { hitIndex: 1, damage: 7, conditionalNote: `removed all ${armourRemovedBeforeAttack} armour` }
-            ];
-          }
-        } else if (activeAbility.id === 'shield_bash_and_cleave') {
+        // Custom ability damage formulas (Rip and Tear and Plunge and Twist come from the hit structure, which checks
+        // their extra hits: see getAbilityHitStructure)
+        if (activeAbility.id === 'shield_bash_and_cleave') {
           hitsToExecute = [
             { hitIndex: 1, damage: 7, conditionalNote: armourRemovedBeforeAttack > 0 ? `removed ${armourRemovedBeforeAttack} armour` : '' },
             { hitIndex: 2, damage: 4, conditionalNote: 'cleave' }
@@ -8338,8 +8329,6 @@ export default function App() {
               conditionalNote: targetIsVenomed ? 'Slow Venom: 10 damage' : 'bypassed armour'
             }
           ];
-                  } else if (activeAbility.id === 'plunge_and_twist') {
-          hitsToExecute = [{ hitIndex: 1, damage: 5 }];
         } else if (getFalloffDamageBase(activeAbility) !== null) {
           // Full Bore: deals less damage equal to the number of tiles between this unit and the unit hit (N - tilesBetween)
           const targetDist = getHexDistance(activeTurnUnitHex, hexId);
@@ -8416,18 +8405,6 @@ export default function App() {
           activeAbility.id,
           attackOptions
         );
-        // Plunge and Twist: if the target has no armour after hit 1, hit again for 3
-        if (activeAbility.id === 'plunge_and_twist' && !exec.isDefeated && exec.finalArmour === 0) {
-          const second = executeSequentialHits(
-            [{ hitIndex: 2, damage: 3, conditionalNote: 'no armour left' }],
-            exec.finalArmour,
-            exec.finalDamageCounters,
-            targetUnit.card.hp,
-            activeAbility.id,
-            attackOptions
-          );
-          exec = { ...second, hitResults: [...exec.hitResults, ...second.hitResults] };
-        }
         // Ready Stance: prevent up to 7 damage from a melee attack and deal that much back
         let readyStanceTriggered = false;
         let readyStancePrevented = 0;
@@ -15087,7 +15064,7 @@ export default function App() {
         lastSetupPlayerRef.current = ENDLESS_PLAYER;
         appendLog('note', `Endless: wave ${endlessWave} cleared. Your board, hand and graveyard were shuffled back into your deck.`);
         showNotification(
-          `🌊 Wave ${endlessWave} cleared! Your cards are shuffled back into your deck. New starting phase: waves ${wave}-${wave + WAVES_PER_ROUND - 1} have a unit budget of ${waveBudget(wave)}.`
+          `🌊 Wave ${endlessWave} cleared! Your cards are shuffled back into your deck. New starting phase: waves ${wave}-${wave + WAVES_PER_ROUND - 1} have a Threat Level of ${waveBudget(wave)}.`
         );
         return;
       }
@@ -15135,9 +15112,9 @@ export default function App() {
     });
     setUnitsOnBoard(board);
     setEndlessWave(wave);
-    appendLog('note', `Endless: wave ${wave} arrives (budget ${waveBudget(wave)}): ${placed.join(', ')}`);
+    appendLog('note', `Endless: wave ${wave} arrives (Threat Level ${waveBudget(wave)}): ${placed.join(', ')}`);
     showNotification(
-      `🌊 Wave ${wave} (budget ${waveBudget(wave)}): ${placed.join(', ') || 'no room on the computer\'s home row'}.${
+      `🌊 Wave ${wave} (Threat Level ${waveBudget(wave)}): ${placed.join(', ') || 'no room on the computer\'s home row'}.${
         pulled.moved.length ? ` Your units were placed back on your side: ${pulled.moved.map((m) => `${m.name} ${m.from}→${m.to}`).join(', ')}.` : ''
       }`
     );
@@ -16160,7 +16137,7 @@ export default function App() {
               <div className="mr-3 px-4 py-2 rounded-xl bg-stone-900/95 border border-amber-500/80 text-amber-200 text-sm font-mono font-bold shadow-2xl pointer-events-none">
                 {endlessWave === 0
                   ? 'Endless: wave 1 arrives when the game starts'
-                  : `Endless · Wave ${endlessWave} · Budget ${waveBudget(endlessWave)}`}
+                  : `Endless · Wave ${endlessWave} · Threat Level ${waveBudget(endlessWave)}`}
               </div>
             )}
             <button

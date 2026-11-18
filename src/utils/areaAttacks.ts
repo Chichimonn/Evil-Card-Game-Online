@@ -8,7 +8,7 @@ import {
   cubeToOffset,
   toHexId
 } from './hexGridMath';
-import { executeSequentialHits, applyAttackerBonusPassives, AttackHit, AttackExecutionOptions, markDamageCapUsed } from './attackLogic';
+import { executeSequentialHits, applyAttackerBonusPassives, extraHitConditionHolds, AttackHit, AttackExecutionOptions, markDamageCapUsed } from './attackLogic';
 import { withAttackStatuses } from './statusEffects';
 import { DamageEvent, hasFeedingFrenzy, isImmuneToNonDamageEffects } from './unitPassives';
 import { getUsableArmour, settleSharedArmour } from './turnRestrictions';
@@ -238,12 +238,13 @@ export function resolveAreaAttack(
     if (u.owner === owner && hexId !== casterHex && hasFeedingFrenzy(working[casterHex]) && isImmuneToNonDamageEffects(u)) return;
     // "9 damage, minus their range from this unit" (e.g. Death Wail); "1 damage less for each time it was previously
     // used this turn" (e.g. Wind Javelins)
-    const falloff = typeof effect.amount?.formula === 'string' ? effect.amount.formula.match(/^\s*(\d+)\s*-\s*range\s*$/) : null;
+    // ("8 damage, minus twice their range": '8 - 2 * range')
+    const falloff = typeof effect.amount?.formula === 'string' ? effect.amount.formula.match(/^\s*(\d+)\s*-\s*(?:(\d+)\s*\*\s*)?range\s*$/) : null;
     const perUse = ((effect.modifiers || []) as any[]).reduce(
       (s, m) => s + (typeof m.addAmount?.perPreviousUseThisTurn === 'number' ? m.addAmount.perPreviousUseThisTurn * (opts?.previousUses || 0) : 0),
       0
     );
-    const amount = (falloff ? parseInt(falloff[1], 10) - getHexDistance(casterHex, hexId) : num(effect.amount, 0)) + perUse;
+    const amount = (falloff ? parseInt(falloff[1], 10) - parseInt(falloff[2] || '1', 10) * getHexDistance(casterHex, hexId) : num(effect.amount, 0)) + perUse;
     const count = num(effect.hits, 1);
     if (amount <= 0) return;
 
@@ -254,8 +255,6 @@ export function resolveAreaAttack(
       blockWithoutDepleting: effect.armourInteraction === 'blockWithoutDepleting'
     }));
     // "Then hits again for N damage" (e.g. Laser Artillery)
-    if (typeof effect.extraHit?.amount === 'number') hits.push({ hitIndex: hits.length + 1, damage: effect.extraHit.amount });
-
     const options: AttackExecutionOptions = {
       attacker: working[casterHex],
       target: u,
@@ -264,6 +263,17 @@ export function resolveAreaAttack(
       targetHex: hexId,
       unitsOnBoard: working
     };
+    // A conditional extra hit only when its condition holds against this unit (e.g. Borrowed Blaster: from the tile behind it)
+    if (
+      typeof effect.extraHit?.amount === 'number' &&
+      extraHitConditionHolds(effect.extraHit.if, ability, working[casterHex], u, options)
+    ) {
+      hits.push({
+        hitIndex: hits.length + 1,
+        damage: effect.extraHit.amount,
+        ...(effect.extraHit.if === 'target.noArmour' ? { onlyIfTargetHasNoArmour: true } : {})
+      });
+    }
 
     // The attacker's "its attacks deal more" bonuses (e.g. Twinsoul, Drakescale) apply to area attacks too
     applyAttackerBonusPassives(hits, ability, working[casterHex], u, options);

@@ -8,9 +8,9 @@ import { getHexDistance } from '../utils/hexGridMath';
  *
  * - The player brings a deck; the computer has no hand or deck and never uses cards.
  * - Each wave, the computer puts units into play on its home row. When every one of them is gone, the next wave comes.
- * - Waves 1-10 have a unit budget of 1, waves 11-20 a budget of 2, and so on. A unit's cost is the number of cards
- *   that go into it: a basic unit 1, a promoted unit 2, a Fusion N or Tribute N unit N + 1. A wave spends its whole
- *   budget, one unit at a time (the most expensive units it can afford are the most likely).
+ * - Waves 1-10 have a Threat Level of 2, waves 11-20 a Threat Level of 3, and so on. A unit's cost is the number of cards
+ *   that go into it: a basic unit 1, a promoted unit 2, a Fusion N or Tribute N unit N + 1. A wave spends its whole Threat
+ *   Level, one unit at a time (the most expensive units it can afford are the most likely).
  * - Every 10 waves the player's board, hand and graveyard are shuffled back into their deck, and a new starting phase
  *   (setup) begins.
  * - When a wave comes in, the player's units on the computer's half of the board are placed on the empty tile on their
@@ -33,8 +33,8 @@ export const CPU_EXCLUDED_UNITS = new Set<string>([
   'grandfather_mystic' // Grandfather Oracle
 ]);
 
-/** The unit budget for a wave (waves are numbered from 1). */
-export const waveBudget = (wave: number): number => Math.floor((wave - 1) / WAVES_PER_ROUND) + 1;
+/** The Threat Level for a wave (waves are numbered from 1): the cost of the units it brings, starting at 2. */
+export const waveBudget = (wave: number): number => Math.floor((wave - 1) / WAVES_PER_ROUND) + 2;
 
 /** Whether this wave is the first of a new round of 10 (after the first), when the player's board is reset. */
 export const startsNewRound = (wave: number): boolean => wave > 1 && (wave - 1) % WAVES_PER_ROUND === 0;
@@ -89,8 +89,8 @@ export function randomPromotedCards(card: CardItem, basics: CardItem[], random: 
 }
 
 /**
- * The units of a wave: spend the budget one unit at a time, each a random affordable unit, favouring the most expensive
- * cost it can afford (so a budget of 2 is one promoted unit, not two basic ones, when it can be).
+ * The units of a wave: spend the Threat Level one unit at a time, each a random affordable unit, favouring the most expensive
+ * cost it can afford (so a Threat Level of 2 is one promoted unit, not two basic ones, when it can be).
  */
 export function chooseWaveUnits(budget: number, pool: CardItem[], random: () => number): CardItem[] {
   const out: CardItem[] = [];
