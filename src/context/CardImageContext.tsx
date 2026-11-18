@@ -279,6 +279,56 @@ function useRotatingMessage(active: boolean): string {
   return LOADING_MESSAGES[index] || 'Loading cards...';
 }
 
+// ---- The loading screen's background ----
+// The sets' backgrounds (the small copies the card faces use, downloaded for them anyway), shown blurred one after
+// another, each slowly panning across. The keyframes live here rather than in index.css: that stylesheet is part of the
+// card faces' signature, so a change to it would draw every saved face again.
+const BACKDROP_IMAGES: string[] = Array.from(
+  new Set(RENDERED_CARDS.map(getCardBackgroundPath).filter((p): p is string => Boolean(p)))
+);
+const BACKDROP_SECONDS_EACH = 8;
+const BACKDROP_PANS = ['loading-pan-a', 'loading-pan-b', 'loading-pan-c', 'loading-pan-d'];
+const BACKDROP_CSS = `
+@keyframes loading-pan-a { from { transform: scale(1.2) translate(-6%, -3%); } to { transform: scale(1.2) translate(6%, 3%); } }
+@keyframes loading-pan-b { from { transform: scale(1.25) translate(5%, 4%); } to { transform: scale(1.25) translate(-5%, -4%); } }
+@keyframes loading-pan-c { from { transform: scale(1.2) translate(-5%, 4%); } to { transform: scale(1.2) translate(5%, -4%); } }
+@keyframes loading-pan-d { from { transform: scale(1.25) translate(6%, -2%); } to { transform: scale(1.25) translate(-6%, 2%); } }
+.loading-backdrop-image { will-change: transform, opacity; }
+@media (prefers-reduced-motion: reduce) { .loading-backdrop-image { animation: none !important; } }
+`;
+
+const LoadingBackdrop: React.FC = () => {
+  const [current, setCurrent] = useState(0);
+  useEffect(() => {
+    if (BACKDROP_IMAGES.length < 2) return;
+    const timer = setInterval(() => setCurrent((i) => (i + 1) % BACKDROP_IMAGES.length), BACKDROP_SECONDS_EACH * 1000);
+    return () => clearInterval(timer);
+  }, []);
+  return (
+    <div className="absolute inset-0 overflow-hidden pointer-events-none" aria-hidden="true">
+      <style>{BACKDROP_CSS}</style>
+      {BACKDROP_IMAGES.map((src, i) => (
+        <img
+          key={src}
+          src={src}
+          alt=""
+          className="loading-backdrop-image absolute inset-0 w-full h-full object-cover"
+          style={{
+            opacity: i === current ? 1 : 0,
+            transition: 'opacity 1.6s ease-in-out',
+            filter: 'blur(14px) saturate(1.1)',
+            // Each picture pans for a little longer than it's shown, so it never stops while in view
+            animation: `${BACKDROP_PANS[i % BACKDROP_PANS.length]} ${BACKDROP_SECONDS_EACH * 2}s ease-in-out infinite alternate`
+          }}
+        />
+      ))}
+      {/* Darkened, most of all at the edges, so the panel stands out */}
+      <div className="absolute inset-0 bg-[#0c0a09]/55" />
+      <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_center,transparent_30%,rgba(12,10,9,0.85)_100%)]" />
+    </div>
+  );
+};
+
 export const CardImageProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const allCards = RENDERED_CARDS;
   const totalCount = allCards.length;
@@ -475,7 +525,11 @@ export const CardImageProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     >
       {/* Loading screen displaying the full size and resolution card back image rotated 90 degrees clockwise */}
       {!isReady && (
-        <div className="fixed inset-0 bg-[#0c0a09] z-[99999] flex flex-col items-center justify-center select-none text-stone-200 gap-6 p-6">
+        <div className="fixed inset-0 bg-[#0c0a09] z-[99999] flex items-center justify-center select-none text-stone-200 p-2 sm:p-4 overflow-hidden">
+          <LoadingBackdrop />
+
+          {/* Everything shown while loading, in one panel over the backdrop */}
+          <div className="relative flex flex-col items-center gap-6 px-3 pt-8 pb-5 sm:px-10 rounded-3xl border border-stone-700/60 bg-stone-950/75 backdrop-blur-md shadow-[0_30px_80px_rgba(0,0,0,0.8)] max-w-full">
           {/* Card back image rotated 90 degrees clockwise at full size and resolution */}
           <div className="relative flex items-center justify-center drop-shadow-[0_25px_60px_rgba(0,0,0,0.95)]">
             <div className="w-[336px] sm:w-[420px] h-[240px] sm:h-[300px] relative overflow-hidden rounded-2xl border-2 border-stone-800 shadow-2xl flex items-center justify-center bg-[#1e191a] animate-in fade-in zoom-in-95 duration-200">
@@ -491,11 +545,7 @@ export const CardImageProvider: React.FC<{ children: React.ReactNode }> = ({ chi
             </div>
           </div>
 
-          <div className="w-80 sm:w-96 flex flex-col items-center gap-2.5 px-4">
-            {/* A rotating message (see data/loadingMessages.ts), on its own line so long ones wrap rather than cut off */}
-            <p key={loadingMessage} className="w-full min-h-[2.5em] text-center text-sm font-mono text-stone-300 animate-in fade-in duration-300">
-              {loadingMessage}
-            </p>
+          <div className="w-72 sm:w-96 max-w-full flex flex-col items-center gap-2.5">
             <div className="flex items-center justify-end w-full text-xs font-mono text-stone-500">
               <span>
                 {loadedCount} / {totalCount}
@@ -509,6 +559,14 @@ export const CardImageProvider: React.FC<{ children: React.ReactNode }> = ({ chi
                 }}
               />
             </div>
+            {/* A rotating message (see data/loadingMessages.ts) under the bar. Its box is a fixed three lines tall (the
+                longest message takes two on the narrowest panel), so nothing moves as messages change */}
+            <div className="w-full h-[3.75rem] mt-1 overflow-hidden">
+              <p key={loadingMessage} className="w-full text-center text-sm leading-5 font-mono text-stone-300 animate-in fade-in duration-300">
+                {loadingMessage}
+              </p>
+            </div>
+          </div>
           </div>
         </div>
       )}
