@@ -88,15 +88,27 @@ function computeFaceCodeId(): string {
   return hash.digest('hex').slice(0, 12);
 }
 
-/** While the dev server runs, adding, replacing or removing art restarts it, so the art fingerprint is recomputed. */
+/**
+ * While the dev server runs, adding, replacing or removing art, or editing the code or styles that draw a card face,
+ * restarts it, so the fingerprints are worked out again and the changed faces are drawn again on the next refresh
+ * (otherwise the browser keeps showing the faces it saved before the edit).
+ */
 function restartOnArtChange(): Plugin {
   return {
     name: 'restart-on-art-change',
     configureServer(server) {
       server.watcher.add(ART_DIR);
       let timer: NodeJS.Timeout | null = null;
+      let faceCodeId = computeFaceCodeId();
+      const isFaceCodeChange = (file: string) => {
+        if (!/\.(tsx?|css)$/.test(file) || !path.resolve(file).startsWith(path.resolve(import.meta.dirname, 'src'))) return false;
+        const id = computeFaceCodeId();
+        if (id === faceCodeId) return false;
+        faceCodeId = id;
+        return true;
+      };
       const onChange = (file: string) => {
-        if (!path.resolve(file).startsWith(ART_DIR)) return;
+        if (!path.resolve(file).startsWith(ART_DIR) && !isFaceCodeChange(file)) return;
         // (a copy of several files at once restarts once)
         if (timer) clearTimeout(timer);
         timer = setTimeout(() => server.restart(), 500);

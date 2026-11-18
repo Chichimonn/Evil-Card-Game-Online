@@ -502,11 +502,22 @@ export const CardView: React.FC<CardViewProps> = ({
           </div>
         )}
 
-        {/* Tokens / Walls empty abilities notice */}
+        {/* Tokens / Walls with no passives or abilities: a notice drawn as a plain ability box, so it sits over the art the
+            way an ability does (its first line spilling onto the art, the box's colour filling the top frame) */}
         {(!card.passives || card.passives.length === 0) && (!card.abilities || card.abilities.length === 0) && (
-          <div className="flex flex-col items-center justify-center text-center p-[0.3em] text-white">
-            <ShieldAlert className="w-[1.2em] h-[1.2em] mb-[0.2em] opacity-60" />
-            <p data-box-head style={heading} className="text-white text-[1.1em]">No Passive or Abilities</p>
+          <div
+            data-box
+            className="relative isolate rounded-md flex flex-col px-[0.3em] py-[var(--card-box-pad)] border-solid border-transparent"
+            style={{ borderWidth: 2 }}
+          >
+            <BoxFrame className="border-2 border-stone-600 rounded-lg" fill={cardFill} inset={{ top: 2, right: 2, bottom: 2, left: 2 }} />
+            <div data-box-head className="flex items-center gap-[0.25em] flex-wrap">
+              <span className="inline-flex items-center gap-[0.1em] bg-stone-600 text-white font-bold rounded-md px-[0.2em] text-[0.8em]">
+                <ShieldAlert className="w-[0.8em] h-[0.8em]" />
+                Token
+              </span>
+              <span style={heading} className="text-white text-[1.1em]">No Passive or Abilities</span>
+            </div>
             <p className="text-white">{withNumerals('This token unit has 0 AP and serves as a tactical obstacle.')}</p>
           </div>
         )}

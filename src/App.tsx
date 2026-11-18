@@ -203,8 +203,13 @@ import {
   RotateCcw,
   RotateCw,
   AlertCircle,
-  Sparkles
+  Sparkles,
+  Settings,
+  BookOpen,
+  HelpCircle,
+  Globe
 } from 'lucide-react';
+import { FaqModal } from './components/FaqModal';
 import { isAreaAttack, isSelfCentredArea, resolveAreaAttack } from './utils/areaAttacks';
 import { withAttackStatuses, resolveSlowVenom, clearDamageMarks } from './utils/statusEffects';
 import { applyDestroyBlast } from './utils/destroyPassives';
@@ -617,6 +622,9 @@ export default function App() {
   const [isMuted, setIsMuted] = useState(true);
   const [volume, setVolume] = useState(0.5);
   const [showVolumeDropdown, setShowVolumeDropdown] = useState(false);
+  // The top bar's menu (gear) and the FAQ window it opens
+  const [isGameMenuOpen, setIsGameMenuOpen] = useState(false);
+  const [isFaqOpen, setIsFaqOpen] = useState(false);
   const [scryPending, setScryPending] = useState<{
     card: CardItem;
     player: PlayerId;
@@ -860,6 +868,17 @@ export default function App() {
   } | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const volumeDropdownRef = useRef<HTMLDivElement>(null);
+  const gameMenuRef = useRef<HTMLDivElement>(null);
+
+  // A click anywhere outside the menu closes it
+  useEffect(() => {
+    if (!isGameMenuOpen) return;
+    const handleOutsideClick = (e: MouseEvent) => {
+      if (gameMenuRef.current && !gameMenuRef.current.contains(e.target as HTMLElement)) setIsGameMenuOpen(false);
+    };
+    document.addEventListener('mousedown', handleOutsideClick);
+    return () => document.removeEventListener('mousedown', handleOutsideClick);
+  }, [isGameMenuOpen]);
 
   useEffect(() => {
     const audio = new Audio('/assets/music/music.mp3');
@@ -885,6 +904,7 @@ export default function App() {
     return () => document.removeEventListener('mousedown', handleOutsideClick);
   }, [showVolumeDropdown]);
 
+  // The volume button turns the music on (opening the volume slider) and off (closing it)
   const handleVolumeButtonClick = () => {
     if (isMuted) {
       setIsMuted(false);
@@ -896,7 +916,9 @@ export default function App() {
         });
       }
     } else {
-      setShowVolumeDropdown((prev) => !prev);
+      setIsMuted(true);
+      setShowVolumeDropdown(false);
+      if (audioRef.current) audioRef.current.pause();
     }
   };
 
@@ -911,21 +933,6 @@ export default function App() {
         audioRef.current.volume = newVal;
         if (audioRef.current.paused) audioRef.current.play().catch(() => {});
       }
-    }
-  };
-
-  const toggleMuteOnly = () => {
-    if (isMuted) {
-      setIsMuted(false);
-      const effectiveVol = volume === 0 ? 0.5 : volume;
-      setVolume(effectiveVol);
-      if (audioRef.current) {
-        audioRef.current.volume = effectiveVol;
-        audioRef.current.play().catch(() => {});
-      }
-    } else {
-      setIsMuted(true);
-      if (audioRef.current) audioRef.current.pause();
     }
   };
 
@@ -15478,7 +15485,7 @@ export default function App() {
                   ? 'text-amber-400 bg-[#231e1f] border-[#433738] shadow-sm hover:text-amber-300 hover:border-amber-500/60'
                   : 'text-stone-400 hover:text-stone-200 bg-[#1c1819] border-[#382d2e] hover:border-[#433738]'
               }`}
-              title={isMuted ? "Unmute and play music" : "Adjust volume / mute music"}
+              title={isMuted ? "Play music" : "Mute music"}
               aria-label="Volume and Music Controls"
             >
               {isMuted || volume === 0 ? (
@@ -15512,16 +15519,70 @@ export default function App() {
                   className="w-full accent-amber-400 cursor-pointer h-1.5 bg-stone-800 rounded-lg appearance-none"
                 />
 
-                <div className="flex items-center justify-between mt-3 pt-2.5 border-t border-[#433738]/80 text-[11px] text-stone-400">
-                  <span className="truncate max-w-[120px] font-mono text-stone-500" title="assets>music>music.mp3">
+                <div className="mt-3 pt-2.5 border-t border-[#433738]/80 text-[11px]">
+                  <span className="block truncate font-mono text-stone-500" title="assets>music>music.mp3">
                     music.mp3
                   </span>
-                  <button
-                    onClick={toggleMuteOnly}
-                    className="text-xs text-amber-400 hover:text-amber-300 font-semibold cursor-pointer underline"
-                  >
-                    {isMuted ? 'Unmute' : 'Mute'}
-                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* The menu: the rules, the FAQ and the website */}
+          <div className="relative" ref={gameMenuRef}>
+            <button
+              onClick={() => setIsGameMenuOpen((open) => !open)}
+              className={`p-2.5 rounded-xl border transition-all flex items-center justify-center cursor-pointer ${
+                isGameMenuOpen
+                  ? 'text-amber-400 bg-[#231e1f] border-amber-500/60'
+                  : 'text-stone-400 hover:text-stone-200 bg-[#1c1819] border-[#382d2e] hover:border-[#433738]'
+              }`}
+              title="Menu"
+              aria-label="Menu"
+              aria-haspopup="menu"
+              aria-expanded={isGameMenuOpen}
+            >
+              <Settings className="w-5 h-5" />
+            </button>
+
+            {isGameMenuOpen && (
+              <div
+                role="menu"
+                className="absolute right-0 top-full mt-2 w-72 p-1.5 bg-[#272021]/95 border border-[#433738] rounded-xl shadow-2xl backdrop-blur-md z-50 animate-in fade-in slide-in-from-top-2 flex flex-col"
+              >
+                <a
+                  role="menuitem"
+                  href="/assets/rules/rules.pdf"
+                  target="_blank"
+                  rel="noopener"
+                  onClick={() => setIsGameMenuOpen(false)}
+                  className="flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-sm text-stone-200 hover:bg-[#3d3334] hover:text-stone-50 transition-colors"
+                >
+                  <BookOpen className="w-4 h-4 text-amber-400 shrink-0" />
+                  <span>Official Rules</span>
+                </a>
+                <button
+                  role="menuitem"
+                  onClick={() => {
+                    setIsGameMenuOpen(false);
+                    setIsFaqOpen(true);
+                  }}
+                  className="flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-sm text-left text-stone-200 hover:bg-[#3d3334] hover:text-stone-50 transition-colors cursor-pointer"
+                >
+                  <HelpCircle className="w-4 h-4 text-amber-400 shrink-0" />
+                  <span>Frequently Asked Questions (FAQ)</span>
+                </button>
+                {/* (no website yet) */}
+                <div
+                  role="menuitem"
+                  aria-disabled="true"
+                  className="flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-sm text-stone-500 cursor-default"
+                >
+                  <Globe className="w-4 h-4 shrink-0" />
+                  <span>Visit EVIL Website</span>
+                  <span className="ml-auto text-[10px] font-mono uppercase tracking-wider text-stone-500 border border-stone-700 rounded px-1.5 py-0.5">
+                    Coming 2027
+                  </span>
                 </div>
               </div>
             )}
@@ -15556,6 +15617,8 @@ export default function App() {
         </button>
       )}
       </div>
+
+      {isFaqOpen && <FaqModal onClose={() => setIsFaqOpen(false)} />}
 
       {/* Online: the link to the other player dropped; reconnecting, or a way out */}
       {reconnect && (
@@ -16036,10 +16099,11 @@ export default function App() {
               ))}
             </div>
 {/* ================= STANDARD BOTTOM NOTICE ================= */}
-        <footer className="w-full border-t border-stone-800/80 bg-stone-900/90 py-2.5 px-6 text-center text-stone-400 leading-relaxed">
+        {/* (the notice's text is the paragraph just below: edit it there) */}
+        <footer className="w-full mt-10 rounded-2xl border border-stone-800/80 bg-stone-900/90 py-3 px-6 text-center text-stone-400 leading-relaxed">
           <div className="max-w-4xl mx-auto">
-            <p className="font-serif text-stone-400" style={{ fontSize: '7pt', lineHeight: '1.4' }}>
-              EVIL Card Game, 2026, was made by 1 person across hundreds of hours with the help of countless friends, kind strangers, and AI agents. Absolutely no AI artwork was used for the cards in this game. EVIL Card Game is not under official copyright. Please do not steal this game. Anybody who does so having read this notice openly admits that they are a cod fish, a scallywag, and a devious villain. Please enjoy the game.
+            <p className="font-serif text-stone-400" style={{ fontSize: '8pt', lineHeight: '1.45' }}>
+              EVIL Card Game © 2026. All rights reserved. EVIL Card Game was made by 1 person across hundreds (if not thousands) of hours, through persistence and the generous help of many others. Anyone attempting to steal my game having read this notice openly admits that they are a cod fish, a scallywag, and a devious villain. Please enjoy.
             </p>
           </div>
         </footer>
