@@ -92,11 +92,11 @@ const withNumerals = (value: string | number): React.ReactNode =>
     .map((part, i) => (i % 2 === 1 ? <span key={i} style={NUMERAL_STYLE}>{part}</span> : part));
 
 /**
- * A set's background picture at full size: its set's name as a file in the art folder (e.g. wrath_of_the_elements.png).
- * Used for the battlefield background in matches.
+ * A set's background picture at full size: its set's name as a file in the art folder (e.g. wrath_of_the_elements.webp,
+ * made from a .png dropped in by "npm run card-backgrounds"). Used for the battlefield background in matches.
  */
 export const getSetBackgroundPath = (card: CardItem): string | null =>
-  card.set ? `/assets/art/${card.set.trim().toLowerCase().replace(/[^a-z0-9]+/g, '_')}.png` : null;
+  card.set ? `/assets/art/${card.set.trim().toLowerCase().replace(/[^a-z0-9]+/g, '_')}.webp` : null;
 
 /**
  * The same picture as drawn behind a card's art: a small copy (about 480p) in art/card-backgrounds, made by

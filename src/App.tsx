@@ -15345,6 +15345,16 @@ export default function App() {
       onChangeCapture={blockWhileWaiting}
       onKeyDownCapture={blockKeysWhileWaiting}
     >
+      {/* The card gallery's and deckbuilder's background: the default battlefield background, small and blurred (made by
+          "npm run card-backgrounds"), darkened so the cards stand out. Behind everything on the page (z -10 in the page's
+          own stacking context), above only the page's plain colour. */}
+      {(activeTab === 'gallery' || activeTab === 'deckbuilder') && (
+        <div className="absolute inset-0 -z-10 pointer-events-none" aria-hidden="true">
+          <img src="/assets/backgrounds/menu_background.webp" alt="" className="w-full h-full object-cover scale-105" />
+          <div className="absolute inset-0 bg-[#0c0a09]/70" />
+          <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_center,transparent_40%,rgba(12,10,9,0.6)_100%)]" />
+        </div>
+      )}
       {/* ================= TOP NAV BAR ================= */}
       <header
         data-input-always

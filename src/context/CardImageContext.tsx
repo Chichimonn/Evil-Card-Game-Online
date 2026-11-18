@@ -273,7 +273,7 @@ function useRotatingMessage(active: boolean): string {
   const [index, setIndex] = useState(() => pickOther(-1));
   useEffect(() => {
     if (!active) return;
-    const timer = setInterval(() => setIndex((i) => pickOther(i)), 2600);
+    const timer = setInterval(() => setIndex((i) => pickOther(i)), 5200);
     return () => clearInterval(timer);
   }, [active]);
   return LOADING_MESSAGES[index] || 'Loading cards...';
@@ -287,15 +287,32 @@ const BACKDROP_IMAGES: string[] = Array.from(
   new Set(RENDERED_CARDS.map(getCardBackgroundPath).filter((p): p is string => Boolean(p)))
 );
 const BACKDROP_SECONDS_EACH = 8;
+// Each pan moves the picture up to 12% of its size each way, scaled 1.4x: the 20% it overhangs the screen on each side
+// covers the 16.8% that moves it, so its edges never come into view
 const BACKDROP_PANS = ['loading-pan-a', 'loading-pan-b', 'loading-pan-c', 'loading-pan-d'];
 const BACKDROP_CSS = `
-@keyframes loading-pan-a { from { transform: scale(1.2) translate(-6%, -3%); } to { transform: scale(1.2) translate(6%, 3%); } }
-@keyframes loading-pan-b { from { transform: scale(1.25) translate(5%, 4%); } to { transform: scale(1.25) translate(-5%, -4%); } }
-@keyframes loading-pan-c { from { transform: scale(1.2) translate(-5%, 4%); } to { transform: scale(1.2) translate(5%, -4%); } }
-@keyframes loading-pan-d { from { transform: scale(1.25) translate(6%, -2%); } to { transform: scale(1.25) translate(-6%, 2%); } }
+@keyframes loading-pan-a { from { transform: scale(1.4) translate(-12%, -6%); } to { transform: scale(1.4) translate(12%, 6%); } }
+@keyframes loading-pan-b { from { transform: scale(1.4) translate(10%, 8%); } to { transform: scale(1.4) translate(-10%, -8%); } }
+@keyframes loading-pan-c { from { transform: scale(1.4) translate(-10%, 8%); } to { transform: scale(1.4) translate(10%, -8%); } }
+@keyframes loading-pan-d { from { transform: scale(1.4) translate(12%, -4%); } to { transform: scale(1.4) translate(-12%, 4%); } }
 .loading-backdrop-image { will-change: transform, opacity; }
 @media (prefers-reduced-motion: reduce) { .loading-backdrop-image { animation: none !important; } }
 `;
+
+/**
+ * Whether this is a phone or tablet (shown a warning while loading that the game is made for desktop). Going by what the
+ * browser says it is, not the screen size, so a small desktop window or a touchscreen laptop isn't counted. An iPad asks
+ * for desktop sites and says it's a Mac, so a "Mac" with a touchscreen counts too (real Macs have none).
+ */
+function isMobileDevice(): boolean {
+  if (typeof navigator === 'undefined') return false;
+  const uaData = (navigator as Navigator & { userAgentData?: { mobile?: boolean } }).userAgentData;
+  if (uaData?.mobile) return true;
+  const ua = navigator.userAgent || '';
+  if (/Android|iPhone|iPad|iPod|Mobile|Silk|Kindle|Opera Mini|IEMobile/i.test(ua)) return true;
+  return /Macintosh/.test(ua) && navigator.maxTouchPoints > 1;
+}
+const IS_MOBILE_DEVICE = isMobileDevice();
 
 const LoadingBackdrop: React.FC = () => {
   const [current, setCurrent] = useState(0);
@@ -566,6 +583,13 @@ export const CardImageProvider: React.FC<{ children: React.ReactNode }> = ({ chi
                 {loadingMessage}
               </p>
             </div>
+            {/* Phones and tablets only (see isMobileDevice) */}
+            {IS_MOBILE_DEVICE && (
+              <div role="note" className="w-full rounded-lg border border-amber-500/50 bg-amber-950/60 px-3 py-2 text-center text-xs leading-snug text-amber-200">
+                <span className="font-semibold text-amber-300">Heads up:</span> EVIL Card Game is made for desktop. It may
+                run slowly or not work right on phones and tablets, so play here at your own risk.
+              </div>
+            )}
           </div>
           </div>
         </div>
