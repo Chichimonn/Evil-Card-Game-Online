@@ -10,11 +10,12 @@
  *   Fairies), plus fixes since.
  * 0.7.0: Bridging the Gap (28 basic units, three of them reworked older cards), Hidden Avatars renamed Rival Kingdoms,
  *   the card changes and rules updates from the November 2026 notes.
+ * 0.7.1: art fixes for Bridging the Gap.
  * BUILD_ID: made automatically from all of the game's code and card data (see vite.config.ts), so two copies with any
  * rules difference never match even if GAME_VERSION wasn't bumped. The dev server makes it when it starts, so restart
  * it after editing to get the new fingerprint.
  */
-export const GAME_VERSION = '0.7.0';
+export const GAME_VERSION = '0.7.1';
 
 declare const __BUILD_ID__: string;
 export const BUILD_ID: string = typeof __BUILD_ID__ === 'string' ? __BUILD_ID__ : 'unknown';
