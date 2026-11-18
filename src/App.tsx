@@ -329,6 +329,15 @@ const LATEST_SET = [...initialCardsData.cards].reverse().find((c) => c.set)?.set
 
 const DEFAULT_PITCH = 35; // 35 degrees viewing angle
 const DEFAULT_YAW = 0;    // Default yaw
+
+// The hexes are flat-topped, so at 0° an edge of each lies along the bottom of the screen. A hexagon has an edge every
+// 60°, so the rotate buttons turn the board 60° at a time: each turn brings the next edge flat to the screen (six
+// angles, 0° to 300°, both players' starting angles among them). An angle between them rounds to the nearest first.
+const YAW_STEP = 60;
+const rotateYawToNextEdge = (yaw: number, direction: 1 | -1): number => {
+  const snapped = Math.round(yaw / YAW_STEP) * YAW_STEP;
+  return (((snapped + direction * YAW_STEP) % 360) + 360) % 360;
+};
 const BASELINE_ZOOM = 100; // Baseline zoom is 100%
 
 // Standee & Hand Hover Card Preview Component
@@ -16477,10 +16486,10 @@ export default function App() {
                       <button
                         onClick={() => {
                           markCameraChange();
-                          setBoardYawState((prev) => (prev - 45 + 360) % 360);
+                          setBoardYawState((prev) => rotateYawToNextEdge(prev, -1));
                         }}
                         className="p-1.5 hover:bg-stone-800 rounded-md text-stone-300 hover:text-amber-400 transition-colors cursor-pointer"
-                        title="Rotate Board Left 45°"
+                        title="Rotate Board Left 60° (the next hex edge flat to the screen)"
                       >
                         <RotateCcw className="w-4 h-4" />
                       </button>
@@ -16490,10 +16499,10 @@ export default function App() {
                       <button
                         onClick={() => {
                           markCameraChange();
-                          setBoardYawState((prev) => (prev + 45) % 360);
+                          setBoardYawState((prev) => rotateYawToNextEdge(prev, 1));
                         }}
                         className="p-1.5 hover:bg-stone-800 rounded-md text-stone-300 hover:text-amber-400 transition-colors cursor-pointer"
-                        title="Rotate Board Right 45°"
+                        title="Rotate Board Right 60° (the next hex edge flat to the screen)"
                       >
                         <RotateCw className="w-4 h-4" />
                       </button>
@@ -16657,10 +16666,10 @@ export default function App() {
                       <button
                         onClick={() => {
                           markCameraChange();
-                          setBoardYawState((prev) => (prev - 45 + 360) % 360);
+                          setBoardYawState((prev) => rotateYawToNextEdge(prev, -1));
                         }}
                         className="p-1.5 hover:bg-stone-800 rounded-md text-stone-300 hover:text-amber-400 transition-colors cursor-pointer"
-                        title="Rotate Board Left 45°"
+                        title="Rotate Board Left 60° (the next hex edge flat to the screen)"
                       >
                         <RotateCcw className="w-4 h-4" />
                       </button>
@@ -16670,10 +16679,10 @@ export default function App() {
                       <button
                         onClick={() => {
                           markCameraChange();
-                          setBoardYawState((prev) => (prev + 45) % 360);
+                          setBoardYawState((prev) => rotateYawToNextEdge(prev, 1));
                         }}
                         className="p-1.5 hover:bg-stone-800 rounded-md text-stone-300 hover:text-amber-400 transition-colors cursor-pointer"
-                        title="Rotate Board Right 45°"
+                        title="Rotate Board Right 60° (the next hex edge flat to the screen)"
                       >
                         <RotateCw className="w-4 h-4" />
                       </button>
