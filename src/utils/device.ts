@@ -59,3 +59,21 @@ export function getStartingScale(): number {
   }
   return table[table.length - 1].scale;
 }
+
+/**
+ * How sharply card faces are drawn on this screen: the face (750 x 1050 page pixels) is drawn at this many pixels per
+ * page pixel. 2 (1500 x 2100) is what looks right on a 1440p screen. A smaller screen shows cards smaller (the game's
+ * starting size), so needs fewer; a screen with display scaling (e.g. a Chromebook at 150%) packs more real pixels into
+ * each page pixel, so needs more. Never above 2, so no screen draws more than before; never below 1.
+ *
+ * Fewer pixels make the faces much quicker to draw and save: 1.2 is about a third of the pixels of 2.
+ */
+const MAX_FACE_PIXEL_RATIO = 2;
+export function getFacePixelRatio(): number {
+  const density = typeof window !== 'undefined' && window.devicePixelRatio > 0 ? window.devicePixelRatio : 1;
+  const ratio = MAX_FACE_PIXEL_RATIO * getStartingScale() * density;
+  return Math.round(Math.min(MAX_FACE_PIXEL_RATIO, Math.max(1, ratio)) * 10) / 10;
+}
+
+/** The face sharpness this screen starts with (worked out once, when the game loads, with its starting size). */
+export const FACE_PIXEL_RATIO = getFacePixelRatio();

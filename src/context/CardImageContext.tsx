@@ -10,11 +10,11 @@ import {
   getCardArtPaths
 } from '../components/CardView';
 import { toSvg } from 'html-to-image';
-import { getAllCachedCardFaces, saveCachedCardFace, removeCachedCardFaces } from '../services/cardImageDB';
+import { getAllCachedCardFaces, saveCachedCardFace, removeCachedCardFaces, type CachedCardFace } from '../services/cardImageDB';
 import { getProcessedArt } from '../utils/artHalo';
 import { getTokenGalleryCards } from '../utils/tokenCards';
 import { LOADING_MESSAGES } from '../data/loadingMessages';
-import { IS_MOBILE_DEVICE } from '../utils/device';
+import { IS_MOBILE_DEVICE, FACE_PIXEL_RATIO } from '../utils/device';
 
 // Every card face drawn: the real cards, then the tokens (shown after them in the gallery)
 const RENDERED_CARDS: CardItem[] = [...initialCardsData.cards, ...getTokenGalleryCards(initialCardsData)];
@@ -128,6 +128,11 @@ const getCardFaceSignature = (card: CardItem): string =>
       artStamp(getSetBackgroundPath(card))
     ].join('|')
   );
+
+// A saved face is drawn again only when it's clearly too small for this screen (under 80% of the sharpness it would be
+// drawn at now): a face drawn sharper is kept, and so is one a little short, so a nudge of the browser's zoom (which
+// changes the screen's pixel density) doesn't draw every face again. Faces saved before this was recorded were drawn at 2.
+const isSharpEnough = (face: CachedCardFace): boolean => (face.pixelRatio ?? 2) >= FACE_PIXEL_RATIO * 0.8;
 
 // ---- Loading and drawing ----
 
@@ -366,7 +371,7 @@ export const CardImageProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       if (Object.keys(currentMap).length < totalCount) {
         const saved = await getAllCachedCardFaces();
         Object.entries(saved).forEach(([id, face]) => {
-          if (!currentMap[id] && face.sig === signatures[id]) currentMap[id] = URL.createObjectURL(face.png);
+          if (!currentMap[id] && face.sig === signatures[id] && isSharpEnough(face)) currentMap[id] = URL.createObjectURL(face.png);
         });
         removeCachedCardFaces(Object.keys(saved).filter((id) => !(id in signatures)));
       }
@@ -463,7 +468,7 @@ export const CardImageProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         let whole = false;
         for (let attempt = 0; attempt < 3 && !whole; attempt++) {
           if (attempt > 0) await sleep(150);
-          const shot = await captureToCanvas(el, { fontEmbedCSS, skipFonts: !fontEmbedCSS, pixelRatio: 2 });
+          const shot = await captureToCanvas(el, { fontEmbedCSS, skipFonts: !fontEmbedCSS, pixelRatio: FACE_PIXEL_RATIO });
           whole = el.isConnected && el.dataset.cardFace === card.id && isWholeCardFace(shot);
           if (whole || !face) face = shot;
         }
@@ -481,7 +486,7 @@ export const CardImageProvider: React.FC<{ children: React.ReactNode }> = ({ chi
             if (!png) return;
             currentMap[card.id] = URL.createObjectURL(png);
             setLoadedCount(Object.keys(currentMap).length);
-            if (keep) saveCachedCardFace(card.id, { sig: signatures[card.id], png });
+            if (keep) saveCachedCardFace(card.id, { sig: signatures[card.id], png, pixelRatio: FACE_PIXEL_RATIO });
           })
         );
       };
@@ -503,7 +508,7 @@ export const CardImageProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       setIsReady(true);
       const doneAt = performance.now();
       console.info(
-        `Card faces: drew ${missingCards.length} of ${totalCount} in ${((doneAt - startedAt) / 1000).toFixed(1)}s ` +
+        `Card faces: drew ${missingCards.length} of ${totalCount} at ${FACE_PIXEL_RATIO}x in ${((doneAt - startedAt) / 1000).toFixed(1)}s ` +
           `(downloading ${((downloadedAt - startedAt) / 1000).toFixed(1)}s, drawing ${((doneAt - downloadedAt) / 1000).toFixed(1)}s; ` +
           `per card: ${Object.entries(spent)
             .map(([part, ms]) => `${part} ${Math.round(ms / missingCards.length)}ms`)

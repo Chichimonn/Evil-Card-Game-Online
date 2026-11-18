@@ -11,6 +11,8 @@ const OLD_DB_NAMES = ['tactics_card_images_v5', 'tactics_card_faces_v6'];
 export interface CachedCardFace {
   sig: string;
   png: Blob;
+  // How sharply it was drawn (pixels per page pixel, see FACE_PIXEL_RATIO in utils/device); 2 if not recorded
+  pixelRatio?: number;
 }
 
 function openDB(): Promise<IDBDatabase> {
