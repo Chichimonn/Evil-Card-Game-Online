@@ -23,6 +23,8 @@ export interface BattlefieldUnit {
   promotedCards?: CardItem[];
   usedTurnCounts?: Record<string, number>;
   usedOnTargets?: Record<string, string[]>; // abilityId -> target instanceIds hit this turn
+  // Units this one attacked this turn from a tile that was not behind them (e.g. Punchline)
+  attackedFromFrontIds?: string[];
   grantedAbilities?: CardAbility[];
   chosenPassive?: CardPassive | null;
   reflectStance?: ReflectStance | null;
@@ -59,6 +61,8 @@ export interface BattlefieldUnit {
     onAnyAction?: boolean; // interrupts moves and draws too, not only abilities
   } | null;
   damageOnTakingTurn?: number; // e.g. Flame Blast: takes this much damage if it takes its controller's next turn; cleared when that turn ends
+  attackWard?: { amount: number; source: string }; // e.g. Moonlight Ward: prevent up to this much of the next attack's damage; lapses when its opponent's turn ends
+  meleeFirstHitReduction?: { amount: number; source: string }; // e.g. Blade Breaker: its melee attacks deal this much less on the first hit; cleared when its owner's turn ends
   firstHitReduction?: number; // e.g. Predictive Strike: this unit's attacks deal this much less on the first hit; cleared when its owner's turn ends
   knockbackImmuneThisTurn?: boolean; // e.g. Hold the Gate chosen, Brace for Impact: cleared when a turn of its opponent ends
   knockedBackBy?: { instanceId: string; turn: number }; // the unit that last knocked it back, and on which turn (e.g. Crescent Blade)
@@ -75,7 +79,7 @@ export interface BattlefieldUnit {
   // e.g. Parasitic Enzyme: the caster's attacks against this unit deal more per hit this turn, and it heals if this dies
   attackerMark?: { casterInstanceId: string; bonusPerHit: number; turn: number; sourceName: string; healCasterOnDeath?: number };
   // e.g. Ethereal Guard: takes this much less from each attack; cleared when a turn of its opponent ends
-  attackDamageReduction?: { amount: number; sourceName: string; setOnTurnOf?: PlayerId };
+  attackDamageReduction?: { amount: number; sourceName: string; setOnTurnOf?: PlayerId; minDamage?: number };
   lockStepBy?: string; // e.g. Lock-Step: the unit that follows this one's moves; cleared when its owner's turn ends
   dealtDamageThisTurn?: boolean; // this unit dealt damage this turn (e.g. Combat Roll); cleared at the end of every turn // e.g. Critical Forecast: the 1AP ability chosen this turn, whose first use repeats for free
   cannotInflictKnockbackNextOwnTurn?: boolean; // e.g. Hold the Gate drawback: cleared when the owner's next turn ends

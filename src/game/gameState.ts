@@ -51,6 +51,8 @@ export interface GameState {
   hexColors: Record<string, string>;
 
   // Result
+  // Rule 8.1.1: victory is not checked until at least 1 unit has been killed
+  unitKilled?: boolean;
   winner: PlayerId | 'draw' | null;
   victoryReason: string;
 }

@@ -17,6 +17,8 @@ type UnitSpec = {
   armour?: number;
   damage?: number; // damage counters already on it
   hpLeft?: number; // or: leave it on this many HP
+  promoted?: string[]; // ids of cards under it (its promoted cards)
+  statuses?: string[];
   readySpell?: { abilityId: string; abilityName: string; cost: number };
 };
 
@@ -84,6 +86,24 @@ export const ONLINE_SCENARIOS: Record<string, OnlineScenario> = {
 };
 
 /** The match state with the scenario's board: Player 1 to act on turn 2 of play. */
+/**
+ * Any test board (dev server only): window.__evilGame.board(units, { hands, activePlayer }) puts these units on the
+ * table, and optionally sets the hands (card ids) and who is to act.
+ */
+export function applyTestBoard(
+  state: GameState,
+  units: UnitSpec[],
+  cardById: (id: string) => CardItem | null,
+  opts?: { hands?: Partial<Record<PlayerId, string[]>>; activePlayer?: PlayerId }
+): GameState {
+  const next = applyOnlineScenario(state, { description: '', units, steps: '' }, cardById);
+  const hands = { ...next.hands };
+  (Object.keys(opts?.hands || {}) as PlayerId[]).forEach((p) => {
+    hands[p] = (opts!.hands![p] || []).map((id) => cardById(id)).filter((c): c is CardItem => Boolean(c));
+  });
+  return { ...next, hands, activePlayer: opts?.activePlayer || 'player1' };
+}
+
 export function applyOnlineScenario(state: GameState, scenario: OnlineScenario, cardById: (id: string) => CardItem | null): GameState {
   const board: Record<string, BattlefieldUnit> = {};
   let n = Math.max(state.nextInstanceId, 1);
@@ -99,7 +119,12 @@ export function applyOnlineScenario(state: GameState, scenario: OnlineScenario, 
       damageCounters: damage,
       armour: u.armour ?? 0,
       currentAp: card.ap,
-      promotedCards: [],
+      promotedCards: (u.promoted || []).map((id) => {
+        const c = cardById(id);
+        if (!c) throw new Error(`No card with id ${id}`);
+        return c;
+      }),
+      ...(u.statuses ? { statuses: u.statuses } : {}),
       ...(u.readySpell
         ? {
             readySpell: {

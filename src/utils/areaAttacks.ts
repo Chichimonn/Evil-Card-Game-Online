@@ -267,6 +267,18 @@ export function resolveAreaAttack(
 
     // The attacker's "its attacks deal more" bonuses (e.g. Twinsoul, Drakescale) apply to area attacks too
     applyAttackerBonusPassives(hits, ability, working[casterHex], u, options);
+    // "The next time that unit would take damage from an attack, prevent up to N of that damage" (e.g. Moonlight Ward)
+    let wardUsed = false;
+    if (u.attackWard && u.owner !== owner && hits.some((h) => h.damage > 0)) {
+      let left = u.attackWard.amount;
+      hits.forEach((h) => {
+        const cut = Math.min(left, h.damage);
+        left -= cut;
+        h.damage -= cut;
+      });
+      wardUsed = true;
+      logMessages.push(`${u.attackWard.source} prevented ${u.attackWard.amount - left} damage to ${u.card.name}`);
+    }
 
     // Armour a surrounding friendly unit shares with this one (e.g. Battered Shield) is used after its own
     const usable = effect.bypassArmour || (u.owner === owner && hasFeedingFrenzy(working[casterHex]))
@@ -306,6 +318,7 @@ export function resolveAreaAttack(
     } else {
       const damaged: BattlefieldUnit = {
         ...markDamageCapUsed(u, exec.damageCapKey),
+        ...(wardUsed ? { attackWard: undefined } : {}),
         armour: settled.ownArmour,
         damageCounters: exec.finalDamageCounters,
         tookDamageThisTurn: u.tookDamageThisTurn || dmgDealt > 0
@@ -377,6 +390,9 @@ export function resolveAreaAttack(
           ? [casterHex, ...getSurroundingHexes(casterHex).filter((h) => working[h]?.owner === owner)]
           : eff.target === 'self'
           ? [casterHex]
+          : // "Then, heal 3 damage from each friendly unit surrounding the target tile" (e.g. Solar Nova)
+          eff.target === 'friendlyUnitsSurroundingTargetTile'
+          ? getSurroundingHexes(targetHex).filter((h) => working[h]?.owner === owner)
           : [];
       healHexes.forEach((h) => {
         const u = working[h];

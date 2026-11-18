@@ -1,4 +1,4 @@
-import { BattlefieldUnit } from '../types/game';
+import { BattlefieldUnit, PlayerId } from '../types/game';
 import { isTileScorched } from './hexGridMath';
 
 /**
@@ -9,6 +9,9 @@ interface BoardContext {
   scorchedTiles: Record<string, unknown>;
   unitsOnBoard: Record<string, BattlefieldUnit>;
   turnNumber: number;
+  // The unit each player chose to take their last turn (rules: "took the last turn"), and each player's hand size
+  lastTurnUnitIds?: Record<PlayerId, string | null>;
+  handSizes?: Record<PlayerId, number>;
 }
 
 let context: BoardContext = { scorchedTiles: {}, unitsOnBoard: {}, turnNumber: 0 };
@@ -22,6 +25,11 @@ export const getCurrentTurnNumber = (): number => context.turnNumber;
 export const getCurrentScorchedTiles = (): Record<string, unknown> => context.scorchedTiles;
 
 export const getCurrentUnitsOnBoard = (): Record<string, BattlefieldUnit> => context.unitsOnBoard;
+
+/** Whether this unit took its controller's last turn (rules: "Took the last turn"). */
+export const tookLastTurn = (unit: BattlefieldUnit): boolean => context.lastTurnUnitIds?.[unit.owner] === unit.instanceId;
+
+export const getHandSize = (player: PlayerId): number => context.handSizes?.[player] ?? 0;
 
 /** Whether a tile is scorched right now (a scorched-tile entry, or next to a Raging Bonfire). */
 export function isHexScorchedNow(hexId: string | null | undefined, units?: Record<string, BattlefieldUnit>): boolean {

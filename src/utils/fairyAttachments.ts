@@ -1,15 +1,16 @@
 import { CardItem, CardPassive } from '../types/card';
 import { BattlefieldUnit } from '../types/game';
 import { PASSIVES_REMOVED, PASSIVES_REMOVED_THIS_TURN } from './unitPassives';
+import { getRequirementsList, unitMatchesRequirement } from './reinforceRules';
 
 /**
  * Attaching (the fairies' Harmony passives): "If this unit has no cards under it, it may attach to a friendly unit with
  * [requirement]. While this card is attached to a unit, [bonus]. This effect does not stack."
  *
  * Card data: a passive with { type: 'attach', if: 'self.hasNoCardsUnder', requires, stacks: false, whileAttached: [...] }.
- * A unit with such a passive attaches by moving onto a friendly unit's tile (the Move action, or any other move that
- * ends there, e.g. Fairy Flutter). It always attaches; the bonus only applies while the unit it is attached to meets
- * `requires`:
+ * A unit with such a passive attaches by moving onto the tile of a friendly unit that meets `requires` (the Move
+ * action, or any other move that ends there, e.g. Fairy Flutter). Once attached, the bonus applies for as long as the
+ * card stays attached, even if that unit later stops meeting the requirement:
  *   { promotedCards: { exactly: N } }                                   exactly N cards under it
  *   { promotedCards: { exactly: 2, differentTypes: true } }             ...that share no class tag
  *   { promotedCards: { exactly: 2, sameTypeOrSharedNameWord: true } }   ...that share a class tag or a word in their names
@@ -52,7 +53,7 @@ export function getCardsUnder(unit: BattlefieldUnit): CardItem[] {
 
 /**
  * Whether `mover` attaches to `target` by moving onto its tile: the mover has an attach passive (not switched off),
- * no cards under it, and the target is another friendly unit (not a wall).
+ * no cards under it, and the target is another friendly unit (not a wall) that meets the attach requirement.
  */
 export function canAttachOnto(mover: BattlefieldUnit | null | undefined, target: BattlefieldUnit | null | undefined): boolean {
   if (!mover || !target || mover.instanceId === target.instanceId) return false;
@@ -61,6 +62,10 @@ export function canAttachOnto(mover: BattlefieldUnit | null | undefined, target:
   const attach = getAttachPassive(mover.card);
   if (!attach) return false;
   if (getCardsUnder(mover).length > 0 || (mover.attachedCards || []).length > 0 || mover.carriedUnit) return false;
+  // "...it may attach to a friendly unit with [requirement]"
+  if (!meetsAttachRequirement(target, attach.effect.requires)) return false;
+  // "A unit may have only 1 attached card"
+  if ((target.attachedCards || []).length > 0) return false;
   return true;
 }
 
@@ -93,6 +98,21 @@ const nameWords = (card: CardItem) =>
 const tags = (card: CardItem) => new Set((card.classTags || []).map((t) => t.toLowerCase()));
 const shareAny = (a: Set<string>, b: Set<string>) => [...a].some((x) => b.has(x));
 
+/**
+ * The types a promoted card could have (rules: Type, "the requirement word a promoted card was chosen to satisfy when
+ * its unit was fused"): the words of the unit's own fusion requirement that this card matches. A unit whose
+ * requirement names no words (e.g. "Fusion: 3 Basic Units") falls back to the card's class tags.
+ */
+const promotedCardTypes = (unit: BattlefieldUnit, card: CardItem): Set<string> => {
+  const words = getRequirementsList(unit.card).filter((w) => w !== '*');
+  if (words.length === 0) return tags(card);
+  const asUnit = { card } as BattlefieldUnit;
+  return new Set(words.filter((w) => unitMatchesRequirement(asUnit, w)).map((w) => w.toLowerCase()));
+};
+// Two cards can be of different types if each can take a type the other doesn't have to share
+const canDifferInType = (a: Set<string>, b: Set<string>) =>
+  [...a].some((x) => [...b].some((y) => x !== y)) || (a.size === 0 && b.size === 0);
+
 /** Whether `unit` meets an attach requirement (see the module comment). */
 export function meetsAttachRequirement(unit: BattlefieldUnit, requires: any): boolean {
   if (!requires) return true;
@@ -107,9 +127,10 @@ export function meetsAttachRequirement(unit: BattlefieldUnit, requires: any): bo
     // common in their names" shares one or the other
     for (let i = 0; i < under.length; i++) {
       for (let j = i + 1; j < under.length; j++) {
-        const sameType = shareAny(tags(under[i]), tags(under[j]));
-        if (pc.differentTypes && sameType) return false;
-        if (pc.sameTypeOrSharedNameWord && !sameType && !shareAny(nameWords(under[i]), nameWords(under[j]))) return false;
+        const ti = promotedCardTypes(unit, under[i]);
+        const tj = promotedCardTypes(unit, under[j]);
+        if (pc.differentTypes && !canDifferInType(ti, tj)) return false;
+        if (pc.sameTypeOrSharedNameWord && !shareAny(ti, tj) && !shareAny(nameWords(under[i]), nameWords(under[j]))) return false;
       }
     }
   }
@@ -117,8 +138,8 @@ export function meetsAttachRequirement(unit: BattlefieldUnit, requires: any): bo
 }
 
 /**
- * The bonuses an attached card currently gives `unit`: only while it meets that card's requirement, once per
- * passive however many copies are attached ("This effect does not stack"), and none while its passives are off.
+ * The bonuses an attached card currently gives `unit`: once per passive however many copies are attached ("This
+ * effect does not stack"), and none while its passives are off. (The requirement only decides whether it can attach.)
  */
 export function getAttachBonuses(unit: BattlefieldUnit | null | undefined, type?: string): AttachBonus[] {
   if (!unit || !unit.attachedCards?.length) return [];
@@ -131,7 +152,6 @@ export function getAttachBonuses(unit: BattlefieldUnit | null | undefined, type?
     const key = attach.passive.id || attach.passive.name;
     if (seen.has(key)) return;
     seen.add(key);
-    if (!meetsAttachRequirement(unit, attach.effect.requires)) return;
     (attach.effect.whileAttached || []).forEach((effect: any) => {
       if (!type || effect.type === type) out.push({ effect, passive: attach.passive, card, key });
     });

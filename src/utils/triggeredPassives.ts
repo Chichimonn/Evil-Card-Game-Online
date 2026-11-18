@@ -1,7 +1,7 @@
 import { BattlefieldUnit, PlayerId } from '../types/game';
 import { CardAbility } from '../types/card';
 import { getSurroundingHexes, getHexDistance, getKnockbackDestination, getHexMovementDirection, parseHexId, offsetToCube, cubeToOffset, toHexId, CUBE_DIRECTIONS } from './hexGridMath';
-import { getUnitPassives, DamageEvent, isImmuneToNonDamageEffects } from './unitPassives';
+import { isImmuneToDamageWhileMoving, getUnitPassives, DamageEvent, isImmuneToNonDamageEffects } from './unitPassives';
 import { reduceNonAttackDamage } from './attackLogic';
 
 /**
@@ -201,17 +201,22 @@ export function getMoveDamage(
     if (!fires) return;
     (p.effects || []).forEach((e: any) => {
       if (e.type !== 'damage' || typeof e.amount !== 'number') return;
+      // "...during its turn" (e.g. Sloshing Steps)
+      if (e.if === 'self.isTakingTurn' && !onOwnTurn) return;
       if (e.area === 'enemyUnitsSurroundingSelf' || e.area === 'enemyUnitsSurroundingLandingTile') {
         enemiesAround(board, dest, mover.owner).forEach((h) => out.push({ hex: h, amount: e.amount, source: p.name }));
       }
     });
   });
-  // Static Fur: once per enemy passive, if any tile entered surrounds it
+  // Static Fur: once per enemy passive, if any tile entered surrounds it ({ if: 'self.hasArmour' }: only while that
+  // unit is armoured, e.g. Braced Pike). A unit that cannot take damage while moving (e.g. Light Footed) takes none.
+  if (isImmuneToDamageWhileMoving(mover)) return out;
   Object.entries(board).forEach(([h, u]) => {
     if (u.owner === mover.owner) return;
     getUnitPassives(u).forEach((p) => {
       if (p.trigger !== 'enemyMovesOntoTileSurroundingSelf') return;
       const eff: any = (p.effects || []).find((e: any) => e.type === 'damage' && typeof e.amount === 'number');
+      if (eff?.if === 'self.hasArmour' && !(u.armour > 0)) return;
       if (eff && path.some((t) => getHexDistance(t, h) === 1)) out.push({ hex: dest, amount: eff.amount, source: p.name });
     });
   });
@@ -247,7 +252,9 @@ export function getMeleeHitSplash(
 
 /**
  * Damage a unit takes for starting its turn next to another unit: { type: 'damage', target:
- * 'unitsStartingTurnSurroundingSelf', amount } (e.g. Deep Freeze; any unit, friendly or enemy).
+ * 'unitsStartingTurnSurroundingSelf', amount } (e.g. Deep Freeze; any unit, friendly or enemy), or only an enemy one:
+ * { trigger: 'enemyUnitStartsTurnSurroundingSelf', effects: [{ type: 'damage', target: 'unitStartingTurn', amount }] }
+ * (e.g. Blinding Aura).
  */
 export function getTurnStartAdjacencyDamage(
   unit: BattlefieldUnit,
@@ -260,7 +267,11 @@ export function getTurnStartAdjacencyDamage(
     if (!n || n.instanceId === unit.instanceId) return;
     getUnitPassives(n).forEach((p) => {
       const eff: any = (p.effects || []).find(
-        (e: any) => e.type === 'damage' && e.target === 'unitsStartingTurnSurroundingSelf' && typeof e.amount === 'number'
+        (e: any) =>
+          e.type === 'damage' &&
+          typeof e.amount === 'number' &&
+          (e.target === 'unitsStartingTurnSurroundingSelf' ||
+            (e.target === 'unitStartingTurn' && p.trigger === 'enemyUnitStartsTurnSurroundingSelf' && n.owner !== unit.owner))
       );
       if (eff) out.push({ hex, amount: eff.amount, source: `${n.card.name}'s ${p.name}` });
     });

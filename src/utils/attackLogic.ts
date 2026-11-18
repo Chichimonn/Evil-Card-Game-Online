@@ -15,7 +15,7 @@ import {
 import { getUnitPassives, hasFeedingFrenzy } from './unitPassives';
 import { getQualifyingPromotedAbilities } from './promotedAbilities';
 import { getAttacksUsedThisTurn, getAbilitiesUsedThisTurn, hasAttackedUnitThisTurn } from './turnLimits';
-import { getCurrentTurnNumber, getCurrentUnitsOnBoard, isHexScorchedNow } from './boardContext';
+import { getCurrentTurnNumber, getCurrentUnitsOnBoard, isHexScorchedNow, tookLastTurn, getHandSize } from './boardContext';
 import { getStartingApForTurn } from './noxiousBurst';
 
 export interface AttackHit {
@@ -55,6 +55,17 @@ export interface AttackExecutionOptions {
   scorchedTiles?: Record<string, any> | null;
 }
 
+/** Whether an ability's damage comes from its user's own movement (e.g. Mounted Charge, Sky Slither, Lead the Charge). */
+export function dealsDamageThroughOwnMovement(ability: CardAbility | null | undefined): boolean {
+  return ((ability?.effects || []) as any[]).some(
+    (e) =>
+      e.type === 'move' &&
+      (typeof e.damageToUnitsMovedOver === 'number' ||
+        typeof e.damageToEnemiesMovedOver === 'number' ||
+        typeof e.damageToEnemiesMovedThrough === 'number')
+  );
+}
+
 /**
  * Conditions about the attacker and the attack being made, read from card data `if` strings (passives and abilities):
  *   'self.hasNotMovedThisTurn', 'self.movedThisTurn', 'selfOnTileBehindTarget',
@@ -71,6 +82,10 @@ export function evalAttackerCondition(cond: string, attacker: BattlefieldUnit, i
   if (cond === 'self.hasNotMovedThisTurn') return !attacker.movedThisTurn;
   if (cond === 'self.movedThisTurn') return Boolean(attacker.movedThisTurn);
   if (cond === 'selfOnTileBehindTarget') return isBehind;
+  // "While you have N or more cards in hand" (e.g. Guard the Hoard)
+  const hand = cond.match(/^owner\.cardsInHand>=(\d+)$/);
+  if (hand) return getHandSize(attacker.owner) >= parseInt(hand[1], 10);
+  if (cond === 'self.hasArmour') return attacker.armour > 0;
   const hpRemaining = attacker.card.hp - attacker.damageCounters;
   if (cond === 'self.hpRemainingIsEven') return hpRemaining % 2 === 0;
   if (cond === 'self.hpRemainingIsOdd') return hpRemaining % 2 === 1;
@@ -121,6 +136,15 @@ function targetConditionHolds(
   const targetHex = options?.targetHex || target.hexId;
   const attackerHex = options?.attackerHex || attacker.hexId;
   if (cond === 'target.attackedBySelfThisTurn') return hasAttackedUnitThisTurn(attacker, target.instanceId);
+  // ...from a tile that was not behind it (e.g. Punchline)
+  if (cond === 'target.attackedBySelfThisTurnNotFromBehind') return (attacker.attackedFromFrontIds || []).includes(target.instanceId);
+  // "The unit that took the last turn" (e.g. Hunter's Focus)
+  if (cond === 'target.tookLastTurn') return tookLastTurn(target);
+  // "If a friendly unit is on the tile between this unit and the target" (e.g. Formation Reach)
+  if (cond === 'target.friendlyUnitBetween') {
+    const between = getStraightLineTilesBetween(attackerHex, targetHex);
+    return Boolean(between && between.length === 1 && units[between[0]] && units[between[0]].owner === attacker.owner);
+  }
   if (cond === 'target.inMeleeRange') return getHexDistance(attackerHex, targetHex) === 1;
   if (cond === 'target.firstUnitInStraightLine') {
     const between = getStraightLineTilesBetween(attackerHex, targetHex);
@@ -418,10 +442,16 @@ export function applyAttackerBonusPassives(
   //       'self.hpRemainingIsEven' (e.g. Shifting Flow)
   //   An amount { perTileMovedThisTurn, max } needs no condition (e.g. Unstoppable Momentum: +1 per tile moved, up to 4)
   //       'target.attackedBySelfThisTurn' (e.g. Lock-On), 'target.firstUnitInStraightLine' (e.g. Barrel)
-  const bonusConditionHolds = (cond: string): boolean | null =>
-    cond.startsWith('target.')
+  const bonusConditionHolds = (cond: string): boolean | null => {
+    // Conditions on the attacker and on the target joined with '&&' (e.g. Punchline)
+    if (cond.includes('&&') && cond.includes('target.')) {
+      const parts = cond.split('&&').map((c) => bonusConditionHolds(c.trim()));
+      return parts.some((p) => p === null) ? null : parts.every(Boolean);
+    }
+    return cond.startsWith('target.')
       ? Boolean(target && targetConditionHolds(cond, attacker, target, options))
       : evalAttackerCondition(cond, attacker, isBehind);
+  };
   attackerPassives.forEach((p) => {
     if (p.id === 'backstab' || p.id === 'opportunist') return;
     const effects = ((p.effects || []) as any[]).filter(
@@ -455,6 +485,54 @@ export function applyAttackerBonusPassives(
       });
     });
   });
+
+  // 15e. Auras from units around the attacker:
+  //   a friendly unit's { type: 'damageBonus', appliesTo: 'attacksOfFriendlyUnitsSurroundingSelf', amount, scope } (e.g.
+  //     Golden Banner: "Friendly units surrounding this unit deal an additional 1 damage on the first hit of each attack")
+  //   an enemy unit's { type: 'reduceDamageDealt', target: 'enemyUnitsSurroundingSelf', appliesTo: 'rangedAttacks', amount,
+  //     per: 'hit', minDamage } (e.g. Obscuring Smoke: "Ranged attacks made by enemy units surrounding this unit deal 2
+  //     damage less per hit, to a minimum of 1 damage per hit")
+  {
+    const board = options?.unitsOnBoard || getCurrentUnitsOnBoard();
+    const distance = attackerHex && targetHex ? getHexDistance(attackerHex, targetHex) : 1;
+    const isRangedAttack = !isMelee && (Boolean(ability?.tags?.includes('ranged')) || distance > 1 || (ability?.range?.[1] ?? 1) > 1 || ability?.target === 'direction');
+    if (attackerHex) {
+      getSurroundingHexes(attackerHex).forEach((h) => {
+        const u = board[h];
+        if (!u || u.instanceId === attacker.instanceId) return;
+        getUnitPassives(u).forEach((p) => {
+          ((p.effects || []) as any[]).forEach((e, idx) => {
+            const key = `aura_${u.instanceId}_${p.id || p.name}_${idx}`;
+            if (e.type === 'damageBonus' && e.appliesTo === 'attacksOfFriendlyUnitsSurroundingSelf' && u.owner === attacker.owner && typeof e.amount === 'number') {
+              (e.scope === 'firstHit' ? hits.slice(0, 1) : hits).forEach((hit) => {
+                if (hit.appliedBonuses?.includes(key)) return;
+                hit.damage += e.amount;
+                hit.appliedBonuses = [...(hit.appliedBonuses || []), key];
+                hit.conditionalNote = hit.conditionalNote ? `${hit.conditionalNote}, +${e.amount} ${p.name}` : `+${e.amount} ${p.name}`;
+              });
+            }
+            if (
+              e.type === 'reduceDamageDealt' &&
+              e.target === 'enemyUnitsSurroundingSelf' &&
+              e.appliesTo === 'rangedAttacks' &&
+              isRangedAttack &&
+              u.owner !== attacker.owner &&
+              typeof e.amount === 'number'
+            ) {
+              const floor = typeof e.minDamage === 'number' ? e.minDamage : 0;
+              (e.per === 'hit' ? hits : hits.slice(0, 1)).forEach((hit) => {
+                if (hit.appliedBonuses?.includes(key) || hit.damage <= floor) return;
+                const before = hit.damage;
+                hit.damage = Math.max(floor, hit.damage - e.amount);
+                hit.appliedBonuses = [...(hit.appliedBonuses || []), key];
+                hit.conditionalNote = hit.conditionalNote ? `${hit.conditionalNote}, -${before - hit.damage} ${p.name}` : `-${before - hit.damage} ${p.name}`;
+              });
+            }
+          });
+        });
+      });
+    }
+  }
 
   // 15b. A buff waiting for this unit's next attack (e.g. Perfect Form: +2 damage per hit after an armour ability)
   const nextBonus = attacker.nextAttackBonus;
@@ -500,6 +578,16 @@ export function applyAttackerBonusPassives(
     hits[0].damage = Math.max(Math.min(hits[0].damage, penalty.min ?? 0), hits[0].damage - penalty.amount);
     hits[0].appliedBonuses = [...(hits[0].appliedBonuses || []), 'first_hit_penalty'];
     hits[0].conditionalNote = hits[0].conditionalNote ? `${hits[0].conditionalNote}, -${penalty.amount} ${penalty.source}` : `-${penalty.amount} ${penalty.source}`;
+  }
+
+  // "...its melee attacks deal 2 damage less on the first hit during that turn" (e.g. Blade Breaker)
+  const meleeReduction = attacker.meleeFirstHitReduction;
+  if (meleeReduction && isMelee && hits[0] && !hits[0].appliedBonuses?.includes('melee_first_hit_reduction')) {
+    hits[0].damage = Math.max(0, hits[0].damage - meleeReduction.amount);
+    hits[0].appliedBonuses = [...(hits[0].appliedBonuses || []), 'melee_first_hit_reduction'];
+    hits[0].conditionalNote = hits[0].conditionalNote
+      ? `${hits[0].conditionalNote}, -${meleeReduction.amount} (${meleeReduction.source})`
+      : `-${meleeReduction.amount} (${meleeReduction.source})`;
   }
 
   const reduction = attacker.firstHitReduction || 0;
@@ -1456,11 +1544,12 @@ export function calculateDamageReduction(
   }
 
   const ability = options.ability;
-  const isMelee = ability?.tags?.includes('melee') || distance === 1;
-  const isRanged =
-    ability?.tags?.includes('ranged') ||
-    distance > 1 ||
-    (ability?.range && ability.range[1] > 1);
+  // Rules (Attack): a melee attack is one stated as melee, and "damage an ability deals as part of its user's own
+  // movement or placement is also a melee attack" (e.g. Mounted Charge's damage to units moved over). Any other attack is
+  // ranged, whatever range it was used from ("an attack used at range 1 does not count as melee unless specified").
+  const isMelee = Boolean(ability?.tags?.includes('melee')) || dealsDamageThroughOwnMovement(ability);
+  const isRanged = !isMelee;
+  void distance;
 
   let currentDmg = rawDamage;
   const reductionNotes: string[] = [];
@@ -1507,7 +1596,10 @@ export function calculateDamageReduction(
   // A reduction it was given for a while (e.g. Ethereal Guard: "takes 2 damage less from all attacks until the end of
   // your opponent's next turn"), per attack
   if (target.attackDamageReduction && target.attackDamageReduction.amount > 0) {
-    applyReduction({ amount: target.attackDamageReduction.amount, per: 'attack' }, target.attackDamageReduction.sourceName);
+    applyReduction(
+      { amount: target.attackDamageReduction.amount, per: 'attack', minDamage: target.attackDamageReduction.minDamage },
+      target.attackDamageReduction.sourceName
+    );
   }
   // Auras from surrounding friendly units (e.g. Banner's Cover)
   if (options.targetHex && options.unitsOnBoard) {
@@ -1660,6 +1752,16 @@ export function executeSequentialHits(
         hitDmg += 2;
         notes = notes ? `${notes}, +2 Glimmering Arrows (vs armour)` : '+2 Glimmering Arrows (vs armour)';
       }
+    }
+
+    // 4b. "Each hit dealing damage to armour deals an additional 1 damage" (e.g. Hammer Grip): the ability's damage
+    // effect { perHitBonusIfTargetArmoured: N }, checked against the armour left before each hit
+    const perArmourHit: any = ((options?.ability?.effects || []) as any[]).find(
+      (e) => e.type === 'damage' && typeof e.perHitBonusIfTargetArmoured === 'number'
+    );
+    if (perArmourHit && currentArmour > 0) {
+      hitDmg += perArmourHit.perHitBonusIfTargetArmoured;
+      notes = notes ? `${notes}, +${perArmourHit.perHitBonusIfTargetArmoured} (vs armour)` : `+${perArmourHit.perHitBonusIfTargetArmoured} (vs armour)`;
     }
 
     // 5. Behind-the-target conditions (Backstab, Opportunist, Inscribed Edge)

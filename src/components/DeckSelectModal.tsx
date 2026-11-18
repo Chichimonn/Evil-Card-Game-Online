@@ -4,6 +4,7 @@ import { CheckCircle2, X, Sword, ChevronDown } from 'lucide-react';
 import { useCardImages } from '../context/CardImageContext';
 import { CardThumbnail } from './CardThumbnail';
 import { CardPreview } from './CardPreview';
+import { resolveCardId } from '../data/cardsData';
 
 export interface SelectableDeck {
   id: string;
@@ -31,7 +32,7 @@ export function buildSelectableDecks(
       if (active.cards && Array.isArray(active.cards) && active.cards.length > 0) {
         const cardList: CardItem[] = [];
         active.cards.forEach((entry: { id: string; quantity: number }) => {
-          const card = cardsById.get(entry.id);
+          const card = cardsById.get(resolveCardId(entry.id));
           if (card) {
             for (let i = 0; i < entry.quantity; i++) cardList.push(card);
           }
@@ -64,7 +65,7 @@ export function buildSelectableDecks(
         saved.forEach((deck: { id: string; name: string; cardCount: number; cards: { id: string; quantity: number }[] }) => {
           const cardList: CardItem[] = [];
           deck.cards.forEach((entry) => {
-            const card = cardsById.get(entry.id);
+            const card = cardsById.get(resolveCardId(entry.id));
             if (card) {
               for (let i = 0; i < entry.quantity; i++) cardList.push(card);
             }
@@ -166,7 +167,7 @@ const PRESET_DECKS = [
     id: 'preset_arcane',
     name: 'Arcane Convergence',
     cardIds: [
-      'topaz_mage', 'topaz_mage', 'topaz_mage',
+      'lightning_mage', 'lightning_mage', 'lightning_mage',
       'euclase_mage', 'euclase_mage', 'euclase_mage',
       'garnet_mage', 'garnet_mage', 'garnet_mage',
       'opal_mage', 'opal_mage', 'opal_mage',

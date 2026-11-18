@@ -10,7 +10,8 @@ export function isModifyRangeAbility(ability: CardAbility | null | undefined): b
   const id = ability.id?.toLowerCase() || '';
   const name = ability.name?.toLowerCase() || '';
   if (id === 'broaden_search' || name.includes('broaden search')) return true;
-  return Boolean(ability.effects?.some((e: any) => e.type === 'modifyRange'));
+  // (not an ability's change to its own range, e.g. Heat Distortion: { type: 'modifyRange', target: 'thisAbility' })
+  return Boolean(ability.effects?.some((e: any) => e.type === 'modifyRange' && e.target !== 'thisAbility'));
 }
 
 /**

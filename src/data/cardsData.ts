@@ -235,92 +235,6 @@ export const initialCardsData: CardsDataSchema = {
       ]
     },
     {
-      "id": "topaz_mage",
-      "set": "Realms of Man",
-      "name": "Topaz Mage",
-      "type": "unit",
-      "basic": true,
-      "reinforce": {
-        "mode": "basic"
-      },
-      "hp": 13,
-      "ap": 2,
-      "art": "art/topaz_mage.png",
-      "passives": [
-        {
-          "id": "humming_barrier",
-          "name": "Humming Barrier",
-          "trigger": "turnStart",
-          "text": "At the start of each turn, armour up to 2.",
-          "effects": [
-            {
-              "type": "armour",
-              "target": "self",
-              "upTo": 2
-            }
-          ],
-          "script": null
-        }
-      ],
-      "abilities": [
-        {
-          "id": "twinbolt",
-          "name": "Twinbolt",
-          "cost": 1,
-          "range": [
-            1,
-            3
-          ],
-          "target": "unit",
-          "text": "Deals 2 damage. If this attack has already been used this turn, deals 3 damage instead. Hits twice.",
-          "effects": [
-            {
-              "type": "damage",
-              "amount": 2,
-              "hits": 2,
-              "modifiers": [
-                {
-                  "if": "thisAbilityUsedEarlierThisTurn",
-                  "setAmount": 3
-                }
-              ]
-            }
-          ],
-          "rangeText": "1-3"
-        },
-        {
-          "id": "deadly_arc",
-          "name": "Deadly Arc",
-          "cost": 2,
-          "range": [
-            1,
-            2
-          ],
-          "target": "unit",
-          "text": "Deals 10 damage. If the target took the last turn, your opponent cannot choose it to take their next turn unless it is their last non-token unit (they must choose a different non-token unit if able).",
-          "effects": [
-            {
-              "type": "damage",
-              "amount": 10,
-              "hits": 1
-            },
-            {
-              "type": "denyTurnSelection",
-              "target": "hitUnit",
-              "if": "target.tookLastTurn",
-              "duration": "opponentNextTurnChoice",
-              "exception": "targetIsLastNonTokenUnit"
-            }
-          ],
-          "script": null,
-          "rangeText": "2"
-        }
-      ],
-      "classTags": [
-        "Mage"
-      ]
-    },
-    {
       "id": "duelist_fighter",
       "set": "Realms of Man",
       "name": "Duelist Fighter",
@@ -337,7 +251,7 @@ export const initialCardsData: CardsDataSchema = {
           "id": "obscuring_cloak",
           "name": "Obscuring Cloak",
           "trigger": "static",
-          "text": "This unit takes 1 less damage from each melee attack.",
+          "text": "This unit takes 1 damage less from each melee attack.",
           "effects": [
             {
               "type": "reduceDamage",
@@ -774,7 +688,7 @@ export const initialCardsData: CardsDataSchema = {
           "cost": 1,
           "range": [1, 1],
           "target": "unit",
-          "text": "Deals 2 damage. Hits 3 times.",
+          "text": "Deals 2 damage. Hits three times.",
           "effects": [
             {
               "type": "damage",
@@ -1192,11 +1106,10 @@ export const initialCardsData: CardsDataSchema = {
           "id": "immovable",
           "name": "Immovable",
           "trigger": "static",
-          "text": "Immune to knockback effects.",
+          "text": "This unit cannot be moved by other units.",
           "effects": [
             {
-              "type": "immune",
-              "to": "knockback",
+              "type": "cannotBeMoved",
               "target": "self"
             }
           ],
@@ -1865,7 +1778,7 @@ export const initialCardsData: CardsDataSchema = {
           "id": "break_the_line",
           "name": "Break the Line",
           "trigger": "self.movedThroughUnit",
-          "text": "After moving through a unit, this unit gains 2 armour.",
+          "text": "After moving over an enemy unit, this unit gains 2 armour (This unit still may not move over other units except through another effect).",
           "effects": [
             {
               "type": "armour",
@@ -1884,7 +1797,7 @@ export const initialCardsData: CardsDataSchema = {
           "tags": [
             "melee"
           ],
-          "text": "Deals 4 damage, then hits again dealing 3 damage.",
+          "text": "Deals 4 damage, then hits again for 3 damage.",
           "effects": [
             {
               "type": "damage",
@@ -1904,7 +1817,7 @@ export const initialCardsData: CardsDataSchema = {
             "melee",
             "inspiring"
           ],
-          "text": "Deals 5 damage. This unit may move up to 2 tiles before declaring this attack, ignoring other units as long as the final tile is unoccupied. Moving through an enemy unit in this way deals 5 damage to that unit.",
+          "text": "Move up to 2 tiles. Then, choose a surrounding enemy unit and deal 5 damage to that unit. This unit may move over other units this way, and moving over an enemy unit deals 5 damage to that unit. This ability must leave this unit alone on its tile.",
           "effects": [
             {
               "type": "move",
@@ -2144,7 +2057,7 @@ export const initialCardsData: CardsDataSchema = {
           "tags": [
             "melee"
           ],
-          "text": "Deals 5 damage. Hits 3 times.",
+          "text": "Deals 5 damage. Hits three times.",
           "effects": [
             {
               "type": "damage",
@@ -2596,7 +2509,7 @@ export const initialCardsData: CardsDataSchema = {
           "range": [1, 2],
           "rangeText": "2",
           "target": "unit",
-          "text": "Deals 5 damage. Hits 3 times. Armour blocks this attack without depleting (damage in excess of the armour is still dealt).",
+          "text": "Deals 5 damage. Hits three times. Armour blocks this attack without depleting (damage in excess of the armour is still dealt).",
           "effects": [
             {
               "type": "damage",
@@ -2672,7 +2585,7 @@ export const initialCardsData: CardsDataSchema = {
           "tags": [
             "melee"
           ],
-          "text": "Deals 4 damage. Hits 2 times.",
+          "text": "Deals 4 damage. Hits twice.",
           "effects": [
             {
               "type": "damage",
@@ -3009,7 +2922,7 @@ export const initialCardsData: CardsDataSchema = {
           "id": "shield_bash_and_cleave",
           "name": "Shield Bash & Cleave",
           "cost": 2,
-          "text": "Removes up to 2 armour from target unit. Deals 7 damage. Then, hits again dealing 4 damage to the target and all enemy units surrounding it.",
+          "text": "Removes up to 2 armour from target unit. Deals 7 damage. Then, hits again for 4 damage to the target and all enemy units surrounding it.",
           "effects": [
             {
               "type": "removeArmour",
@@ -3106,7 +3019,7 @@ export const initialCardsData: CardsDataSchema = {
           "name": "Nexus Displacement",
           "isMultiStage": true,
           "cost": 3,
-          "text": "Each target swaps tile position with the other (ignoring units in the way).",
+          "text": "Each target swaps tile position with the other (place them each on the tile the other currently occupies).",
           "effects": [
             {
               "type": "swapPositions",
@@ -3154,7 +3067,7 @@ export const initialCardsData: CardsDataSchema = {
           "id": "esoteric_pathways",
           "name": "Esoteric Pathways",
           "trigger": "static",
-          "text": "This unit can move into a board boundary if there is an empty tile on the opposite board boundary in the same row or column. Doing so moves it to that tile (without passing through any units in the way. Still pay the AP cost for this unit to move).",
+          "text": "This unit can move into a board boundary if there is an empty tile on the opposite board boundary in the same row or column. Doing so moves it to that tile (without moving over any units in the way. Still pay the AP cost for this unit to move).",
           "effects": [
             {
               "type": "wrapAroundMove",
@@ -3225,11 +3138,11 @@ export const initialCardsData: CardsDataSchema = {
           "id": "quartz_ray",
           "name": "Quartz Ray",
           "cost": 2,
-          "text": "Deals 8 damage.",
+          "text": "Deals 10 damage.",
           "effects": [
             {
               "type": "damage",
-              "amount": 8,
+              "amount": 10,
               "hits": 1,
               "area": "allUnitsInLine"
             }
@@ -3465,6 +3378,9 @@ export const initialCardsData: CardsDataSchema = {
           "id": "whirlwind_execution",
           "name": "Whirlwind Execution",
           "cost": 2,
+          "tags": [
+            "melee"
+          ],
           "text": "Deals 11 damage.",
           "effects": [
             {
@@ -3843,7 +3759,7 @@ export const initialCardsData: CardsDataSchema = {
           "id": "vanish",
           "name": "Vanish",
           "cost": 1,
-          "text": "Move this unit to any empty tile within Range 2 (ignoring units in the way). This unit cannot be targeted during your opponent's next turn. This unit's turn ends.",
+          "text": "Place this unit on the target tile. This unit cannot be targeted during your opponent's next turn. This unit's turn ends.",
           "effects": [
             {
               "type": "place",
@@ -4027,7 +3943,7 @@ export const initialCardsData: CardsDataSchema = {
           "id": "blunderbuss_volley",
           "name": "Blunderbuss Volley",
           "cost": 2,
-          "text": "Deals 5 damage. Hits 3 times. Armour blocks this attack without depleting (damage in excess of the armour is still dealt).",
+          "text": "Deals 5 damage. Hits three times. Armour blocks this attack without depleting (damage in excess of the armour is still dealt).",
           "effects": [
             {
               "type": "damage",
@@ -4068,7 +3984,7 @@ export const initialCardsData: CardsDataSchema = {
           "id": "rigged_to_blow",
           "name": "Rigged to Blow",
           "trigger": "self.destroysEnemyUnitOrObstructingWall",
-          "text": "When this unit kills an enemy unit or an Obstructing Wall, deal 5 damage to all units surrounding the tile that unit was on.",
+          "text": "When this unit destroys an enemy unit or an Obstructing Wall, deal 5 damage to all units surrounding the destroyed target's tile.",
           "effects": [
             {
               "type": "damage",
@@ -4385,14 +4301,14 @@ export const initialCardsData: CardsDataSchema = {
           "id": "thick_hide",
           "name": "Thick Hide",
           "trigger": "static",
-          "text": "Reduces all damage taken from attacks by 1, to a minimum of 1 damage per hit.",
+          "text": "This unit takes 1 damage less from all attacks, to a minimum of 1 damage per attack.",
           "effects": [
             {
               "type": "reduceDamage",
               "amount": 1,
               "target": "self",
               "from": "attack",
-              "per": "hit",
+              "per": "attack",
               "minDamage": 1
             }
           ],
@@ -4502,7 +4418,7 @@ export const initialCardsData: CardsDataSchema = {
           "id": "relentless_claws",
           "name": "Relentless Claws",
           "cost": 1,
-          "text": "Deals 3 damage. Hits 3 times. Use only once per turn.",
+          "text": "Deals 3 damage. Hits three times. Use only once per turn.",
           "effects": [
             {
               "type": "damage",
@@ -4567,7 +4483,7 @@ export const initialCardsData: CardsDataSchema = {
           "id": "aerial_apex",
           "name": "Aerial Apex",
           "trigger": "static",
-          "text": "This unit may move over other units. Moving onto an enemy unit this way deals 3 damage to that unit. If this unit would end its turn while it is not alone on its tile, move this unit to an empty surrounding tile for free.",
+          "text": "When moving, this unit may move over other units. Moving over an enemy unit this way deals 3 damage to that unit. If this unit would end its turn while it is not alone on its tile, move this unit to an empty surrounding tile for free.",
           "effects": [
             {
               "type": "modifyMove",
@@ -4615,7 +4531,7 @@ export const initialCardsData: CardsDataSchema = {
           "id": "spitfire_landing",
           "name": "Spitfire Landing",
           "cost": 2,
-          "text": "Move up to 3 tiles in a straight line for free, then deal 8 damage to all enemy units surrounding this unit.",
+          "text": "Move up to 3 tiles in a straight line for free, then deal 8 damage to all enemy units surrounding this unit. This ability must leave this unit alone on its tile.",
           "effects": [
             {
               "type": "move",
@@ -4624,7 +4540,8 @@ export const initialCardsData: CardsDataSchema = {
                 "max": 3
               },
               "straightLine": true,
-              "free": true
+              "free": true,
+              "finalTileMustBeEmpty": true
             },
             {
               "type": "damage",
@@ -4657,7 +4574,7 @@ export const initialCardsData: CardsDataSchema = {
           "id": "gale_wings",
           "name": "Gale Wings",
           "trigger": "static",
-          "text": "Takes 2 less damage from ranged attacks, to a minimum of 1 damage per hit.",
+          "text": "This unit takes 2 damage less from ranged attacks, to a minimum of 1 damage per hit.",
           "effects": [
             {
               "type": "reduceDamage",
@@ -4676,7 +4593,7 @@ export const initialCardsData: CardsDataSchema = {
           "id": "razor_talons",
           "name": "Razor Talons",
           "cost": 1,
-          "text": "Deals 4 damage. Hits 2 times.",
+          "text": "Deals 4 damage. Hits twice.",
           "effects": [
             {
               "type": "damage",
@@ -4692,7 +4609,7 @@ export const initialCardsData: CardsDataSchema = {
           "id": "storm_buffet",
           "name": "Storm Buffet",
           "cost": 1,
-          "text": "Deals 4 damage. Hits 2 times. Use only once per turn.",
+          "text": "Deals 4 damage. Hits twice. Use only once per turn.",
           "effects": [
             {
               "type": "damage",
@@ -4971,7 +4888,7 @@ export const initialCardsData: CardsDataSchema = {
           "id": "constrict_and_thrash",
           "name": "Constrict & Thrash",
           "cost": 2,
-          "text": "Deals 4 damage. Hits 3 times.",
+          "text": "Deals 4 damage. Hits three times.",
           "effects": [
             {
               "type": "damage",
@@ -5097,7 +5014,7 @@ export const initialCardsData: CardsDataSchema = {
           "id": "hold_the_gate",
           "name": "Hold the Gate",
           "trigger": "self.wouldBeKnockedBackOnOpponentTurn",
-          "text": "During your opponent's turn, if this unit would be knocked back, you may make it immune to knockback until the end of the turn. If you do, this unit becomes unable to inflict knockback during your next turn.",
+          "text": "During your opponent's turn, if this unit would be knocked back, you may decide that it cannot be knocked back until the end of the turn. If you do, this unit becomes unable to inflict knockback during your next turn.",
           "effects": [
             {
               "type": "immune",
@@ -5517,7 +5434,7 @@ export const initialCardsData: CardsDataSchema = {
           "id": "swift_shots",
           "name": "Swift Shots",
           "cost": 1,
-          "text": "Deals 4 damage. Hits 2 times.",
+          "text": "Deals 4 damage. Hits twice.",
           "effects": [
             {
               "type": "damage",
@@ -5554,7 +5471,7 @@ export const initialCardsData: CardsDataSchema = {
           "id": "rain_of_arrows",
           "name": "Rain of Arrows",
           "cost": 3,
-          "text": "Deals 2 damage to all units on the target tile or a tile surrounding it. Hits 3 times.",
+          "text": "Deals 2 damage to all units on the target tile or a tile surrounding it. Hits three times.",
           "effects": [
             {
               "type": "damage",
@@ -5675,7 +5592,7 @@ export const initialCardsData: CardsDataSchema = {
           ]
         ]
       },
-      "hp": 22,
+      "hp": 23,
       "ap": 3,
       "art": "art/blade_singer.png",
       "passives": [
@@ -5683,18 +5600,12 @@ export const initialCardsData: CardsDataSchema = {
           "id": "wheel_of_blades",
           "name": "Wheel of Blades",
           "trigger": "turnStart",
-          "text": "At the start of each player's turn, armour up to 3. When damage is dealt to this unit's armour by a melee attack, it deals that much damage back to the attacker.",
+          "text": "At the start of each player's turn, armour up to 4.",
           "effects": [
             {
               "type": "armour",
               "target": "self",
-              "upTo": 3
-            },
-            {
-              "type": "damage",
-              "target": "attacker",
-              "amount": "armourDamageTaken",
-              "trigger": "self.armourDamagedByMeleeAttack"
+              "upTo": 4
             }
           ],
           "script": null
@@ -5738,13 +5649,13 @@ export const initialCardsData: CardsDataSchema = {
             2,
             3
           ],
-          "text": "Deals 2 damage. Hits 3 times per AP spent.",
+          "text": "Deals 2 damage. Hits 4 times per AP spent.",
           "effects": [
             {
               "type": "damage",
               "amount": 2,
               "hits": {
-                "perAP": 3
+                "perAP": 4
               },
               "area": "allUnitsInPath"
             }
@@ -6092,6 +6003,9 @@ export const initialCardsData: CardsDataSchema = {
           "id": "seers_visions",
           "name": "Seer's Visions",
           "cost": 2,
+          "tags": [
+            "inspiring"
+          ],
           "text": "Reveal the top card of your deck. If it is a unit card, use a 2AP ability or attack from among the promoted cards as this ability for free. Otherwise, draw that card and armour up to 4.",
           "effects": [
             {
@@ -6196,7 +6110,7 @@ export const initialCardsData: CardsDataSchema = {
           "name": "Umbral Flail",
           "isMultiStage": true,
           "cost": 1,
-          "text": "Deals 6 damage. If the target has an empty tile behind it, you may move this unit to that tile (ignoring units in the way).",
+          "text": "Deals 6 damage. If the target has an empty tile behind it, you may place this unit on that tile.",
           "effects": [
             {
               "type": "damage",
@@ -6977,7 +6891,7 @@ export const initialCardsData: CardsDataSchema = {
           "id": "stock",
           "name": "Stock",
           "trigger": "static",
-          "text": "When this unit attacks a target in melee range, that attack hits again dealing 3 damage.",
+          "text": "When this unit attacks a target in melee range, that attack hits again for 3 damage.",
           "effects": [
             {
               "type": "extraHit",
@@ -7166,34 +7080,19 @@ export const initialCardsData: CardsDataSchema = {
           }
         },
         {
-          "id": "ape_attack",
-          "name": "Ape Attack",
-          "cost": 1,
-          "tags": [
-            "melee"
-          ],
-          "limits": {
-            "oncePerTurn": true
-          },
-          "text": "Deals 8 damage. Use only once per turn.",
-          "effects": [
-            {
-              "type": "damage",
-              "amount": 8,
-              "hits": 1
-            }
-          ]
-        },
-        {
           "id": "monkey_smash",
           "name": "Monkey Smash",
           "cost": 2,
-          "text": "Deals 14 damage.",
+          "text": "Deals 10 damage. If this is the first time using this ability this turn, hits again for 7 damage.",
           "effects": [
             {
               "type": "damage",
-              "amount": 14,
-              "hits": 1
+              "amount": 10,
+              "hits": 1,
+              "extraHit": {
+                "amount": 7,
+                "if": "thisAbilityNotUsedEarlierThisTurn"
+              }
             }
           ],
           "tags": [
@@ -7227,7 +7126,7 @@ export const initialCardsData: CardsDataSchema = {
           "id": "siege_engine",
           "name": "Siege Engine",
           "trigger": "multiple",
-          "text": "At the start of each player's turn, this unit armours up to 1. While armoured, this unit is immune to knockback.",
+          "text": "At the start of each player's turn, this unit armours up to 1. While armoured, this unit cannot be knocked back.",
           "effects": [
             {
               "trigger": "turnStart",
@@ -7324,14 +7223,17 @@ export const initialCardsData: CardsDataSchema = {
           "id": "magical_omnipresence",
           "name": "Magical Omnipresence",
           "trigger": "static",
-          "text": "This unit may only move once per turn, but it may move to any empty tile within Range 2 (ignoring units in the way).",
+          "text": "The first time this unit spends AP to move each turn, instead of moving this unit, place it on a tile of your choice within range 1-2. Then, this unit may no longer move this turn.",
           "effects": [
             {
               "type": "modifyMove",
               "target": "self",
-              "maxMovesPerTurn": 1,
-              "moveToAnyEmptyTileWithinRange": 2,
-              "ignoreUnitsInWay": true
+              "firstApMoveBecomesPlace": true,
+              "placeRange": [
+                1,
+                2
+              ],
+              "noMovesAfterPlacing": true
             }
           ],
           "script": null
@@ -7420,7 +7322,7 @@ export const initialCardsData: CardsDataSchema = {
           "id": "rabble_rouse",
           "name": "Rabble Rouse",
           "trigger": "static",
-          "text": "This unit may move over enemy units while moving. Moving onto another unit's tile this way deals 4 damage to it. After doing this, move this unit to an empty tile surrounding it for free.",
+          "text": "This unit may move over enemy units while moving. Moving over another unit this way deals 4 damage to that unit. After doing this, move this unit to an empty tile surrounding it for free.",
           "effects": [
             {
               "type": "modifyMove",
@@ -7444,7 +7346,7 @@ export const initialCardsData: CardsDataSchema = {
           "id": "triple_fillet",
           "name": "Triple Fillet",
           "cost": 1,
-          "text": "Deals 2 damage. Hits 3 times. Use up to 3 times per turn.",
+          "text": "Deals 2 damage. Hits three times. Use up to three times per turn.",
           "effects": [
             {
               "type": "damage",
@@ -7608,7 +7510,7 @@ export const initialCardsData: CardsDataSchema = {
           "name": "Coin Plink",
           "isMultiStage": true,
           "cost": 1,
-          "text": "Deals 1 damage. Hits 3 times. If this attack kills the target, target another enemy unit within Range 1-4. Use this ability again against that unit, ignoring its AP cost (each time this happens counts as a another ability).",
+          "text": "Deals 1 damage. Hits three times. If this attack kills the target, target another enemy unit within Range 1-4. Use this ability again against that unit, ignoring its AP cost (each time this happens counts as another ability).",
           "effects": [
             {
               "type": "damage",
@@ -7728,7 +7630,7 @@ export const initialCardsData: CardsDataSchema = {
           "tags": [
             "inspiring"
           ],
-          "text": "Armour up to 7. This unit cannot move until the start of your next turn.",
+          "text": "Armour up to 7. This unit cannot move until the end of your opponent's next turn.",
           "effects": [
             {
               "type": "armour",
@@ -7738,7 +7640,7 @@ export const initialCardsData: CardsDataSchema = {
             {
               "type": "cannotMove",
               "target": "self",
-              "duration": "untilStartOfYourNextTurn"
+              "duration": "untilEndOfOpponentNextTurn"
             }
           ]
         }
@@ -8072,7 +7974,7 @@ export const initialCardsData: CardsDataSchema = {
       ],
       "abilities": [
         { "id": "torch_beating", "name": "Torch Beating", "cost": 1, "tags": ["melee"],
-          "text": "Deals 2 damage. Hits 3 times.",
+          "text": "Deals 2 damage. Hits three times.",
           "effects": [{ "type": "damage", "amount": 2, "hits": 3 }] },
         { "id": "leap_strike", "name": "Leap Strike", "cost": 1, "range": [1, 1], "rangeText": "1", "target": "emptyTile",
           "targetText": "move 1 tile", "limits": { "oncePerTurn": true },
@@ -8267,7 +8169,7 @@ export const initialCardsData: CardsDataSchema = {
       ],
       "abilities": [
         { "id": "flaming_splash", "name": "Flaming Splash", "cost": 1, "tags": ["melee"],
-          "text": "Deals 3 damage. Then, hits again dealing 2 damage.",
+          "text": "Deals 3 damage. Then, hits again for 2 damage.",
           "effects": [{ "type": "damage", "amount": 3, "hits": 1, "extraHit": { "amount": 2 } }] },
         { "id": "intense_radiation", "name": "Intense Radiation", "cost": 1,
           "text": "Deals 5 damage to all surrounding units (including friendly units).",
@@ -8353,6 +8255,9 @@ export const initialCardsData: CardsDataSchema = {
           "id": "thrash_and_flail",
           "name": "Thrash and Flail",
           "cost": 1,
+          "tags": [
+            "melee"
+          ],
           "text": "Deals 4 damage to all surrounding units and applies knockback 1 to them.",
           "effects": [
             {
@@ -8405,7 +8310,7 @@ export const initialCardsData: CardsDataSchema = {
       "reinforce": {
         "mode": "basic"
       },
-      "hp": 19,
+      "hp": 18,
       "ap": 2,
       "art": "art/noxious_plant.png",
       "passives": [
@@ -8413,11 +8318,11 @@ export const initialCardsData: CardsDataSchema = {
           "id": "spore_burst",
           "name": "Spore Burst",
           "trigger": "self.killsUnitWithRangedAttack",
-          "text": "When this unit kills another unit with a ranged attack, it deals 4 damage to all units that were surrounding the target.",
+          "text": "When this unit kills another unit with a ranged attack, it deals 3 damage to all units surrounding the target.",
           "effects": [
             {
               "type": "damage",
-              "amount": 4,
+              "amount": 3,
               "hits": 1,
               "area": "unitsSurroundingDestroyedTile"
             }
@@ -8457,7 +8362,7 @@ export const initialCardsData: CardsDataSchema = {
           ],
           "rangeText": "1-3",
           "target": "unit",
-          "text": "Deals 3 damage. Then, hits again dealing 2 damage.",
+          "text": "Deals 3 damage. Then, hits again for 2 damage.",
           "effects": [
             {
               "type": "damage",
@@ -8766,7 +8671,7 @@ export const initialCardsData: CardsDataSchema = {
           "tags": [
             "melee"
           ],
-          "text": "Deals 3 damage to all surrounding units. Hits 3 times.",
+          "text": "Deals 3 damage to all surrounding units. Hits three times.",
           "effects": [
             {
               "type": "damage",
@@ -8967,8 +8872,8 @@ export const initialCardsData: CardsDataSchema = {
       "reinforce": { "mode": "tribute", "count": 2, "requirement": [["Frozen"]] }, "hp": 27, "ap": 3, "art": "art/bonechiller_greatwurm.png",
       "passives": [
         { "id": "thick_hide", "name": "Thick Hide", "trigger": "static",
-          "text": "Reduces all damage taken from attacks by 1, to a minimum of 1 damage per hit.",
-          "effects": [{ "type": "reduceDamage", "amount": 1, "target": "self", "from": "attack", "per": "hit", "minDamage": 1 }], "script": null }
+          "text": "This unit takes 1 damage less from all attacks, to a minimum of 1 damage per attack.",
+          "effects": [{ "type": "reduceDamage", "amount": 1, "target": "self", "from": "attack", "per": "attack", "minDamage": 1 }], "script": null }
       ],
       "abilities": [
         { "id": "devouring_maw", "name": "Devouring Maw", "cost": 1, "tags": ["melee"], "limits": { "oncePerTurn": true },
@@ -9017,8 +8922,8 @@ export const initialCardsData: CardsDataSchema = {
       "reinforce": { "mode": "fusion", "count": 2, "requirement": [["Frozen"]] }, "hp": 26, "ap": 3, "art": "art/canyonguard_iceberg.png",
       "passives": [
         { "id": "immovable", "name": "Immovable", "trigger": "static",
-          "text": "Immune to knockback effects.",
-          "effects": [{ "type": "immune", "to": "knockback", "target": "self" }], "script": null }
+          "text": "This unit cannot be moved by other units.",
+          "effects": [{ "type": "cannotBeMoved", "target": "self" }], "script": null }
       ],
       "abilities": [
         { "id": "flatten_foe", "name": "Flatten Foe", "cost": 1, "tags": ["melee"],
@@ -9267,7 +9172,7 @@ export const initialCardsData: CardsDataSchema = {
           "id": "rigged_to_blow",
           "name": "Rigged to Blow",
           "trigger": "self.destroysEnemyUnitOrObstructingWall",
-          "text": "When this unit kills an enemy unit or an Obstructing Wall, deal 5 damage to all units surrounding the tile that unit was on.",
+          "text": "When this unit destroys an enemy unit or an Obstructing Wall, deal 5 damage to all units surrounding the destroyed target's tile.",
           "effects": [
             {
               "type": "damage",
@@ -9848,96 +9753,6 @@ export const initialCardsData: CardsDataSchema = {
       ]
     },
     {
-      "id": "lightning_nimbus",
-      "set": "Fury of the Skies",
-      "name": "Lightning Nimbus",
-      "type": "unit",
-      "basic": true,
-      "reinforce": {
-        "mode": "basic"
-      },
-      "hp": 16,
-      "ap": 2,
-      "art": "art/lightning_nimbus.png",
-      "passives": [
-        {
-          "id": "static_discharge",
-          "name": "Static Discharge",
-          "trigger": "self.movesExactlyOneTile",
-          "text": "Whenever this unit moves exactly 1 tile, it deals 2 damage to all surrounding enemy units.",
-          "effects": [
-            {
-              "type": "damage",
-              "amount": 2,
-              "hits": 1,
-              "area": "enemyUnitsSurroundingSelf"
-            }
-          ]
-        }
-      ],
-      "abilities": [
-        {
-          "id": "crackling_strike",
-          "name": "Crackling Strike",
-          "cost": 1,
-          "text": "Deals 5 damage.",
-          "effects": [
-            {
-              "type": "damage",
-              "amount": 5,
-              "hits": 1
-            }
-          ],
-          "tags": [
-            "melee"
-          ]
-        },
-        {
-          "id": "storm_surge",
-          "name": "Storm Surge",
-          "cost": 1,
-          "text": "This unit moves 1 tile for free. Then, you may deal 2 damage and apply knockback 1 to a surrounding enemy unit. Use only once per turn.",
-          "limits": {
-            "oncePerTurn": true
-          },
-          "effects": [
-            {
-              "type": "move",
-              "target": "self",
-              "tile": "target",
-              "free": true
-            },
-            {
-              "type": "damage",
-              "amount": 2,
-              "hits": 1,
-              "target": "chosenEnemyInMeleeRange",
-              "optional": true
-            },
-            {
-              "type": "knockback",
-              "target": "hitUnit",
-              "distance": 1
-            }
-          ],
-          "tags": [
-            "inspiring"
-          ],
-          "target": "emptyTile",
-          "range": [
-            1,
-            1
-          ],
-          "rangeText": "1",
-          "targetText": "move 1 tile, then a surrounding enemy"
-        }
-      ],
-      "classTags": [
-        "Lightning",
-        "Nimbus"
-      ]
-    },
-    {
       "id": "lightning_fighter",
       "set": "Fury of the Skies",
       "name": "Lightning Fighter",
@@ -10418,7 +10233,7 @@ export const initialCardsData: CardsDataSchema = {
           "id": "crescent_slash",
           "name": "Crescent Slash",
           "cost": 1,
-          "text": "Deals 5 damage. If this is the first ability used this turn, you may move 1 tile for free after the attack resolves.",
+          "text": "Deals 5 damage. If this is the second ability used this turn, you may move 1 tile for free after the attack resolves.",
           "effects": [
             {
               "type": "damage",
@@ -10432,7 +10247,7 @@ export const initialCardsData: CardsDataSchema = {
               "free": true,
               "optional": true,
               "timing": "afterAttack",
-              "if": "abilityNumberThisTurn:1"
+              "if": "abilityNumberThisTurn:2"
             }
           ],
           "tags": [
@@ -10478,21 +10293,21 @@ export const initialCardsData: CardsDataSchema = {
           "id": "full_moon_thrust",
           "name": "Full Moon Thrust",
           "cost": 1,
-          "text": "Deals 5 damage. If this is the first ability this unit used this turn, you may move this unit 1 tile for free before declaring the target.",
+          "text": "Deals 5 damage. If this is the second ability this unit used this turn, you may move this unit 1 tile for free after the attack resolves.",
           "effects": [
+            {
+              "type": "damage",
+              "amount": 5,
+              "hits": 1
+            },
             {
               "type": "move",
               "target": "self",
               "distance": 1,
               "free": true,
               "optional": true,
-              "timing": "beforeDeclaringAttack",
-              "if": "abilityNumberThisTurn:1"
-            },
-            {
-              "type": "damage",
-              "amount": 5,
-              "hits": 1
+              "timing": "afterAttack",
+              "if": "abilityNumberThisTurn:2"
             }
           ],
           "tags": [
@@ -10698,7 +10513,7 @@ export const initialCardsData: CardsDataSchema = {
           "id": "shining_scales",
           "name": "Shining Scales",
           "trigger": "static",
-          "text": "This unit take 1 damage less from melee attacks. When damage is prevented this way, deal that much damage to the attacker.",
+          "text": "This unit takes 1 damage less from melee attacks. When damage is prevented this way, deal that much damage to the attacker.",
           "effects": [
             {
               "type": "reduceDamage",
@@ -10735,7 +10550,7 @@ export const initialCardsData: CardsDataSchema = {
           "id": "bright_swoop",
           "name": "Bright Swoop",
           "cost": 2,
-          "text": "Move up to 3 tiles, ignoring units in the way. Then, deal 4 damage to all surrounding enemy units. This ability must leave this unit alone on its tile.",
+          "text": "Move up to 3 tiles. This unit may move over other units this way. Then, deal 4 damage to all surrounding enemy units. This ability must leave this unit alone on its tile.",
           "effects": [
             {
               "type": "move",
@@ -10897,7 +10712,7 @@ export const initialCardsData: CardsDataSchema = {
           "id": "gelatinous_bounce",
           "name": "Gelatinous Bounce",
           "cost": 2,
-          "text": "Move 1 tile, deal 3 damage to all surrounding enemies, then armour up to 3.",
+          "text": "Move 1 tile, deal 2 damage to all surrounding enemies, then armour up to 2.",
           "effects": [
             {
               "type": "move",
@@ -10906,14 +10721,14 @@ export const initialCardsData: CardsDataSchema = {
             },
             {
               "type": "damage",
-              "amount": 3,
+              "amount": 2,
               "hits": 1,
               "area": "enemyUnitsSurroundingSelf"
             },
             {
               "type": "armour",
               "target": "self",
-              "upTo": 3
+              "upTo": 2
             }
           ],
           "target": "emptyTile",
@@ -11060,7 +10875,7 @@ export const initialCardsData: CardsDataSchema = {
           "id": "energetic_lash",
           "name": "Energetic Lash",
           "cost": 1,
-          "text": "Deals 3 damage to up to 2 different targets. Use up to 2 times per turn.",
+          "text": "Deals 3 damage to up to 2 different targets. Use up to twice per turn.",
           "isMultiStage": true,
           "target": "enemyUnit",
           "targetCount": {
@@ -11141,7 +10956,7 @@ export const initialCardsData: CardsDataSchema = {
           "id": "energy_crackle",
           "name": "Energy Crackle",
           "trigger": "static",
-          "text": "This unit takes 2 less damage from ranged attacks to a minimum of 1 damage. Whenever an enemy unit attacks this unit from range 2 or further, deal 2 damage to that attacker.",
+          "text": "This unit takes 2 damage less from ranged attacks to a minimum of 1 damage per attack. Whenever an enemy unit attacks this unit from range 2 or further, deal 2 damage to that attacker.",
           "effects": [
             {
               "type": "reduceDamage",
@@ -11208,7 +11023,7 @@ export const initialCardsData: CardsDataSchema = {
           "id": "crashing_thunder_dive",
           "name": "Crashing Thunder Dive",
           "cost": 3,
-          "text": "Move up to 4 tiles, moving over units in the way. Then, deal 6 damage to all surrounding enemy units and apply knockback 1 to each. This ability must leave this unit alone on its tile.",
+          "text": "Move up to 4 tiles. This unit may move over other units this way. Then, deal 6 damage to all surrounding enemy units and apply knockback 1 to each. This ability must leave this unit alone on its tile.",
           "effects": [
             {
               "type": "move",
@@ -11305,7 +11120,7 @@ export const initialCardsData: CardsDataSchema = {
           "id": "sky_slither",
           "name": "Sky Slither",
           "cost": 2,
-          "text": "Move up to 3 tiles, never going in the same direction twice in a row. This unit may move over other units this way, and doing so deals 4 damage to each of those units and scorches any tiles they are on until the end of your opponent's next turn. This ability must leave this unit alone on its tile.",
+          "text": "Move up to 3 tiles, never going in the same direction twice in a row. This unit may move over other units this way, and moving over an enemy unit this way deals 4 damage to it and scorches the tile it is on until the end of your opponent's next turn. This ability must leave this unit alone on its tile.",
           "effects": [
             {
               "type": "move",
@@ -11318,8 +11133,8 @@ export const initialCardsData: CardsDataSchema = {
               },
               "mayMoveOverUnits": true,
               "finalTileMustBeEmpty": true,
-              "damageToUnitsMovedOver": 4,
-              "scorchTilesOfUnitsMovedOver": true
+              "damageToEnemiesMovedOver": 4,
+              "scorchTilesOfEnemiesMovedOver": true
             }
           ]
         }
@@ -11396,7 +11211,7 @@ export const initialCardsData: CardsDataSchema = {
           "id": "brace_for_impact",
           "name": "Brace for Impact",
           "cost": 1,
-          "text": "Armour up to 3. This unit cannot be knocked back until the start of your next turn.",
+          "text": "Armour up to 3. This unit cannot be knocked back until the end of your opponent's next turn.",
           "effects": [
             {
               "type": "armour",
@@ -11407,7 +11222,7 @@ export const initialCardsData: CardsDataSchema = {
               "type": "immune",
               "to": "knockback",
               "target": "self",
-              "duration": "untilStartOfYourNextTurn"
+              "duration": "untilEndOfOpponentNextTurn"
             }
           ],
           "tags": [
@@ -11548,7 +11363,7 @@ export const initialCardsData: CardsDataSchema = {
           "id": "rift_leap",
           "name": "Rift Leap",
           "cost": 1,
-          "text": "Move exactly 2 tiles in the same direction, ignoring units in the way. Deal 5 damage to one enemy unit surrounding the tile you land on.",
+          "text": "Move exactly 2 tiles in the same direction. This unit may move over other units this way. Then, deal 5 damage to one enemy unit surrounding the tile you land on.",
           "effects": [
             {
               "type": "move",
@@ -11725,7 +11540,7 @@ export const initialCardsData: CardsDataSchema = {
           "id": "melting_ooze",
           "name": "Melting Ooze",
           "cost": 1,
-          "text": "Deals 4 damage. Hits twice. The first hit bypasses all armour. Use no more than 2 times per turn.",
+          "text": "Deals 4 damage. Hits twice. The first hit bypasses all armour. Use no more than twice per turn.",
           "limits": {
             "maxPerTurn": 2
           },
@@ -11884,7 +11699,7 @@ export const initialCardsData: CardsDataSchema = {
           "id": "invigorating_flame",
           "name": "Invigorating Flame",
           "trigger": "static",
-          "text": "If this unit is standing on a scorched tile, it gains +1 to the range of its abilities.",
+          "text": "If this unit is standing on a Scorched tile, it gains +1 to the range of its abilities.",
           "effects": [
             {
               "type": "modifyRange",
@@ -11975,7 +11790,7 @@ export const initialCardsData: CardsDataSchema = {
           "id": "deep_freeze",
           "name": "Deep Freeze",
           "trigger": "multiple",
-          "text": "As soon as a scorched tile is surrounding this unit, it is no longer scorched. This effect overrides other effects. Units starting their turn next to this one take 2 damage.",
+          "text": "As soon as a scorched tile is surrounding this unit, it is no longer scorched. Units starting their turn surrounding this one take 2 damage.",
           "effects": [
             {
               "type": "unscorchTiles",
@@ -11996,7 +11811,7 @@ export const initialCardsData: CardsDataSchema = {
           "id": "freeze_ray",
           "name": "Freeze Ray",
           "cost": 1,
-          "text": "Deals 6 damage to all units on the path.",
+          "text": "Deals 5 damage to all units on the path.",
           "usesPath": true,
           "pathRule": "straight",
           "range": [
@@ -12009,7 +11824,7 @@ export const initialCardsData: CardsDataSchema = {
           "effects": [
             {
               "type": "damage",
-              "amount": 6,
+              "amount": 5,
               "hits": 1,
               "area": "allUnitsOnPath"
             }
@@ -12159,13 +11974,14 @@ export const initialCardsData: CardsDataSchema = {
         {
           "id": "eerie_presence",
           "name": "Eerie Presence",
-          "trigger": "self.attacksBeforeMovingThisTurn",
-          "text": "When this unit attacks before moving in a turn, it armours up to 2.",
+          "trigger": "self.endOfOwnTurn",
+          "text": "At the end of this unit's turn, if it attacked this turn, armour up to 2.",
           "effects": [
             {
               "type": "armour",
               "target": "self",
-              "upTo": 2
+              "upTo": 2,
+              "if": "self.attackedThisTurn"
             }
           ]
         }
@@ -12175,7 +11991,7 @@ export const initialCardsData: CardsDataSchema = {
           "id": "tripod_stomps",
           "name": "Tripod Stomps",
           "cost": 1,
-          "text": "Deals 3 damage. Hits 3 times. Use only once per turn.",
+          "text": "Deals 3 damage. Hits three times. Use only once per turn.",
           "limits": {
             "oncePerTurn": true
           },
@@ -12280,7 +12096,7 @@ export const initialCardsData: CardsDataSchema = {
           "id": "firebirds_death_knell",
           "name": "Firebird's Death Knell",
           "trigger": "self.dies",
-          "text": "When this unit dies, it deals 8 damage to all units that were surrounding it.",
+          "text": "When this unit dies, it deals 8 damage to all surrounding units.",
           "effects": [
             {
               "type": "damage",
@@ -12294,7 +12110,7 @@ export const initialCardsData: CardsDataSchema = {
           "id": "solar_wings",
           "name": "Solar Wings",
           "trigger": "static",
-          "text": "This unit takes 3 damage less from ranged attacks to a minimum of 1 damage.",
+          "text": "This unit takes 3 damage less from ranged attacks to a minimum of 1 damage per attack.",
           "effects": [
             {
               "type": "reduceDamage",
@@ -12695,18 +12511,12 @@ export const initialCardsData: CardsDataSchema = {
           "id": "frostbite_fangs",
           "name": "Frostbite Fangs",
           "cost": 1,
-          "text": "Deals 5 damage. If the target has exactly 1 or 2 AP on its next turn, this attack deals an additional 3 damage.",
+          "text": "Deals 6 damage.",
           "effects": [
             {
               "type": "damage",
-              "amount": 5,
-              "hits": 1,
-              "modifiers": [
-                {
-                  "if": "target.apNextTurnIs:1,2",
-                  "addAmount": 3
-                }
-              ]
+              "amount": 6,
+              "hits": 1
             }
           ],
           "tags": [
@@ -12717,7 +12527,7 @@ export const initialCardsData: CardsDataSchema = {
           "id": "glacial_wings",
           "name": "Glacial Wings",
           "cost": 2,
-          "text": "Move up to 3 tiles in a straight line, ignoring units in the way. Deal 5 damage to all enemy units passed through. This ability must leave this unit alone on its tile.",
+          "text": "Move up to 3 tiles in a straight line. This unit may move over other units this way. Deal 5 damage to all enemy units passed through. This ability must leave this unit alone on its tile.",
           "effects": [
             {
               "type": "move",
@@ -13281,7 +13091,7 @@ export const initialCardsData: CardsDataSchema = {
           "id": "eye_of_the_storm",
           "name": "Eye of the Storm",
           "cost": 2,
-          "text": "Pull all enemy units that are exactly Range 2 from this unit 1 tile toward this unit along a shortest path chosen by its controller. Then deal 5 damage to all surrounding enemy units.",
+          "text": "Pull all enemy units that are exactly Range 2 from this unit 1 tile toward this unit along a path of their owner's choice. Then, deal 5 damage to all surrounding enemy units.",
           "effects": [
             {
               "type": "pull",
@@ -13485,7 +13295,7 @@ export const initialCardsData: CardsDataSchema = {
           ]
         ]
       },
-      "hp": 25,
+      "hp": 24,
       "ap": 3,
       "art": "art/sunborn_hierarch.png",
       "passives": [
@@ -13836,7 +13646,7 @@ export const initialCardsData: CardsDataSchema = {
           "id": "colossal_hedgehog",
           "name": "Colossal Hedgehog",
           "cost": 2,
-          "text": "Deals 3 damage to units on all target tiles. Hits 3 times.",
+          "text": "Deals 3 damage to units on all target tiles. Hits three times.",
           "target": "tile",
           "targetText": "3 tile targets each surrounding at least 1 other",
           "targetCount": {
@@ -13884,7 +13694,7 @@ export const initialCardsData: CardsDataSchema = {
           "id": "shining_supremacy",
           "name": "Shining Supremacy",
           "trigger": "static",
-          "text": "The first ranged attack against this unit each turn can only deal a maximum of 4 damage (total, for all hits).",
+          "text": "The first ranged attack against this unit each turn can only deal a maximum of 4 damage.",
           "effects": [
             {
               "type": "capDamage",
@@ -13901,7 +13711,7 @@ export const initialCardsData: CardsDataSchema = {
           "id": "cloudsplitter_glaive",
           "name": "Cloudsplitter Glaive",
           "cost": 1,
-          "text": "Deals 7 damage. If this is the first attack this unit has used this turn, any time it deals damage, it deals 5 damage to the enemy unit on the other side of the target (if there is one).",
+          "text": "Deals 7 damage. If this is the first attack this unit has used this turn, any time it deals damage, it deals that much damage to the enemy unit on the other side of the target (if there is one).",
           "effects": [
             {
               "type": "damage",
@@ -13912,7 +13722,7 @@ export const initialCardsData: CardsDataSchema = {
               "type": "mirrorDamage",
               "target": "enemyBehindTarget",
               "if": "attackNumberThisTurn:1",
-              "amount": 5
+              "amount": "damageDealt"
             }
           ],
           "tags": [
@@ -13923,7 +13733,7 @@ export const initialCardsData: CardsDataSchema = {
           "id": "twisting_dragontrail",
           "name": "Twisting Dragontrail",
           "cost": 3,
-          "text": "This unit moves 3-5 tiles (your choice), changing direction one or two times but never turning back the way it came. It may move over units in the way, and moving over an enemy unit deals 8 damage to that unit. This ability must leave this unit alone on its tile.",
+          "text": "This unit moves 3-5 tiles (your choice), changing direction one or two times but never turning back the way it came. This unit may move over other units this way, and moving over an enemy unit this way deals 8 damage to that unit. This ability must leave this unit alone on its tile.",
           "effects": [
             {
               "type": "move",
@@ -14086,7 +13896,7 @@ export const initialCardsData: CardsDataSchema = {
           "id": "reassemble",
           "name": "Reassemble",
           "trigger": "self.dies",
-          "text": "When this unit dies, you may discard a card. If this unit is a Skeleton, and you do, reinforce it again immediately from your graveyard for free. When this unit is reinforced this way, place 8 damage on it.",
+          "text": "When this unit dies, you may discard a card. If this unit is a skeleton and you discarded a card this way, reinforce it again immediately from your graveyard for free. When this unit is reinforced this way, place 8 damage on it.",
           "effects": [
             {
               "type": "reassemble",
@@ -14102,7 +13912,7 @@ export const initialCardsData: CardsDataSchema = {
           "id": "rickety_spin",
           "name": "Rickety Spin",
           "cost": 1,
-          "text": "Deals 3 damage. Hits 2 times.",
+          "text": "Deals 3 damage. Hits twice.",
           "effects": [
             {
               "type": "damage",
@@ -14158,7 +13968,7 @@ export const initialCardsData: CardsDataSchema = {
           "id": "reassemble",
           "name": "Reassemble",
           "trigger": "self.dies",
-          "text": "When this unit dies, you may discard a card. If this unit is a Skeleton, and you do, reinforce it again immediately from your graveyard for free. When this unit is reinforced this way, place 7 damage on it.",
+          "text": "When this unit dies, you may discard a card. If this unit is a skeleton and you discarded a card this way, reinforce it again immediately from your graveyard for free. When this unit is reinforced this way, place 7 damage on it.",
           "effects": [
             {
               "type": "reassemble",
@@ -14174,15 +13984,12 @@ export const initialCardsData: CardsDataSchema = {
           "id": "bony_claws",
           "name": "Bony Claws",
           "cost": 1,
-          "text": "Deals 4 damage. Hits again for 3 damage.",
+          "text": "Deals 3 damage. Hits twice.",
           "effects": [
             {
               "type": "damage",
-              "amount": 4,
-              "hits": 1,
-              "extraHit": {
-                "amount": 3
-              }
+              "amount": 3,
+              "hits": 2
             }
           ],
           "tags": [
@@ -14193,7 +14000,7 @@ export const initialCardsData: CardsDataSchema = {
           "id": "haunting_dive",
           "name": "Haunting Dive",
           "cost": 1,
-          "text": "Move up to 2 tiles in a straight line, moving over units in the way. If you move over an enemy unit this way, deal 4 damage to it, and if it takes the next turn, moving costs an additional 1AP first time it moves that turn. This ability must leave this unit alone on its tile. Use only once per turn.",
+          "text": "Move up to 2 tiles in a straight line. This unit may move over units this way, and moving over an enemy unit this way deals 4 damage to it. If an enemy unit dealt damage this way takes the next turn, moving costs an additional 1AP first time it moves that turn. This ability must leave this unit alone on its tile. Use only once per turn.",
           "limits": {
             "oncePerTurn": true
           },
@@ -14237,7 +14044,7 @@ export const initialCardsData: CardsDataSchema = {
           "id": "reassemble",
           "name": "Reassemble",
           "trigger": "self.dies",
-          "text": "When this unit dies, you may discard a card. If this unit is a Skeleton, and you do, reinforce it again immediately from your graveyard for free. When this unit is reinforced this way, place 6 damage on it.",
+          "text": "When this unit dies, you may discard a card. If this unit is a skeleton and you discarded a card this way, reinforce it again immediately from your graveyard for free. When this unit is reinforced this way, place 6 damage on it.",
           "effects": [
             {
               "type": "reassemble",
@@ -14253,7 +14060,7 @@ export const initialCardsData: CardsDataSchema = {
           "id": "xylobone_rehearsal",
           "name": "Xylobone Rehearsal",
           "cost": 1,
-          "text": "Deals 2 damage. Hits 2 times.",
+          "text": "Deals 2 damage. Hits twice.",
           "effects": [
             {
               "type": "damage",
@@ -14305,7 +14112,7 @@ export const initialCardsData: CardsDataSchema = {
           "id": "reassemble",
           "name": "Reassemble",
           "trigger": "self.dies",
-          "text": "When this unit dies, you may discard a card. If this unit is a Skeleton, and you do, reinforce it again immediately from your graveyard for free. When this unit is reinforced this way, place 10 damage on it.",
+          "text": "When this unit dies, you may discard a card. If this unit is a skeleton and you discarded a card this way, reinforce it again immediately from your graveyard for free. When this unit is reinforced this way, place 10 damage on it.",
           "effects": [
             {
               "type": "reassemble",
@@ -14390,7 +14197,7 @@ export const initialCardsData: CardsDataSchema = {
           "id": "reassemble",
           "name": "Reassemble",
           "trigger": "self.dies",
-          "text": "When this unit dies, you may discard a card. If this unit is a Skeleton, and you do, reinforce it again immediately from your graveyard for free. When this unit is reinforced this way, place 7 damage on it.",
+          "text": "When this unit dies, you may discard a card. If this unit is a skeleton and you discarded a card this way, reinforce it again immediately from your graveyard for free. When this unit is reinforced this way, place 7 damage on it.",
           "effects": [
             {
               "type": "reassemble",
@@ -14406,7 +14213,7 @@ export const initialCardsData: CardsDataSchema = {
           "id": "grim_shot",
           "name": "Grim Shot",
           "cost": 1,
-          "text": "Deals 5 damage.",
+          "text": "Deals 4 damage.",
           "range": [
             1,
             3
@@ -14416,7 +14223,7 @@ export const initialCardsData: CardsDataSchema = {
           "effects": [
             {
               "type": "damage",
-              "amount": 5,
+              "amount": 4,
               "hits": 1
             }
           ]
@@ -14464,7 +14271,7 @@ export const initialCardsData: CardsDataSchema = {
           "id": "reassemble",
           "name": "Reassemble",
           "trigger": "self.dies",
-          "text": "When this unit dies, you may discard a card. If this unit is a Skeleton, and you do, reinforce it again immediately from your graveyard for free. When this unit is reinforced this way, place 9 damage on it.",
+          "text": "When this unit dies, you may discard a card. If this unit is a skeleton and you discarded a card this way, reinforce it again immediately from your graveyard for free. When this unit is reinforced this way, place 9 damage on it.",
           "effects": [
             {
               "type": "reassemble",
@@ -14561,16 +14368,12 @@ export const initialCardsData: CardsDataSchema = {
           "id": "spectral_blade",
           "name": "Spectral Blade",
           "cost": 1,
-          "text": "Deals 5 damage. Bypasses up to 3 armour.",
+          "text": "Deals 5 damage.",
           "effects": [
             {
               "type": "damage",
               "amount": 5,
               "hits": 1
-            },
-            {
-              "type": "bypassArmourUpTo",
-              "amount": 3
             }
           ],
           "tags": [
@@ -14730,7 +14533,7 @@ export const initialCardsData: CardsDataSchema = {
           "id": "ghostly_dagger",
           "name": "Ghostly Dagger",
           "cost": 1,
-          "text": "Deals 2 damage. Hits 3 times. If this attack was made from behind the target, move this unit 1 tile for free.",
+          "text": "Deals 2 damage. Hits three times. If this attack was made from behind the target, move this unit 1 tile for free.",
           "effects": [
             {
               "type": "damage",
@@ -14950,7 +14753,7 @@ export const initialCardsData: CardsDataSchema = {
           "id": "ethereal_guard",
           "name": "Ethereal Guard",
           "trigger": "static",
-          "text": "This unit may move over other units. If this unit would end its turn while it is not alone on its tile, this unit takes 2 damage less from all attacks until the end of your opponent's next turn, then move this unit to an empty surrounding tile for free.",
+          "text": "This unit may move over other units. If this unit would end its turn while it is not alone on its tile, this unit takes 2 damage less from all attacks to a minimum of 1 damage per attack until the end of your opponent's next turn, then move this unit to an empty surrounding tile for free.",
           "effects": [
             {
               "type": "modifyMove",
@@ -14962,6 +14765,7 @@ export const initialCardsData: CardsDataSchema = {
                   "type": "reduceDamageStatus",
                   "amount": 2,
                   "from": "attack",
+                  "minDamage": 1,
                   "duration": "untilEndOfOpponentNextTurn"
                 }
               ]
@@ -15009,7 +14813,7 @@ export const initialCardsData: CardsDataSchema = {
           "id": "spectral_retreat",
           "name": "Spectral Retreat",
           "cost": 2,
-          "text": "Move up to 3 tiles, ignoring units in the way. Armour up to 2.",
+          "text": "Move up to 3 tiles. Armour up to 2. This unit may move over other units this way (if it could not do so already). This ability must leave this unit alone on its tile.",
           "range": [
             1,
             3
@@ -15224,7 +15028,7 @@ export const initialCardsData: CardsDataSchema = {
           "id": "laser_tail",
           "name": "Laser Tail",
           "cost": 1,
-          "text": "Deals 3 damage. Then hits again for 2 damage.",
+          "text": "Deals 3 damage. Then, hits again for 2 damage.",
           "effects": [
             {
               "type": "damage",
@@ -15267,9 +15071,9 @@ export const initialCardsData: CardsDataSchema = {
       ]
     },
     {
-      "id": "alien_invader",
+      "id": "frozen_alien_invader",
       "set": "Soul Festival 2026",
-      "name": "Alien Invader",
+      "name": "Frozen Alien Invader",
       "type": "unit",
       "basic": true,
       "reinforce": {
@@ -15277,7 +15081,7 @@ export const initialCardsData: CardsDataSchema = {
       },
       "hp": 17,
       "ap": 2,
-      "art": "art/alien_invader.png",
+      "art": "art/frozen_alien_invader.png",
       "passives": [
         {
           "id": "lock_on",
@@ -15319,7 +15123,7 @@ export const initialCardsData: CardsDataSchema = {
           "id": "combat_roll",
           "name": "Combat Roll",
           "cost": 1,
-          "text": "If this unit has dealt damage this turn, move 2 spaces for free.",
+          "text": "If this unit has dealt damage this turn, move 2 tiles for free.",
           "requires": "self.dealtDamageThisTurn",
           "effects": [
             {
@@ -15360,6 +15164,7 @@ export const initialCardsData: CardsDataSchema = {
         }
       ],
       "classTags": [
+        "Frozen",
         "Alien"
       ]
     },
@@ -15481,7 +15286,7 @@ export const initialCardsData: CardsDataSchema = {
           "id": "repeat_jabbing",
           "name": "Repeat Jabbing",
           "cost": 1,
-          "text": "Deals 2 damage. Hits 3 times. Use only once each turn.",
+          "text": "Deals 2 damage. Hits three times. Use only once each turn.",
           "limits": {
             "oncePerTurn": true
           },
@@ -15500,7 +15305,7 @@ export const initialCardsData: CardsDataSchema = {
           "id": "triple_spin",
           "name": "Triple Spin",
           "cost": 1,
-          "text": "Deals 3 damage. Hits 3 times. Use only once each turn.",
+          "text": "Deals 3 damage. Hits three times. Use only once each turn.",
           "limits": {
             "oncePerTurn": true
           },
@@ -15840,7 +15645,7 @@ export const initialCardsData: CardsDataSchema = {
           ]
         ]
       },
-      "hp": 23,
+      "hp": 25,
       "ap": 3,
       "art": "art/cackling_puppeteer.png",
       "passives": [
@@ -15902,7 +15707,7 @@ export const initialCardsData: CardsDataSchema = {
           "id": "prankster_step",
           "name": "Prankster Step",
           "cost": 1,
-          "text": "Move this unit up to 3 tiles for free. Use only once per turn.",
+          "text": "Move this unit up to 3 tiles for free. Use up to once per turn.",
           "limits": {
             "oncePerTurn": true
           },
@@ -15974,7 +15779,7 @@ export const initialCardsData: CardsDataSchema = {
           "id": "laser_artillery",
           "name": "Laser Artillery",
           "cost": 2,
-          "text": "Deals 4 damage to each unit on a target tile. Then hits again for 3 damage.",
+          "text": "Deals 4 damage to each unit on a target tile. Then, hits again for 3 damage.",
           "range": [
             1,
             5
@@ -16129,7 +15934,7 @@ export const initialCardsData: CardsDataSchema = {
           "id": "solid_ribcage",
           "name": "Solid Ribcage",
           "trigger": "multiple",
-          "text": "When you reinforce this card, discard a card. If you can't, this card goes to the graveyard (the units it would have fused stay). Reduces all damage taken from enemy attacks by 1, to a minimum of 1 damage per hit.",
+          "text": "When you reinforce this card, discard a card. If you can't, this card goes to the graveyard (the units it would have fused stay). This unit takes 1 damage less from enemy attacks, to a minimum of 1 damage per hit.",
           "effects": [
             {
               "type": "discardOrFail",
@@ -16173,7 +15978,7 @@ export const initialCardsData: CardsDataSchema = {
           "id": "necrotic_breath",
           "name": "Necrotic Breath",
           "cost": 2,
-          "text": "Deals 11 damage to the first unit on the path.",
+          "text": "Deals 13 damage to the first unit on the path.",
           "usesPath": true,
           "range": [
             1,
@@ -16185,7 +15990,7 @@ export const initialCardsData: CardsDataSchema = {
           "effects": [
             {
               "type": "damage",
-              "amount": 11,
+              "amount": 13,
               "hits": 1,
               "area": "firstUnitOnPath"
             }
@@ -16195,7 +16000,7 @@ export const initialCardsData: CardsDataSchema = {
           "id": "bone_dust_landing",
           "name": "Bone-Dust Landing",
           "cost": 2,
-          "text": "Move up to 3 tiles in a straight line for free. Deal 4 damage to this unit, then deal 8 damage to all enemy units surrounding this unit.",
+          "text": "Move up to 3 tiles in a straight line for free. Deal 5 damage to this unit, then deal 10 damage to all enemy units surrounding this unit.",
           "effects": [
             {
               "type": "move",
@@ -16208,13 +16013,13 @@ export const initialCardsData: CardsDataSchema = {
             },
             {
               "type": "damage",
-              "amount": 4,
+              "amount": 5,
               "hits": 1,
               "area": "self"
             },
             {
               "type": "damage",
-              "amount": 8,
+              "amount": 10,
               "hits": 1,
               "area": "enemyUnitsSurroundingSelf"
             }
@@ -16559,7 +16364,7 @@ export const initialCardsData: CardsDataSchema = {
           "id": "automatic_shields",
           "name": "Automatic Shields",
           "trigger": "static",
-          "text": "When an enemy unit attacks this unit, that attack deals 1 damage less on the first hit to a minimum of 1 damage unless that unit is behind this one (from the attacker's perspective).",
+          "text": "When an enemy unit attacks this unit, unless that unit is on the tile behind this one, that attack deals 1 damage less on the first hit, to a minimum of 1 damage.",
           "effects": [
             {
               "type": "reduceDamage",
@@ -16655,7 +16460,7 @@ export const initialCardsData: CardsDataSchema = {
           "id": "revenants_call",
           "name": "Revenant's Call",
           "trigger": "static",
-          "text": "This unit may move over other units while moving. Moving onto an enemy unit's tile this way deals 4 damage to it. After doing this, move this unit to an empty tile surrounding it for free.",
+          "text": "This unit may move over enemy units while moving. Moving over another unit this way deals 4 damage to that unit. After doing this, move this unit to an empty tile surrounding it for free.",
           "effects": [
             {
               "type": "modifyMove",
@@ -16678,7 +16483,7 @@ export const initialCardsData: CardsDataSchema = {
           "id": "three_curses",
           "name": "Three Curses",
           "cost": 1,
-          "text": "This attack deals an additional 1 damage for each time it has previously been used this turn. Deals 1 damage. Hits 3 times. Use up to three times per turn.",
+          "text": "This attack deals an additional 1 damage for each time it has previously been used this turn. Deals 1 damage. Hits three times. Use up to three times per turn.",
           "range": [
             1,
             3
@@ -16734,7 +16539,7 @@ export const initialCardsData: CardsDataSchema = {
     },
     {
       "id": "western_wind_avatar",
-      "set": "Hidden Avatars",
+      "set": "Rival Kingdoms",
       "name": "Western Wind Avatar",
       "type": "unit",
       "basic": false,
@@ -16758,7 +16563,7 @@ export const initialCardsData: CardsDataSchema = {
           "id": "staggering_winds",
           "name": "Staggering Winds",
           "trigger": "static",
-          "text": "The first melee attack against this unit each turn can only deal a maximum of 4 damage (total, for all hits).",
+          "text": "The first melee attack against this unit each turn can only deal a maximum of 4 damage.",
           "effects": [
             {
               "type": "capDamage",
@@ -16826,7 +16631,7 @@ export const initialCardsData: CardsDataSchema = {
           "id": "blue_flare_dragontrail",
           "name": "Blue Flare Dragontrail",
           "cost": 2,
-          "text": "This unit moves 3-4 tiles (your choice), changing direction one or two times but never turning back the way it came. It may move over units this way, and moving onto an enemy unit scorches the tile that unit is on until the end of your opponent's next turn. This ability must leave this unit alone on its tile. Use only once per turn.",
+          "text": "This unit moves 3-4 tiles (your choice), changing direction one or two times but never turning back the way it came. This unit may move over other units this way, and moving over an enemy unit scorches the tile that unit is on until the end of your opponent's next turn. This ability must leave this unit alone on its tile. Use only once per turn.",
           "limits": {
             "oncePerTurn": true
           },
@@ -16856,7 +16661,7 @@ export const initialCardsData: CardsDataSchema = {
     },
     {
       "id": "crimson_dusk_avatar",
-      "set": "Hidden Avatars",
+      "set": "Rival Kingdoms",
       "name": "Crimson Dusk Avatar",
       "type": "unit",
       "basic": false,
@@ -16973,7 +16778,7 @@ export const initialCardsData: CardsDataSchema = {
     },
     {
       "id": "endothermic_geo_vent_avatar",
-      "set": "Hidden Avatars",
+      "set": "Rival Kingdoms",
       "name": "Endothermic Geo-Vent Avatar",
       "type": "unit",
       "basic": false,
@@ -16997,7 +16802,7 @@ export const initialCardsData: CardsDataSchema = {
           "id": "esoteric_pathways",
           "name": "Esoteric Pathways",
           "trigger": "static",
-          "text": "This unit can move into a board boundary if there is an empty tile on the opposite board boundary in the same row or column. Doing so moves it to that tile (without passing through any units in the way. Still pay the AP cost for this unit to move).",
+          "text": "This unit can move into a board boundary if there is an empty tile on the opposite board boundary in the same row or column. Doing so moves it to that tile (without moving over any units in the way. Still pay the AP cost for this unit to move).",
           "effects": [
             {
               "type": "wrapAroundMove",
@@ -17015,7 +16820,7 @@ export const initialCardsData: CardsDataSchema = {
           "id": "irradiated_trident",
           "name": "Irradiated Trident",
           "cost": 1,
-          "text": "Deals 2 damage. Hits 3 times. The first hit ignores armour. The first time this ability is used each turn, it deals an additional 1 damage on each hit.",
+          "text": "Deals 2 damage. Hits three times. The first hit ignores armour. The first time this ability is used each turn, it deals an additional 1 damage on each hit.",
           "effects": [
             {
               "type": "damage",
@@ -17095,7 +16900,7 @@ export const initialCardsData: CardsDataSchema = {
     },
     {
       "id": "cruel_maelstrom_avatar",
-      "set": "Hidden Avatars",
+      "set": "Rival Kingdoms",
       "name": "Cruel Maelstrom Avatar",
       "type": "unit",
       "basic": false,
@@ -17135,7 +16940,7 @@ export const initialCardsData: CardsDataSchema = {
           "id": "ride_the_gale",
           "name": "Ride the Gale",
           "cost": 1,
-          "text": "Move this unit up to 3 tiles in a straight line for free, ignoring units in the way. This ability must leave this unit alone on its tile.",
+          "text": "Move this unit up to 3 tiles in a straight line for free. This unit may move over other units this way. This ability must leave this unit alone on its tile.",
           "effects": [
             {
               "type": "move",
@@ -17215,7 +17020,7 @@ export const initialCardsData: CardsDataSchema = {
           "name": "Galvanic Harmony",
           "trigger": "static",
           "optional": true,
-          "text": "If this unit has no cards under it, it may move onto a friendly unit's tile to attach to it. If it does, your turn ends. While this card is attached to a unit with exactly 2 promoted cards of different types, that unit's AP is set to 1 more than the AP printed on that unit when it takes a turn. This effect does not stack.",
+          "text": "If this unit has no cards under it, it may attach to a friendly unit with exactly 2 promoted cards of different types. While this card is attached to a unit, that unit's AP is set to 1 more than the AP printed on that unit when it takes a turn. This effect does not stack. Attaching ends your turn.",
           "effects": [
             {
               "type": "attach",
@@ -17284,7 +17089,7 @@ export const initialCardsData: CardsDataSchema = {
           "name": "Echoing Harmony",
           "trigger": "static",
           "optional": true,
-          "text": "If this unit has no cards under it, it may move onto a friendly unit's tile to attach to it. If it does, your turn ends. While this card is attached to a unit with exactly 2 promoted cards that are of the same type or have a word in common in their names, once during each of that unit's turns, after it uses a 1AP attack, it may use that attack again for free, except it deals 2 damage less on the first hit (to a minimum of 1). This effect does not stack.",
+          "text": "If this unit has no cards under it, it may attach to a friendly unit with exactly 2 promoted cards that are of the same type or have a word in common in their names. While this card is attached to a unit, once during each of that unit's turns, after it uses a 1AP attack, it may use that attack again for free, except it deals 2 damage less on the first hit (to a minimum of 1). This effect does not stack. Attaching ends your turn.",
           "effects": [
             {
               "type": "attach",
@@ -17365,7 +17170,7 @@ export const initialCardsData: CardsDataSchema = {
           "name": "Agile Harmony",
           "trigger": "static",
           "optional": true,
-          "text": "If this unit has no cards under it, it may move onto a friendly unit's tile to attach to it. If it does, your turn ends. While this card is attached to a unit with exactly 2 promoted cards, once during each of that unit's turns, that unit may place itself on an empty surrounding tile for free. This effect does not stack.",
+          "text": "If this unit has no cards under it, it may attach to a friendly unit with exactly 2 promoted cards. While this card is attached to a unit, once during each of that unit's turns, that unit may place itself on an empty surrounding tile for free. This effect does not stack. Attaching ends your turn.",
           "effects": [
             {
               "type": "attach",
@@ -17435,7 +17240,7 @@ export const initialCardsData: CardsDataSchema = {
           "name": "Fortifying Harmony",
           "trigger": "static",
           "optional": true,
-          "text": "If this unit has no cards under it, it may move onto a friendly unit's tile to attach to it. If it does, your turn ends. While this card is attached to a unit with exactly 1 promoted card, that unit has 6 more HP. This effect does not stack.",
+          "text": "If this unit has no cards under it, it may attach to a friendly unit with exactly 1 promoted card. While this card is attached to a unit, that unit has 6 more HP. This effect does not stack. Attaching ends your turn.",
           "effects": [
             {
               "type": "attach",
@@ -17500,7 +17305,7 @@ export const initialCardsData: CardsDataSchema = {
           "name": "Bountiful Harmony",
           "trigger": "static",
           "optional": true,
-          "text": "If this unit has no cards under it, it may move onto a friendly unit's tile to attach to it. If it does, your turn ends. While this card is attached to a unit with Tribute 2, once during each of that unit's turns, when it kills an enemy non-token unit, draw 1 card. This effect does not stack.",
+          "text": "If this unit has no cards under it, it may attach to a friendly unit with Tribute 2. While this card is attached to a unit, once during each of that unit's turns, when it kills an enemy non-token unit, draw 1 card. This effect does not stack. Attaching ends your turn.",
           "effects": [
             {
               "type": "attach",
@@ -17566,7 +17371,7 @@ export const initialCardsData: CardsDataSchema = {
           "name": "Mending Harmony",
           "trigger": "static",
           "optional": true,
-          "text": "If this unit has no cards under it, it may move onto a friendly unit's tile to attach to it. If it does, your turn ends. While this card is attached to a unit with Tribute 3, at the end of each of your turns, if that unit is damaged and was not healed this turn, it heals 1 damage. This effect does not stack.",
+          "text": "If this unit has no cards under it, it may attach to a friendly unit with Tribute 3. While this card is attached to a unit, at the end of each of your turns, if that unit is damaged and was not healed this turn, it heals 1 damage. This effect does not stack. Attaching ends your turn.",
           "effects": [
             {
               "type": "attach",
@@ -17631,7 +17436,7 @@ export const initialCardsData: CardsDataSchema = {
           "name": "Prescient Harmony",
           "trigger": "static",
           "optional": true,
-          "text": "If this unit has no cards under it, it may move onto a friendly unit's tile to attach to it. If it does, your turn ends. While this card is attached to a unit with exactly 3 promoted cards, at the start of each of your turns, look at the top card of your deck. You may put it on the bottom of your deck. This effect does not stack.",
+          "text": "If this unit has no cards under it, it may attach to a friendly unit with exactly 3 promoted cards. While this card is attached to a unit, at the start of each of your turns, look at the top card of your deck. You may put it on the bottom of your deck. This effect does not stack. Attaching ends your turn.",
           "effects": [
             {
               "type": "attach",
@@ -17678,9 +17483,2313 @@ export const initialCardsData: CardsDataSchema = {
       "classTags": [
         "Fairy"
       ]
+    },
+    {
+      "id": "solar_warden",
+      "set": "Bridging the Gap",
+      "name": "Solar Warden",
+      "type": "unit",
+      "basic": true,
+      "reinforce": {
+        "mode": "basic"
+      },
+      "hp": 19,
+      "ap": 2,
+      "art": "art/solar_warden.png",
+      "passives": [
+        {
+          "id": "blinding_aura",
+          "name": "Blinding Aura",
+          "trigger": "enemyUnitStartsTurnSurroundingSelf",
+          "text": "Enemy units that start their turn surrounding this unit take 2 damage.",
+          "effects": [
+            {
+              "type": "damage",
+              "amount": 2,
+              "hits": 1,
+              "target": "unitStartingTurn"
+            }
+          ]
+        }
+      ],
+      "abilities": [
+        {
+          "id": "radiant_slash",
+          "name": "Radiant Slash",
+          "cost": 1,
+          "text": "Deals 6 damage.",
+          "effects": [
+            {
+              "type": "damage",
+              "amount": 6,
+              "hits": 1
+            }
+          ],
+          "tags": [
+            "melee"
+          ]
+        },
+        {
+          "id": "sunburst",
+          "name": "Sunburst",
+          "cost": 2,
+          "text": "Deals 6 damage to all surrounding enemy units.",
+          "effects": [
+            {
+              "type": "damage",
+              "amount": 6,
+              "hits": 1,
+              "area": "enemyUnitsSurroundingSelf"
+            }
+          ]
+        }
+      ],
+      "classTags": [
+        "Solar"
+      ]
+    },
+    {
+      "id": "solar_mage",
+      "set": "Bridging the Gap",
+      "name": "Solar Mage",
+      "type": "unit",
+      "basic": true,
+      "reinforce": {
+        "mode": "basic"
+      },
+      "hp": 14,
+      "ap": 2,
+      "art": "art/solar_mage.png",
+      "passives": [
+        {
+          "id": "citrine_radiance",
+          "name": "Citrine Radiance",
+          "trigger": "turnStart",
+          "text": "At the start of each player's turn, armour up to 1.",
+          "effects": [
+            {
+              "type": "armour",
+              "target": "self",
+              "upTo": 1
+            }
+          ]
+        }
+      ],
+      "abilities": [
+        {
+          "id": "daybreak_bolt",
+          "name": "Daybreak Bolt",
+          "cost": 1,
+          "text": "Deals 5 damage.",
+          "effects": [
+            {
+              "type": "damage",
+              "amount": 5,
+              "hits": 1
+            }
+          ],
+          "range": [
+            1,
+            3
+          ],
+          "rangeText": "1-3",
+          "target": "unit"
+        },
+        {
+          "id": "solar_nova",
+          "name": "Solar Nova",
+          "cost": 1,
+          "text": "Deals 6 damage to the unit on the target tile. Then, heal 3 damage from each friendly unit surrounding the target tile. Use only once per turn.",
+          "effects": [
+            {
+              "type": "damage",
+              "amount": 6,
+              "hits": 1,
+              "area": "targetTile"
+            },
+            {
+              "type": "heal",
+              "target": "friendlyUnitsSurroundingTargetTile",
+              "amount": 3
+            }
+          ],
+          "range": [
+            1,
+            3
+          ],
+          "rangeText": "1-3",
+          "target": "tile",
+          "targetText": "targets tile",
+          "limits": {
+            "oncePerTurn": true
+          }
+        }
+      ],
+      "classTags": [
+        "Solar",
+        "Mage"
+      ]
+    },
+    {
+      "id": "lunar_serpent",
+      "set": "Bridging the Gap",
+      "name": "Lunar Serpent",
+      "type": "unit",
+      "basic": true,
+      "reinforce": {
+        "mode": "basic"
+      },
+      "hp": 17,
+      "ap": 2,
+      "art": "art/lunar_serpent.png",
+      "passives": [
+        {
+          "id": "slow_coil",
+          "name": "Slow Coil",
+          "trigger": "static",
+          "text": "Enemy units that start their turn surrounding this unit must spend an additional 1AP if they choose to move.",
+          "effects": [
+            {
+              "type": "increaseMoveCost",
+              "target": "enemyUnitsStartingTurnSurroundingSelf",
+              "amount": 1,
+              "scope": "firstMoveOfTurn"
+            }
+          ]
+        }
+      ],
+      "abilities": [
+        {
+          "id": "moonlight_fangs",
+          "name": "Moonlight Fangs",
+          "cost": 1,
+          "text": "Deals 5 damage.",
+          "effects": [
+            {
+              "type": "damage",
+              "amount": 5,
+              "hits": 1
+            }
+          ],
+          "tags": [
+            "melee"
+          ]
+        },
+        {
+          "id": "constricting_squeeze",
+          "name": "Constricting Squeeze",
+          "cost": 2,
+          "text": "Deals 8 damage. The target must spend an additional 1AP the first time it moves during your opponent's next turn.",
+          "effects": [
+            {
+              "type": "damage",
+              "amount": 8,
+              "hits": 1
+            },
+            {
+              "type": "increaseMoveCost",
+              "target": "hitUnit",
+              "amount": 1,
+              "scope": "firstMoveOfTurn",
+              "duration": "nextTurnIfTargetTakesIt"
+            }
+          ],
+          "tags": [
+            "melee"
+          ]
+        }
+      ],
+      "classTags": [
+        "Lunar"
+      ]
+    },
+    {
+      "id": "lunar_sage",
+      "set": "Bridging the Gap",
+      "name": "Lunar Sage",
+      "type": "unit",
+      "basic": true,
+      "reinforce": {
+        "mode": "basic"
+      },
+      "hp": 14,
+      "ap": 2,
+      "art": "art/lunar_sage.png",
+      "passives": [
+        {
+          "id": "waning_tide",
+          "name": "Waning Tide",
+          "trigger": "self.takesTurn",
+          "text": "When this unit takes a turn, if you have fewer cards in hand than your opponent, draw 1 card.",
+          "effects": [
+            {
+              "type": "draw",
+              "amount": 1,
+              "if": "owner.fewerCardsInHandThanOpponent"
+            }
+          ]
+        }
+      ],
+      "abilities": [
+        {
+          "id": "waxing_pull",
+          "name": "Waxing Pull",
+          "cost": 1,
+          "text": "Pull the target 1 tile toward this unit. Then, if the target was moved this way and is now surrounding this unit, armour up to 4.",
+          "effects": [
+            {
+              "type": "pull",
+              "target": "hitUnit",
+              "distance": 1
+            },
+            {
+              "type": "armour",
+              "target": "self",
+              "upTo": 4,
+              "if": "pulledUnitNowSurroundingSelf"
+            }
+          ],
+          "straightLine": true,
+          "target": "direction",
+          "range": [
+            1,
+            3
+          ],
+          "rangeText": "1-3",
+          "targetText": "straight line, first unit within 3"
+        },
+        {
+          "id": "moonlit_staff",
+          "name": "Moonlit Staff",
+          "cost": 1,
+          "text": "Deals 3 damage.",
+          "effects": [
+            {
+              "type": "damage",
+              "amount": 3,
+              "hits": 1
+            }
+          ],
+          "tags": [
+            "melee"
+          ]
+        }
+      ],
+      "classTags": [
+        "Lunar",
+        "Sage"
+      ]
+    },
+    {
+      "id": "musket_plunderer",
+      "set": "Bridging the Gap",
+      "name": "Musket Plunderer",
+      "type": "unit",
+      "basic": true,
+      "reinforce": {
+        "mode": "basic"
+      },
+      "hp": 15,
+      "ap": 2,
+      "art": "art/musket_plunderer.png",
+      "passives": [
+        {
+          "id": "dead_shot",
+          "name": "Dead Shot",
+          "trigger": "self.killsEnemyUnitWithAttack",
+          "text": "Once per turn, when this unit kills an enemy unit with an attack, Loot 2.",
+          "effects": [
+            {
+              "type": "loot",
+              "amount": 2
+            }
+          ],
+          "limits": {
+            "oncePerTurn": true
+          }
+        }
+      ],
+      "abilities": [
+        {
+          "id": "long_barrel",
+          "name": "Long Barrel",
+          "cost": 1,
+          "text": "Deals 6 damage. Use only once per turn.",
+          "effects": [
+            {
+              "type": "damage",
+              "amount": 6,
+              "hits": 1
+            }
+          ],
+          "range": [
+            2,
+            3
+          ],
+          "rangeText": "2-3",
+          "target": "unit",
+          "limits": {
+            "oncePerTurn": true
+          }
+        },
+        {
+          "id": "sidearm",
+          "name": "Sidearm",
+          "cost": 1,
+          "text": "Deals 4 damage.",
+          "effects": [
+            {
+              "type": "damage",
+              "amount": 4,
+              "hits": 1
+            }
+          ],
+          "range": [
+            1,
+            2
+          ],
+          "rangeText": "1-2",
+          "target": "unit"
+        }
+      ],
+      "classTags": [
+        "Plunderer"
+      ]
+    },
+    {
+      "id": "boathook_plunderer",
+      "set": "Bridging the Gap",
+      "name": "Boathook Plunderer",
+      "type": "unit",
+      "basic": true,
+      "reinforce": {
+        "mode": "basic"
+      },
+      "hp": 17,
+      "ap": 2,
+      "art": "art/boathook_plunderer.png",
+      "passives": [
+        {
+          "id": "salvage",
+          "name": "Salvage",
+          "trigger": "self.pullsEnemyUnit",
+          "text": "Once per turn, when this unit pulls an enemy unit, Loot 1.",
+          "effects": [
+            {
+              "type": "loot",
+              "amount": 1
+            }
+          ],
+          "limits": {
+            "oncePerTurn": true
+          }
+        }
+      ],
+      "abilities": [
+        {
+          "id": "hook_and_haul",
+          "name": "Hook and Haul",
+          "cost": 1,
+          "text": "Deals 3 damage. Pull the target 1 tile toward this unit. Use only once per turn.",
+          "effects": [
+            {
+              "type": "damage",
+              "amount": 3,
+              "hits": 1,
+              "area": "firstUnitInStraightLine"
+            },
+            {
+              "type": "pull",
+              "target": "hitUnit",
+              "distance": 1
+            }
+          ],
+          "straightLine": true,
+          "target": "direction",
+          "range": [
+            1,
+            3
+          ],
+          "rangeText": "1-3",
+          "targetText": "straight line, first unit within 3",
+          "limits": {
+            "oncePerTurn": true
+          }
+        },
+        {
+          "id": "gaff_strike",
+          "name": "Gaff Strike",
+          "cost": 1,
+          "text": "Deals 6 damage.",
+          "effects": [
+            {
+              "type": "damage",
+              "amount": 6,
+              "hits": 1
+            }
+          ],
+          "tags": [
+            "melee"
+          ]
+        }
+      ],
+      "classTags": [
+        "Plunderer"
+      ]
+    },
+    {
+      "id": "quartermaster_plunderer",
+      "set": "Bridging the Gap",
+      "name": "Quartermaster Plunderer",
+      "type": "unit",
+      "basic": true,
+      "reinforce": {
+        "mode": "basic"
+      },
+      "hp": 18,
+      "ap": 2,
+      "art": "art/quartermaster_plunderer.png",
+      "passives": [
+        {
+          "id": "shared_spoils",
+          "name": "Shared Spoils",
+          "trigger": "friendlyUnitSurroundingSelfDealsDamageWithAttack",
+          "text": "Once per turn, when another friendly unit surrounding this unit deals damage with an attack, Loot 1.",
+          "effects": [
+            {
+              "type": "loot",
+              "amount": 1
+            }
+          ],
+          "limits": {
+            "oncePerTurn": true
+          }
+        }
+      ],
+      "abilities": [
+        {
+          "id": "muster_rations",
+          "name": "Muster Rations",
+          "cost": 1,
+          "text": "Heal 3 damage from the target.",
+          "effects": [
+            {
+              "type": "heal",
+              "target": "friendlyTarget",
+              "amount": 3
+            }
+          ],
+          "range": [
+            1,
+            2
+          ],
+          "rangeText": "1-2",
+          "target": "friendlyUnit",
+          "targetText": "targets friendly unit"
+        },
+        {
+          "id": "swing_quarterstaff",
+          "name": "Swing Quarterstaff",
+          "cost": 1,
+          "text": "Deals 4 damage.",
+          "effects": [
+            {
+              "type": "damage",
+              "amount": 4,
+              "hits": 1
+            }
+          ],
+          "tags": [
+            "melee"
+          ]
+        }
+      ],
+      "classTags": [
+        "Plunderer"
+      ]
+    },
+    {
+      "id": "clown_assassin",
+      "set": "Bridging the Gap",
+      "name": "Clown Assassin",
+      "type": "unit",
+      "basic": true,
+      "reinforce": {
+        "mode": "basic"
+      },
+      "hp": 15,
+      "ap": 2,
+      "art": "art/clown_assassin.png",
+      "passives": [
+        {
+          "id": "punchline",
+          "name": "Punchline",
+          "trigger": "static",
+          "text": "If this unit has already attacked a unit this turn from a tile that was not behind the target, its attacks against the same target made from the tile behind it deal an additional 2 damage per hit.",
+          "effects": [
+            {
+              "type": "damageBonus",
+              "appliesTo": "ownAttacks",
+              "amount": 2,
+              "scope": "allHits",
+              "if": "selfOnTileBehindTarget&&target.attackedBySelfThisTurnNotFromBehind"
+            }
+          ]
+        }
+      ],
+      "abilities": [
+        {
+          "id": "carve_a_smile",
+          "name": "Carve a Smile",
+          "cost": 1,
+          "text": "Use only if this attack is not made from the tile behind the target. Deals 4 damage. Then, you may move this unit 1 tile for free.",
+          "effects": [
+            {
+              "type": "damage",
+              "amount": 4,
+              "hits": 1
+            },
+            {
+              "type": "move",
+              "target": "self",
+              "distance": 1,
+              "free": true,
+              "optional": true,
+              "timing": "afterAttack"
+            }
+          ],
+          "tags": [
+            "melee"
+          ],
+          "requires": "!selfOnTileBehindTarget"
+        },
+        {
+          "id": "gleeful_execution",
+          "name": "Gleeful Execution",
+          "cost": 1,
+          "text": "Use only if this attack is made from the tile behind the target. Deals 3 damage. Hits three times.",
+          "effects": [
+            {
+              "type": "damage",
+              "amount": 3,
+              "hits": 3
+            }
+          ],
+          "tags": [
+            "melee"
+          ],
+          "requires": "selfOnTileBehindTarget"
+        }
+      ],
+      "classTags": [
+        "Assassin"
+      ]
+    },
+    {
+      "id": "nimbus_lancer",
+      "set": "Bridging the Gap",
+      "name": "Nimbus Lancer",
+      "type": "unit",
+      "basic": true,
+      "reinforce": {
+        "mode": "basic"
+      },
+      "hp": 17,
+      "ap": 2,
+      "art": "art/nimbus_lancer.png",
+      "passives": [
+        {
+          "id": "light_footed",
+          "name": "Light Footed",
+          "trigger": "static",
+          "text": "This unit cannot take damage while moving.",
+          "effects": [
+            {
+              "type": "immune",
+              "to": "damageWhileMoving",
+              "target": "self"
+            }
+          ]
+        }
+      ],
+      "abilities": [
+        {
+          "id": "strike_and_withdraw",
+          "name": "Strike and Withdraw",
+          "cost": 1,
+          "text": "Deals 4 damage. Then, move this unit 1 tile for free. If it is not surrounding an enemy unit afterward, armour up to 2. Use only once per turn.",
+          "effects": [
+            {
+              "type": "damage",
+              "amount": 4,
+              "hits": 1
+            },
+            {
+              "type": "move",
+              "target": "self",
+              "distance": 1,
+              "free": true,
+              "timing": "afterAttack"
+            },
+            {
+              "type": "armour",
+              "target": "self",
+              "upTo": 2,
+              "timing": "afterMove",
+              "if": "!self.surroundingEnemyUnit"
+            }
+          ],
+          "tags": [
+            "melee"
+          ],
+          "limits": {
+            "oncePerTurn": true
+          }
+        },
+        {
+          "id": "quick_jab",
+          "name": "Quick Jab",
+          "cost": 1,
+          "text": "Deals 5 damage.",
+          "effects": [
+            {
+              "type": "damage",
+              "amount": 5,
+              "hits": 1
+            }
+          ],
+          "tags": [
+            "melee"
+          ]
+        }
+      ],
+      "classTags": [
+        "Nimbus",
+        "Lancer"
+      ]
+    },
+    {
+      "id": "shield_lancer",
+      "set": "Bridging the Gap",
+      "name": "Shield Lancer",
+      "type": "unit",
+      "basic": true,
+      "reinforce": {
+        "mode": "basic"
+      },
+      "hp": 20,
+      "ap": 2,
+      "art": "art/shield_lancer.png",
+      "passives": [
+        {
+          "id": "braced_pike",
+          "name": "Braced Pike",
+          "trigger": "enemyMovesOntoTileSurroundingSelf",
+          "text": "If this unit has armour, enemy units that move onto a tile surrounding it take 3 damage.",
+          "effects": [
+            {
+              "type": "damage",
+              "amount": 3,
+              "hits": 1,
+              "target": "movingUnit",
+              "if": "self.hasArmour"
+            }
+          ]
+        }
+      ],
+      "abilities": [
+        {
+          "id": "plant_the_pike",
+          "name": "Plant the Pike",
+          "cost": 1,
+          "text": "Armour up to 3. Until the end of your opponent's next turn, this unit cannot be moved.",
+          "effects": [
+            {
+              "type": "armour",
+              "target": "self",
+              "upTo": 3
+            },
+            {
+              "type": "cannotBeMoved",
+              "target": "self",
+              "duration": "untilEndOfOpponentNextTurn"
+            }
+          ]
+        },
+        {
+          "id": "impale",
+          "name": "Impale",
+          "cost": 1,
+          "text": "Deals 5 damage. If this unit has not moved this turn, deals an additional 3 damage.",
+          "effects": [
+            {
+              "type": "damage",
+              "amount": 5,
+              "hits": 1,
+              "modifiers": [
+                {
+                  "if": "self.hasNotMovedThisTurn",
+                  "addAmount": 3
+                }
+              ]
+            }
+          ],
+          "tags": [
+            "melee"
+          ]
+        }
+      ],
+      "classTags": [
+        "Lancer"
+      ]
+    },
+    {
+      "id": "phalanx_lancer",
+      "set": "Bridging the Gap",
+      "name": "Phalanx Lancer",
+      "type": "unit",
+      "basic": true,
+      "reinforce": {
+        "mode": "basic"
+      },
+      "hp": 19,
+      "ap": 2,
+      "art": "art/phalanx_lancer.png",
+      "passives": [
+        {
+          "id": "formation_reach",
+          "name": "Formation Reach",
+          "trigger": "static",
+          "text": "If a friendly unit is on the tile between this unit and the target, this unit's attacks deal an additional 2 damage on the first hit.",
+          "effects": [
+            {
+              "type": "damageBonus",
+              "appliesTo": "ownAttacks",
+              "amount": 2,
+              "scope": "firstHit",
+              "if": "target.friendlyUnitBetween"
+            }
+          ]
+        }
+      ],
+      "abilities": [
+        {
+          "id": "long_thrust",
+          "name": "Long Thrust",
+          "cost": 1,
+          "text": "Deals 5 damage.",
+          "effects": [
+            {
+              "type": "damage",
+              "amount": 5,
+              "hits": 1,
+              "area": "targetTile"
+            }
+          ],
+          "usesPath": true,
+          "pathRule": "straight",
+          "pathLength": 2,
+          "range": [
+            2,
+            2
+          ],
+          "rangeText": "2",
+          "target": "tile",
+          "targetText": "straight line"
+        },
+        {
+          "id": "sweeping_pole",
+          "name": "Sweeping Pole",
+          "cost": 1,
+          "text": "Deals 3 damage to all units along the path, friendly units excluded.",
+          "effects": [
+            {
+              "type": "damage",
+              "amount": 3,
+              "hits": 1,
+              "area": "enemyUnitsAlongPath"
+            }
+          ],
+          "usesPath": true,
+          "pathRule": "straight",
+          "pathLength": 2,
+          "range": [
+            2,
+            2
+          ],
+          "rangeText": "2",
+          "target": "tile",
+          "targetText": "straight line"
+        }
+      ],
+      "classTags": [
+        "Lancer"
+      ]
+    },
+    {
+      "id": "sloshing_ooze",
+      "set": "Bridging the Gap",
+      "name": "Sloshing Ooze",
+      "type": "unit",
+      "basic": true,
+      "reinforce": {
+        "mode": "basic"
+      },
+      "hp": 18,
+      "ap": 2,
+      "art": "art/sloshing_ooze.png",
+      "passives": [
+        {
+          "id": "sloshing_steps",
+          "name": "Sloshing Steps",
+          "trigger": "self.movesExactlyOneTile",
+          "text": "Whenever this unit moves exactly 1 tile during its turn, it deals 2 damage to all surrounding enemy units.",
+          "effects": [
+            {
+              "type": "damage",
+              "amount": 2,
+              "hits": 1,
+              "area": "enemyUnitsSurroundingSelf",
+              "if": "self.isTakingTurn"
+            }
+          ]
+        }
+      ],
+      "abilities": [
+        {
+          "id": "sodden_slap",
+          "name": "Sodden Slap",
+          "cost": 1,
+          "text": "Deals 5 damage.",
+          "effects": [
+            {
+              "type": "damage",
+              "amount": 5,
+              "hits": 1
+            }
+          ],
+          "tags": [
+            "melee"
+          ]
+        },
+        {
+          "id": "splashdown",
+          "name": "Splashdown",
+          "cost": 1,
+          "text": "This unit moves 1 tile for free. Then, you may deal 2 damage and apply knockback 1 to a surrounding enemy unit. Use only once per turn.",
+          "effects": [
+            {
+              "type": "move",
+              "target": "self",
+              "tile": "target",
+              "free": true
+            },
+            {
+              "type": "damage",
+              "amount": 2,
+              "hits": 1,
+              "target": "chosenEnemyInMeleeRange",
+              "optional": true
+            },
+            {
+              "type": "knockback",
+              "target": "hitUnit",
+              "distance": 1
+            }
+          ],
+          "tags": [
+            "inspiring"
+          ],
+          "target": "emptyTile",
+          "range": [
+            1,
+            1
+          ],
+          "rangeText": "1",
+          "targetText": "move 1 tile, then a surrounding enemy",
+          "limits": {
+            "oncePerTurn": true
+          }
+        }
+      ],
+      "classTags": [
+        "Ooze"
+      ]
+    },
+    {
+      "id": "lightning_mage",
+      "set": "Bridging the Gap",
+      "name": "Lightning Mage",
+      "type": "unit",
+      "basic": true,
+      "reinforce": {
+        "mode": "basic"
+      },
+      "hp": 13,
+      "ap": 2,
+      "art": "art/lightning_mage.png",
+      "passives": [
+        {
+          "id": "humming_barrier",
+          "name": "Humming Barrier",
+          "trigger": "turnStart",
+          "text": "At the start of each turn, armour up to 2.",
+          "effects": [
+            {
+              "type": "armour",
+              "target": "self",
+              "upTo": 2
+            }
+          ]
+        }
+      ],
+      "abilities": [
+        {
+          "id": "twinbolt",
+          "name": "Twinbolt",
+          "cost": 1,
+          "range": [
+            1,
+            3
+          ],
+          "target": "unit",
+          "text": "Deals 2 damage. If this attack has already been used this turn, deals 3 damage instead. Hits twice.",
+          "effects": [
+            {
+              "type": "damage",
+              "amount": 2,
+              "hits": 2,
+              "modifiers": [
+                {
+                  "if": "thisAbilityUsedEarlierThisTurn",
+                  "setAmount": 3
+                }
+              ]
+            }
+          ],
+          "rangeText": "1-3"
+        },
+        {
+          "id": "deadly_arc",
+          "name": "Deadly Arc",
+          "cost": 2,
+          "range": [
+            1,
+            2
+          ],
+          "target": "unit",
+          "text": "Deals 10 damage. If the target took the last turn, your opponent cannot choose it to take their next turn unless it is their last non-token unit (they must choose a different non-token unit if able).",
+          "effects": [
+            {
+              "type": "damage",
+              "amount": 10,
+              "hits": 1
+            },
+            {
+              "type": "denyTurnSelection",
+              "target": "hitUnit",
+              "if": "target.tookLastTurn",
+              "duration": "opponentNextTurnChoice",
+              "exception": "targetIsLastNonTokenUnit"
+            }
+          ],
+          "script": null,
+          "rangeText": "2"
+        }
+      ],
+      "classTags": [
+        "Lightning",
+        "Mage"
+      ]
+    },
+    {
+      "id": "solar_plunderer",
+      "set": "Bridging the Gap",
+      "name": "Solar Plunderer",
+      "type": "unit",
+      "basic": true,
+      "reinforce": {
+        "mode": "basic"
+      },
+      "hp": 16,
+      "ap": 2,
+      "art": "art/solar_plunderer.png",
+      "passives": [
+        {
+          "id": "golden_banner",
+          "name": "Golden Banner",
+          "trigger": "static",
+          "text": "Friendly units surrounding this unit deal an additional 1 damage on the first hit of each attack.",
+          "effects": [
+            {
+              "type": "damageBonus",
+              "appliesTo": "attacksOfFriendlyUnitsSurroundingSelf",
+              "amount": 1,
+              "scope": "firstHit"
+            }
+          ]
+        }
+      ],
+      "abilities": [
+        {
+          "id": "boarding_cutlass",
+          "name": "Boarding Cutlass",
+          "cost": 1,
+          "text": "Deals 6 damage.",
+          "effects": [
+            {
+              "type": "damage",
+              "amount": 6,
+              "hits": 1
+            }
+          ],
+          "tags": [
+            "melee"
+          ]
+        },
+        {
+          "id": "flare_pistol",
+          "name": "Flare Pistol",
+          "cost": 1,
+          "text": "Deals 5 damage. If this attack kills the target, Loot 3.",
+          "effects": [
+            {
+              "type": "damage",
+              "amount": 5,
+              "hits": 1
+            },
+            {
+              "type": "loot",
+              "amount": 3,
+              "if": "targetKilled"
+            }
+          ],
+          "range": [
+            1,
+            2
+          ],
+          "rangeText": "1-2",
+          "target": "unit"
+        }
+      ],
+      "classTags": [
+        "Solar",
+        "Plunderer"
+      ]
+    },
+    {
+      "id": "lunar_vigilante",
+      "set": "Bridging the Gap",
+      "name": "Lunar Vigilante",
+      "type": "unit",
+      "basic": true,
+      "reinforce": {
+        "mode": "basic"
+      },
+      "hp": 16,
+      "ap": 2,
+      "art": "art/lunar_vigilante.png",
+      "passives": [
+        {
+          "id": "patient_watch",
+          "name": "Patient Watch",
+          "trigger": "ownerTurnEnd",
+          "text": "At the end of each of your turns, if this unit did not take that turn, armour up to 2.",
+          "effects": [
+            {
+              "type": "armour",
+              "target": "self",
+              "upTo": 2,
+              "if": "self.didNotTakeTurn"
+            }
+          ]
+        }
+      ],
+      "abilities": [
+        {
+          "id": "glowing_fists",
+          "name": "Glowing Fists",
+          "cost": 1,
+          "text": "Deals 4 damage. If this unit is armoured, deals an additional 2 damage.",
+          "effects": [
+            {
+              "type": "damage",
+              "amount": 4,
+              "hits": 1,
+              "modifiers": [
+                {
+                  "if": "self.hasArmour",
+                  "addAmount": 2
+                }
+              ]
+            }
+          ],
+          "tags": [
+            "melee"
+          ]
+        },
+        {
+          "id": "moonlight_ward",
+          "name": "Moonlight Ward",
+          "cost": 1,
+          "text": "Until the end of your opponent's next turn, the next time that unit would take damage from an attack, prevent up to 4 of that damage. This effect does not stack.",
+          "effects": [
+            {
+              "type": "wardNextAttack",
+              "target": "friendlyTarget",
+              "preventUpTo": 4,
+              "duration": "untilEndOfOpponentNextTurn",
+              "stacks": false
+            }
+          ],
+          "range": [
+            1,
+            2
+          ],
+          "rangeText": "1-2",
+          "target": "friendlyUnit",
+          "targetText": "targets friendly unit"
+        }
+      ],
+      "classTags": [
+        "Lunar"
+      ]
+    },
+    {
+      "id": "corrosive_ooze",
+      "set": "Bridging the Gap",
+      "name": "Corrosive Ooze",
+      "type": "unit",
+      "basic": true,
+      "reinforce": {
+        "mode": "basic"
+      },
+      "hp": 19,
+      "ap": 2,
+      "art": "art/corrosive_ooze.png",
+      "passives": [
+        {
+          "id": "gelatinous_body",
+          "name": "Gelatinous Body",
+          "trigger": "turnStart",
+          "text": "At the start of each player's turn, armour up to 1.",
+          "effects": [
+            {
+              "type": "armour",
+              "target": "self",
+              "upTo": 1
+            }
+          ]
+        }
+      ],
+      "abilities": [
+        {
+          "id": "dissolving_spit",
+          "name": "Dissolving Spit",
+          "cost": 1,
+          "text": "Remove up to 4 armour from the target, then deal 2 damage plus 1 damage for each armour removed this way.",
+          "effects": [
+            {
+              "type": "removeArmour",
+              "target": "target",
+              "amount": 4,
+              "upTo": true,
+              "id": "armourRemoved"
+            },
+            {
+              "type": "damage",
+              "amount": {
+                "formula": "armourRemoved",
+                "plus": 2
+              },
+              "hits": 1
+            }
+          ],
+          "range": [
+            1,
+            2
+          ],
+          "rangeText": "1-2",
+          "target": "unit"
+        },
+        {
+          "id": "pseudopod",
+          "name": "Pseudopod",
+          "cost": 1,
+          "text": "Deals 5 damage.",
+          "effects": [
+            {
+              "type": "damage",
+              "amount": 5,
+              "hits": 1
+            }
+          ],
+          "tags": [
+            "melee"
+          ]
+        }
+      ],
+      "classTags": [
+        "Ooze"
+      ]
+    },
+    {
+      "id": "carrion_drakeling",
+      "set": "Bridging the Gap",
+      "name": "Carrion Drakeling",
+      "type": "unit",
+      "basic": true,
+      "reinforce": {
+        "mode": "basic"
+      },
+      "hp": 16,
+      "ap": 2,
+      "art": "art/carrion_drakeling.png",
+      "passives": [
+        {
+          "id": "agile_flight",
+          "name": "Agile Flight",
+          "trigger": "static",
+          "text": "This unit takes 1 damage less from all attacks, to a minimum of 1 damage per hit.",
+          "effects": [
+            {
+              "type": "reduceDamage",
+              "amount": 1,
+              "target": "self",
+              "from": "attack",
+              "per": "hit",
+              "minDamage": 1
+            }
+          ]
+        }
+      ],
+      "abilities": [
+        {
+          "id": "drag_and_drop",
+          "name": "Drag and Drop",
+          "cost": 1,
+          "text": "Place the target on an empty tile surrounding this unit. Use only once per turn.",
+          "effects": [
+            {
+              "type": "place",
+              "unit": "friendlyTarget",
+              "tile": "chosenEmptySurroundingSelf"
+            }
+          ],
+          "range": [
+            1,
+            2
+          ],
+          "rangeText": "1-2",
+          "target": "friendlyUnit",
+          "targetText": "targets friendly unit",
+          "limits": {
+            "oncePerTurn": true
+          }
+        },
+        {
+          "id": "talon_swoop",
+          "name": "Talon Swoop",
+          "cost": 1,
+          "text": "Deals 4 damage. Then, move this unit 1 tile for free.",
+          "effects": [
+            {
+              "type": "damage",
+              "amount": 4,
+              "hits": 1
+            },
+            {
+              "type": "move",
+              "target": "self",
+              "distance": 1,
+              "free": true,
+              "timing": "afterAttack"
+            }
+          ],
+          "tags": [
+            "melee"
+          ]
+        }
+      ],
+      "classTags": [
+        "Drakeling"
+      ]
+    },
+    {
+      "id": "sootscreen_drakeling",
+      "set": "Bridging the Gap",
+      "name": "Sootscreen Drakeling",
+      "type": "unit",
+      "basic": true,
+      "reinforce": {
+        "mode": "basic"
+      },
+      "hp": 17,
+      "ap": 2,
+      "art": "art/sootscreen_drakeling.png",
+      "passives": [
+        {
+          "id": "obscuring_smoke",
+          "name": "Obscuring Smoke",
+          "trigger": "static",
+          "text": "Ranged attacks made by enemy units surrounding this unit deal 2 damage less per hit, to a minimum of 1 damage per hit.",
+          "effects": [
+            {
+              "type": "reduceDamageDealt",
+              "target": "enemyUnitsSurroundingSelf",
+              "appliesTo": "rangedAttacks",
+              "amount": 2,
+              "per": "hit",
+              "minDamage": 1
+            }
+          ]
+        }
+      ],
+      "abilities": [
+        {
+          "id": "smokey_fangs",
+          "name": "Smokey Fangs",
+          "cost": 1,
+          "text": "Deals 5 damage.",
+          "effects": [
+            {
+              "type": "damage",
+              "amount": 5,
+              "hits": 1
+            }
+          ],
+          "tags": [
+            "melee"
+          ]
+        },
+        {
+          "id": "ash_cloud_dive",
+          "name": "Ash Cloud Dive",
+          "cost": 1,
+          "text": "Move up to 2 tiles. This unit may move over other units this way. Then, deal 3 damage to all surrounding enemy units. This ability must leave this unit alone on its tile. Use only once per turn.",
+          "effects": [
+            {
+              "type": "move",
+              "target": "self",
+              "tile": "target",
+              "ignoreUnitsInWay": true
+            },
+            {
+              "type": "damage",
+              "amount": 3,
+              "hits": 1,
+              "area": "enemyUnitsSurroundingSelf"
+            }
+          ],
+          "target": "emptyTile",
+          "range": [
+            1,
+            2
+          ],
+          "rangeText": "1-2",
+          "targetText": "empty tile target (ignores units in the way)",
+          "limits": {
+            "oncePerTurn": true
+          }
+        },
+        {
+          "id": "chimney_billow",
+          "name": "Chimney Billow",
+          "cost": 2,
+          "text": "Deals 4 damage to all surrounding enemy units. Then, armour up to 5.",
+          "effects": [
+            {
+              "type": "damage",
+              "amount": 4,
+              "hits": 1,
+              "area": "enemyUnitsSurroundingSelf"
+            },
+            {
+              "type": "armour",
+              "target": "self",
+              "upTo": 5
+            }
+          ]
+        }
+      ],
+      "classTags": [
+        "Drakeling"
+      ]
+    },
+    {
+      "id": "stalking_wildcat",
+      "set": "Bridging the Gap",
+      "name": "Stalking Wildcat",
+      "type": "unit",
+      "basic": true,
+      "reinforce": {
+        "mode": "basic"
+      },
+      "hp": 18,
+      "ap": 2,
+      "art": "art/stalking_wildcat.png",
+      "passives": [
+        {
+          "id": "hunters_focus",
+          "name": "Hunter's Focus",
+          "trigger": "static",
+          "text": "This unit deals an additional 3 damage on the first hit of each attack against the unit that took the last turn.",
+          "effects": [
+            {
+              "type": "damageBonus",
+              "appliesTo": "ownAttacks",
+              "amount": 3,
+              "scope": "firstHit",
+              "if": "target.tookLastTurn"
+            }
+          ]
+        }
+      ],
+      "abilities": [
+        {
+          "id": "raking_claws",
+          "name": "Raking Claws",
+          "cost": 1,
+          "text": "Deals 3 damage. Hits twice.",
+          "effects": [
+            {
+              "type": "damage",
+              "amount": 3,
+              "hits": 2
+            }
+          ],
+          "tags": [
+            "melee"
+          ]
+        },
+        {
+          "id": "frenzied_mauling",
+          "name": "Frenzied Mauling",
+          "cost": 2,
+          "text": "Deals 7 damage. Hits twice. If this attack kills the target, this unit may move 1 tile for free.",
+          "effects": [
+            {
+              "type": "damage",
+              "amount": 7,
+              "hits": 2
+            },
+            {
+              "type": "move",
+              "target": "self",
+              "distance": 1,
+              "free": true,
+              "optional": true,
+              "timing": "afterAttack",
+              "if": "targetKilled"
+            }
+          ],
+          "tags": [
+            "melee"
+          ]
+        }
+      ],
+      "classTags": [
+        "Wildcat"
+      ]
+    },
+    {
+      "id": "packhunter_wildcat",
+      "set": "Bridging the Gap",
+      "name": "Packhunter Wildcat",
+      "type": "unit",
+      "basic": true,
+      "reinforce": {
+        "mode": "basic"
+      },
+      "hp": 17,
+      "ap": 2,
+      "art": "art/packhunter_wildcat.png",
+      "passives": [
+        {
+          "id": "pack_instinct",
+          "name": "Pack Instinct",
+          "trigger": "static",
+          "text": "This unit deals an additional 1 damage per hit with attacks while another friendly unit is surrounding the target.",
+          "effects": [
+            {
+              "type": "damageBonus",
+              "appliesTo": "ownAttacks",
+              "amount": 1,
+              "scope": "allHits",
+              "if": "target.surroundedByOtherFriendlyUnit"
+            }
+          ]
+        }
+      ],
+      "abilities": [
+        {
+          "id": "savage_claws",
+          "name": "Savage Claws",
+          "cost": 1,
+          "text": "Deals 3 damage. Hits twice.",
+          "effects": [
+            {
+              "type": "damage",
+              "amount": 3,
+              "hits": 2
+            }
+          ],
+          "tags": [
+            "melee"
+          ]
+        },
+        {
+          "id": "weigh_down",
+          "name": "Weigh Down",
+          "cost": 1,
+          "text": "Remove up to 2 armour from the target, then deal 4 damage. The target must spend an additional 1AP the first time it moves during your opponent's next turn.",
+          "effects": [
+            {
+              "type": "removeArmour",
+              "target": "target",
+              "amount": 2,
+              "upTo": true
+            },
+            {
+              "type": "damage",
+              "amount": 4,
+              "hits": 1
+            },
+            {
+              "type": "increaseMoveCost",
+              "target": "hitUnit",
+              "amount": 1,
+              "scope": "firstMoveOfTurn",
+              "duration": "nextTurnIfTargetTakesIt"
+            }
+          ],
+          "tags": [
+            "melee"
+          ]
+        }
+      ],
+      "classTags": [
+        "Wildcat"
+      ]
+    },
+    {
+      "id": "chain_whip_fighter",
+      "set": "Bridging the Gap",
+      "name": "Chain Whip Fighter",
+      "type": "unit",
+      "basic": true,
+      "reinforce": {
+        "mode": "basic"
+      },
+      "hp": 18,
+      "ap": 2,
+      "art": "art/chain_whip_fighter.png",
+      "passives": [
+        {
+          "id": "blade_breaker",
+          "name": "Blade Breaker",
+          "trigger": "self.attacksSingleUnit",
+          "text": "When this unit attacks a single unit, if the target takes the next turn, its melee attacks deal 2 damage less on the first hit during that turn. This effect does not stack.",
+          "effects": [
+            {
+              "type": "reduceDamageDealt",
+              "target": "hitUnit",
+              "amount": 2,
+              "scope": "firstHit",
+              "appliesTo": "itsMeleeAttacks",
+              "duration": "itsNextTurnIfItTakesIt",
+              "stacks": false
+            }
+          ]
+        }
+      ],
+      "abilities": [
+        {
+          "id": "downward_swing",
+          "name": "Downward Swing",
+          "cost": 1,
+          "text": "Deals 4 damage.",
+          "effects": [
+            {
+              "type": "damage",
+              "amount": 4,
+              "hits": 1
+            }
+          ],
+          "range": [
+            1,
+            2
+          ],
+          "rangeText": "1-2",
+          "target": "unit"
+        },
+        {
+          "id": "meteor_hammer",
+          "name": "Meteor Hammer",
+          "cost": 1,
+          "text": "Deals 4 damage to all units on the path.",
+          "effects": [
+            {
+              "type": "damage",
+              "amount": 4,
+              "hits": 1,
+              "area": "allUnitsOnPath"
+            }
+          ],
+          "usesPath": true,
+          "pathRule": "straight",
+          "range": [
+            1,
+            3
+          ],
+          "rangeText": "3",
+          "target": "tile",
+          "targetText": "straight line"
+        }
+      ],
+      "classTags": [
+        "Fighter"
+      ]
+    },
+    {
+      "id": "surveying_sage",
+      "set": "Bridging the Gap",
+      "name": "Surveying Sage",
+      "type": "unit",
+      "basic": true,
+      "reinforce": {
+        "mode": "basic"
+      },
+      "hp": 14,
+      "ap": 2,
+      "art": "art/surveying_sage.png",
+      "passives": [
+        {
+          "id": "scrub_check",
+          "name": "Scrub Check",
+          "trigger": "self.takesTurn",
+          "text": "When this unit starts its turn with more than one enemy unit surrounding it, draw a card.",
+          "effects": [
+            {
+              "type": "draw",
+              "amount": 1,
+              "if": "self.enemyUnitsSurrounding>=2"
+            }
+          ]
+        }
+      ],
+      "abilities": [
+        {
+          "id": "sandwich_lob",
+          "name": "Sandwich Lob",
+          "cost": 1,
+          "text": "Deals 3 damage. Then, if the target is friendly, that unit heals 6 damage.",
+          "effects": [
+            {
+              "type": "damage",
+              "amount": 3,
+              "hits": 1
+            },
+            {
+              "type": "heal",
+              "target": "friendlyTarget",
+              "amount": 6
+            }
+          ],
+          "range": [
+            1,
+            2
+          ],
+          "rangeText": "1-2",
+          "target": "anyUnit",
+          "targetText": "can target friendly"
+        },
+        {
+          "id": "chart_the_field",
+          "name": "Chart the Field",
+          "cost": 2,
+          "text": "Look at the top X cards of your deck, where X is the number of enemy units on or surrounding the target tile. Put one into your hand and the rest on the bottom of your deck.",
+          "effects": [
+            {
+              "type": "lookTop",
+              "count": "enemyUnitsOnOrSurroundingTargetTile",
+              "toHand": 1,
+              "restTo": "bottomOfDeck"
+            }
+          ],
+          "range": [
+            1,
+            2
+          ],
+          "rangeText": "2",
+          "target": "tile",
+          "targetText": "targets tile"
+        }
+      ],
+      "classTags": [
+        "Sage"
+      ]
+    },
+    {
+      "id": "javelin_knight",
+      "set": "Bridging the Gap",
+      "name": "Javelin Knight",
+      "type": "unit",
+      "basic": true,
+      "reinforce": {
+        "mode": "basic"
+      },
+      "hp": 21,
+      "ap": 2,
+      "art": "art/javelin_knight.png",
+      "passives": [
+        {
+          "id": "pointed_guard",
+          "name": "Pointed Guard",
+          "trigger": "static",
+          "text": "This unit takes 1 damage less from melee attacks, to a minimum of 1 damage per hit.",
+          "effects": [
+            {
+              "type": "reduceDamage",
+              "amount": 1,
+              "target": "self",
+              "from": "meleeAttack",
+              "per": "hit",
+              "minDamage": 1
+            }
+          ]
+        }
+      ],
+      "abilities": [
+        {
+          "id": "hurled_javelin",
+          "name": "Hurled Javelin",
+          "cost": 1,
+          "text": "Deals 6 damage. Use only once per turn.",
+          "effects": [
+            {
+              "type": "damage",
+              "amount": 6,
+              "hits": 1
+            }
+          ],
+          "range": [
+            2,
+            3
+          ],
+          "rangeText": "2-3",
+          "target": "unit",
+          "limits": {
+            "oncePerTurn": true
+          }
+        },
+        {
+          "id": "shield_rush",
+          "name": "Shield Rush",
+          "cost": 1,
+          "text": "Deals 5 damage. Then, armour up to 3. Use only if this unit has not made a ranged attack this turn.",
+          "effects": [
+            {
+              "type": "damage",
+              "amount": 5,
+              "hits": 1
+            },
+            {
+              "type": "armour",
+              "target": "self",
+              "upTo": 3
+            }
+          ],
+          "tags": [
+            "melee"
+          ],
+          "requires": "!self.madeRangedAttackThisTurn"
+        }
+      ],
+      "classTags": [
+        "Knight"
+      ]
+    },
+    {
+      "id": "prismatic_mage",
+      "set": "Bridging the Gap",
+      "name": "Prismatic Mage",
+      "type": "unit",
+      "basic": true,
+      "reinforce": {
+        "mode": "basic"
+      },
+      "hp": 14,
+      "ap": 2,
+      "art": "art/prismatic_mage.png",
+      "passives": [
+        {
+          "id": "unbreakable_diamond",
+          "name": "Unbreakable Diamond",
+          "trigger": "static",
+          "text": "This unit takes 2 damage less per attack while armoured, to a minimum of 1 damage per attack.",
+          "effects": [
+            {
+              "type": "reduceDamage",
+              "amount": 2,
+              "target": "self",
+              "from": "attack",
+              "per": "attack",
+              "minDamage": 1,
+              "if": "self.hasArmour"
+            }
+          ]
+        }
+      ],
+      "abilities": [
+        {
+          "id": "red_bolt",
+          "name": "Red Bolt",
+          "cost": 1,
+          "text": "Deals 4 damage.",
+          "effects": [
+            {
+              "type": "damage",
+              "amount": 4,
+              "hits": 1
+            }
+          ],
+          "range": [
+            1,
+            4
+          ],
+          "rangeText": "1-4",
+          "target": "unit"
+        },
+        {
+          "id": "yellow_protection",
+          "name": "Yellow Protection",
+          "cost": 1,
+          "text": "Armour up to 3.",
+          "effects": [
+            {
+              "type": "armour",
+              "target": "self",
+              "upTo": 3
+            }
+          ]
+        },
+        {
+          "id": "green_fortitude",
+          "name": "Green Fortitude",
+          "cost": 1,
+          "text": "Heal 3 damage from the target. Use only once per turn.",
+          "effects": [
+            {
+              "type": "heal",
+              "target": "friendlyTarget",
+              "amount": 3
+            }
+          ],
+          "range": [
+            1,
+            2
+          ],
+          "rangeText": "1-2",
+          "target": "friendlyUnit",
+          "targetText": "friendly target",
+          "limits": {
+            "oncePerTurn": true
+          }
+        },
+        {
+          "id": "purple_siphon",
+          "name": "Purple Siphon",
+          "cost": 1,
+          "text": "Deals 2 damage. If this attack deals damage, heal 2 damage from this unit.",
+          "effects": [
+            {
+              "type": "damage",
+              "amount": 2,
+              "hits": 1
+            },
+            {
+              "type": "heal",
+              "target": "self",
+              "amount": 2,
+              "if": "damageDealt"
+            }
+          ],
+          "range": [
+            1,
+            2
+          ],
+          "rangeText": "1-2",
+          "target": "unit"
+        },
+        {
+          "id": "blue_insight",
+          "name": "Blue Insight",
+          "cost": 2,
+          "text": "Loot 3.",
+          "effects": [
+            {
+              "type": "loot",
+              "amount": 3
+            }
+          ]
+        }
+      ],
+      "classTags": [
+        "Mage"
+      ]
+    },
+    {
+      "id": "ray_gun_assassin",
+      "set": "Bridging the Gap",
+      "name": "Ray Gun Assassin",
+      "type": "unit",
+      "basic": true,
+      "reinforce": {
+        "mode": "basic"
+      },
+      "hp": 15,
+      "ap": 2,
+      "art": "art/ray_gun_assassin.png",
+      "passives": [
+        {
+          "id": "trailblazer",
+          "name": "Trailblazer",
+          "trigger": "static",
+          "text": "This unit does not take damage from moving onto or off of scorched tiles.",
+          "effects": [
+            {
+              "type": "immune",
+              "to": "scorchedTileDamage",
+              "target": "self"
+            }
+          ]
+        }
+      ],
+      "abilities": [
+        {
+          "id": "borrowed_blaster",
+          "name": "Borrowed Blaster",
+          "cost": 1,
+          "text": "Deals 5 damage. If this attack is made from the tile behind the target, it hits again for 3 damage.",
+          "effects": [
+            {
+              "type": "damage",
+              "amount": 5,
+              "hits": 1,
+              "area": "firstUnitInStraightLine",
+              "extraHit": {
+                "amount": 3,
+                "if": "selfOnTileBehindTarget"
+              }
+            }
+          ],
+          "straightLine": true,
+          "target": "direction",
+          "targetText": "Choose a direction. Hits first unit in a straight line"
+        },
+        {
+          "id": "heat_distortion",
+          "name": "Heat Distortion",
+          "cost": 1,
+          "text": "Place this unit on the target tile. If this unit is on a scorched tile, this ability has Range 1-4 instead.",
+          "effects": [
+            {
+              "type": "place",
+              "target": "self",
+              "tile": "target"
+            },
+            {
+              "type": "modifyRange",
+              "target": "thisAbility",
+              "setRange": [
+                1,
+                4
+              ],
+              "if": "self.onScorchedTile"
+            }
+          ],
+          "range": [
+            1,
+            2
+          ],
+          "rangeText": "1-2",
+          "target": "emptyTile",
+          "targetText": "empty tile target"
+        }
+      ],
+      "classTags": [
+        "Assassin"
+      ]
+    },
+    {
+      "id": "bosun_plunderer",
+      "set": "Bridging the Gap",
+      "name": "Bosun Plunderer",
+      "type": "unit",
+      "basic": true,
+      "reinforce": {
+        "mode": "basic"
+      },
+      "hp": 20,
+      "ap": 2,
+      "art": "art/bosun_plunderer.png",
+      "passives": [
+        {
+          "id": "guard_the_hoard",
+          "name": "Guard the Hoard",
+          "trigger": "static",
+          "text": "While you have 5 or more cards in hand, this unit's attacks deal an additional 2 damage on the first hit.",
+          "effects": [
+            {
+              "type": "damageBonus",
+              "appliesTo": "ownAttacks",
+              "amount": 2,
+              "scope": "firstHit",
+              "if": "owner.cardsInHand>=5"
+            }
+          ]
+        }
+      ],
+      "abilities": [
+        {
+          "id": "smash_and_stash",
+          "name": "Smash and Stash",
+          "cost": 1,
+          "text": "Deals 5 damage. If this attack deals damage, Loot 1.",
+          "effects": [
+            {
+              "type": "damage",
+              "amount": 5,
+              "hits": 1
+            },
+            {
+              "type": "loot",
+              "amount": 1,
+              "if": "damageDealt"
+            }
+          ],
+          "tags": [
+            "melee"
+          ]
+        },
+        {
+          "id": "keelhaul",
+          "name": "Keelhaul",
+          "cost": 2,
+          "text": "Deals 8 damage. Then, if the tile on the opposite side of this unit from the target is empty, place the target there.",
+          "effects": [
+            {
+              "type": "damage",
+              "amount": 8,
+              "hits": 1
+            },
+            {
+              "type": "place",
+              "unit": "hitUnit",
+              "tile": "tileOppositeSelfFromTarget",
+              "if": "tile.isEmpty"
+            }
+          ],
+          "tags": [
+            "melee"
+          ]
+        }
+      ],
+      "classTags": [
+        "Plunderer"
+      ]
+    },
+    {
+      "id": "tonfa_fighter",
+      "set": "Bridging the Gap",
+      "name": "Tonfa Fighter",
+      "type": "unit",
+      "basic": true,
+      "reinforce": {
+        "mode": "basic"
+      },
+      "hp": 18,
+      "ap": 2,
+      "art": "art/tonfa_fighter.png",
+      "passives": [
+        {
+          "id": "tonfa_technique",
+          "name": "Tonfa Technique",
+          "trigger": "self.usesAttack",
+          "text": "Whenever this unit uses an attack, if it is the first time using that attack this turn, gain 1 armour.",
+          "effects": [
+            {
+              "type": "armour",
+              "target": "self",
+              "amount": 1,
+              "if": "firstUseOfThisAttackThisTurn"
+            }
+          ]
+        }
+      ],
+      "abilities": [
+        {
+          "id": "forearm_grip_flurry",
+          "name": "Forearm-Grip Flurry",
+          "cost": 1,
+          "text": "Deals 2 damage. Hits 4 times. Use only once per turn.",
+          "effects": [
+            {
+              "type": "damage",
+              "amount": 2,
+              "hits": 4
+            }
+          ],
+          "tags": [
+            "melee"
+          ],
+          "limits": {
+            "oncePerTurn": true
+          }
+        },
+        {
+          "id": "hammer_grip",
+          "name": "Hammer Grip",
+          "cost": 1,
+          "text": "Deals 3 damage. Hits twice. Each hit dealing damage to armour deals an additional 1 damage.",
+          "effects": [
+            {
+              "type": "damage",
+              "amount": 3,
+              "hits": 2,
+              "perHitBonusIfTargetArmoured": 1
+            }
+          ],
+          "tags": [
+            "melee"
+          ]
+        },
+        {
+          "id": "jaw_spinner",
+          "name": "Jaw Spinner",
+          "cost": 1,
+          "text": "Deals 6 damage.",
+          "effects": [
+            {
+              "type": "damage",
+              "amount": 6,
+              "hits": 1
+            }
+          ],
+          "tags": [
+            "melee"
+          ]
+        }
+      ],
+      "classTags": [
+        "Fighter"
+      ]
+    },
+    {
+      "id": "arbalest_knight",
+      "set": "Bridging the Gap",
+      "name": "Arbalest Knight",
+      "type": "unit",
+      "basic": true,
+      "reinforce": {
+        "mode": "basic"
+      },
+      "hp": 22,
+      "ap": 2,
+      "art": "art/arbalest_knight.png",
+      "passives": [
+        {
+          "id": "braced_stock",
+          "name": "Braced Stock",
+          "trigger": "static",
+          "text": "If this unit has not moved this turn, its ranged attacks deal an additional 2 damage on the first hit.",
+          "effects": [
+            {
+              "type": "damageBonus",
+              "appliesTo": "ownRangedAttacks",
+              "amount": 2,
+              "scope": "firstHit",
+              "if": "self.hasNotMovedThisTurn"
+            }
+          ]
+        }
+      ],
+      "abilities": [
+        {
+          "id": "iron_quarrel",
+          "name": "Iron Quarrel",
+          "cost": 1,
+          "text": "Deals 5 damage, bypassing up to 2 armour. Use only once per turn.",
+          "effects": [
+            {
+              "type": "damage",
+              "amount": 5,
+              "hits": 1
+            },
+            {
+              "type": "bypassArmourUpTo",
+              "amount": 2
+            }
+          ],
+          "range": [
+            1,
+            3
+          ],
+          "rangeText": "1-3",
+          "target": "unit",
+          "limits": {
+            "oncePerTurn": true
+          }
+        },
+        {
+          "id": "pavise_stance",
+          "name": "Pavise Stance",
+          "cost": 1,
+          "text": "Armour up to 3.",
+          "effects": [
+            {
+              "type": "armour",
+              "target": "self",
+              "upTo": 3
+            }
+          ]
+        },
+        {
+          "id": "stock_bash",
+          "name": "Stock Bash",
+          "cost": 1,
+          "text": "Deals 4 damage.",
+          "effects": [
+            {
+              "type": "damage",
+              "amount": 4,
+              "hits": 1
+            }
+          ],
+          "tags": [
+            "melee"
+          ]
+        }
+      ],
+      "classTags": [
+        "Knight"
+      ]
     }
   ]
 };
 
 // Tag every effect with where it comes from (passive / ability / react / universal action)
 annotateEffectSources(initialCardsData);
+
+/**
+ * Cards that were renamed (and given a new id) in a later set, by their old id. Saved decks still list the old ids, so
+ * look ids up through resolveCardId.
+ */
+export const RENAMED_CARD_IDS: Record<string, string> = {
+  topaz_mage: 'lightning_mage', // Topaz Mage became Lightning Mage (Bridging the Gap)
+  lightning_nimbus: 'sloshing_ooze', // Lightning Nimbus became Sloshing Ooze (Bridging the Gap)
+  alien_invader: 'frozen_alien_invader' // Alien Invader became Frozen Alien Invader
+};
+
+export const resolveCardId = (id: string): string => RENAMED_CARD_IDS[id] || id;

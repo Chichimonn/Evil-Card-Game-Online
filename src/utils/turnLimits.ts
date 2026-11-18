@@ -253,6 +253,14 @@ export function canUseAbilityThisTurn(
   if (ability.requires === 'notFirstActionOfTurn' && getActionsUsedThisTurn(unit) === 0) {
     return { allowed: false, reason: `${ability.name} can't be the first action ${unit.card.name} takes this turn.` };
   }
+  // "Use only if this unit has not made a ranged attack this turn" (e.g. Shield Rush)
+  if (ability.requires === '!self.madeRangedAttackThisTurn') {
+    const counts = unit.usedTurnCounts || {};
+    const madeRanged = [...(unit.card.abilities || []), ...(unit.grantedAbilities || [])].some(
+      (a) => isRangedAttackAbility(a) && ((a.id && counts[a.id]) || (a.name && counts[a.name]))
+    );
+    if (madeRanged) return { allowed: false, reason: `${ability.name} can't be used after ${unit.card.name} made a ranged attack this turn.` };
+  }
   // "If this unit has dealt damage this turn" (e.g. Combat Roll)
   if (ability.requires === 'self.dealtDamageThisTurn' && !unit.dealtDamageThisTurn) {
     return { allowed: false, reason: `${ability.name} can only be used after ${unit.card.name} has dealt damage this turn.` };

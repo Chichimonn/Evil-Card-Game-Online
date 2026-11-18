@@ -307,6 +307,11 @@ export function isTargetedAbility(
     ability.target !== 'tile' &&
     ability.target !== 'enemyUnit' &&
     ability.target !== 'friendlyUnit' &&
+    // (e.g. Waxing Pull: a pull at a unit in a straight line, then armour)
+    ability.target !== 'direction' &&
+    ability.target !== 'unit' &&
+    ability.target !== 'anyUnit' &&
+    !ability.effects?.some((e) => e.type === 'pull') &&
     !isAbilityTargetingEmptyTile(ability) &&
     !isAbilityTargetingAnyTile(ability)
   ) {

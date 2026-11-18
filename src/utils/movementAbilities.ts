@@ -1,6 +1,7 @@
 import { parseHexId, offsetToCube, cubeToOffset, toHexId, getSurroundingHexes, getHexDistance, getHexesInRange } from './hexGridMath';
 import { BattlefieldUnit, PlayerId } from '../types/game';
 import { getUnitPassives } from './unitPassives';
+import { getCurrentTurnNumber } from './boardContext';
 
 /**
  * Calculates the hex directly in the same direction when moving from fromHex to toHex.
@@ -278,7 +279,15 @@ export function applyMoveOntoUnit(
         notes.push(`${o.card.name} can't be chosen to take its controller's next turn`);
       }
     } else if (e.type === 'reduceDamageStatus' && typeof e.amount === 'number') {
-      m = { ...m, attackDamageReduction: { amount: e.amount, sourceName: passiveName, setOnTurnOf: m.owner } };
+      m = {
+        ...m,
+        attackDamageReduction: {
+          amount: e.amount,
+          sourceName: passiveName,
+          setOnTurnOf: m.owner,
+          ...(typeof e.minDamage === 'number' ? { minDamage: e.minDamage } : {})
+        }
+      };
       notes.push(`takes ${e.amount} less damage from attacks until the end of the opponent's next turn`);
     }
   }
@@ -354,8 +363,9 @@ export function getMoveScorchEffect(
 }
 
 /**
- * Checks if a unit has the "Magical Omnipresence" passive.
- * "This unit may only move once per turn, but it may move to any empty tile within Range 2 (ignoring units in the way)."
+ * Checks if a unit has the "Magical Omnipresence" passive: "The first time this unit spends AP to move each turn,
+ * instead of moving this unit, place it on a tile of your choice within range 1-2. Then, this unit may no longer move
+ * this turn." ({ type: 'modifyMove', firstApMoveBecomesPlace: true, placeRange: [1, 2], noMovesAfterPlacing: true })
  */
 export function hasMagicalOmnipresence(unit: BattlefieldUnit | null | undefined): boolean {
   if (!unit) return false;
@@ -368,20 +378,27 @@ export function hasMagicalOmnipresence(unit: BattlefieldUnit | null | undefined)
       p.effects?.some(
         (e: any) =>
           e.type === 'modifyMove' &&
-          (e.moveToAnyEmptyTileWithinRange !== undefined || e.maxMovesPerTurn === 1)
+          (e.firstApMoveBecomesPlace || e.moveToAnyEmptyTileWithinRange !== undefined || e.maxMovesPerTurn === 1)
       )
     );
   });
 }
 
+export const OMNIPRESENCE_MARK = 'omnipresence_placed';
+
+/** Whether a Magical Omnipresence unit already used its placement this turn (it then may no longer move this turn). */
+export function hasUsedOmnipresenceThisTurn(unit: BattlefieldUnit | null | undefined): boolean {
+  return Boolean(unit && unit.passiveTurnMarks?.[OMNIPRESENCE_MARK] === getCurrentTurnNumber());
+}
+
 /**
- * Returns whether a unit with Magical Omnipresence is allowed to move right now.
- * Units with Magical Omnipresence may only move once per turn.
+ * Returns whether a unit with Magical Omnipresence is allowed to move right now: not once it has used its placement
+ * this turn.
  */
 export function canOmnipresenceUnitMove(unit: BattlefieldUnit | null | undefined): boolean {
   if (!unit) return true;
   if (!hasMagicalOmnipresence(unit)) return true;
-  return !unit.movedThisTurn;
+  return !hasUsedOmnipresenceThisTurn(unit);
 }
 
 /**

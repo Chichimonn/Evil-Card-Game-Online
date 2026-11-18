@@ -224,9 +224,19 @@ export function checkAndTriggerEmbeddedPress(
  */
 export function isImmuneToScorchDamage(unit: BattlefieldUnit | null | undefined): boolean {
   if (!unit) return false;
+  if (isImmuneToDamageWhileMoving(unit)) return true;
   return getUnitPassives(unit).some((p) =>
     (p.effects || []).some((e: any) => e.type === 'immune' && e.to === 'scorchedTileDamage')
   );
+}
+
+/**
+ * "This unit cannot take damage while moving" (e.g. Light Footed): { type: 'immune', to: 'damageWhileMoving' }. Covers
+ * scorched tiles and damage for moving next to an enemy (e.g. Static Fur, Braced Pike).
+ */
+export function isImmuneToDamageWhileMoving(unit: BattlefieldUnit | null | undefined): boolean {
+  if (!unit) return false;
+  return getUnitPassives(unit).some((p) => (p.effects || []).some((e: any) => e.type === 'immune' && e.to === 'damageWhileMoving'));
 }
 
 /**

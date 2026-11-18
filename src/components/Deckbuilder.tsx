@@ -1,6 +1,7 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { CardItem } from '../types/card';
 import { CardThumbnail } from './CardThumbnail';
+import { resolveCardId } from '../data/cardsData';
 import { useCardImages } from '../context/CardImageContext';
 import { playCardDrawSound } from '../utils/audio';
 import { formatFusionRequirements, formatTributeRequirements } from '../utils/reinforceRules';
@@ -314,7 +315,7 @@ export const Deckbuilder: React.FC<DeckbuilderProps> = ({
     setDeckName(savedDeck.name);
     const loadedEntries: DeckCardEntry[] = [];
     savedDeck.cards.forEach(item => {
-      const card = cards.find(c => c.id === item.id);
+      const card = cards.find(c => c.id === resolveCardId(item.id));
       if (card) {
         loadedEntries.push({ card, quantity: Math.min(item.quantity, 3) });
       }

@@ -4,6 +4,7 @@ import { getSurroundingHexes } from './hexGridMath';
 import { getUnitPassives, PASSIVES_REMOVED } from './unitPassives';
 import { getApSpent } from './promotedAbilities';
 import { getCurrentTurnNumber } from './boardContext';
+import { CANNOT_BE_MOVED } from './knockbackRules';
 
 export const TURN_DENIED = 'turn_denied';
 export const MOVE_TAX = 'move_tax';
@@ -75,7 +76,7 @@ export function applyCannotMoveThisTurn(unit: BattlefieldUnit): BattlefieldUnit 
   return addStatus(unit, CANNOT_MOVE);
 }
 // Statuses a unit gives itself on its own turn that last until the end of the opponent's next turn
-const SELF_STATUSES_UNTIL_OPPONENT_TURN_END = [CANT_MOVE_SELF, IMMUNE_TO_REACT, UNTARGETABLE, SHARES_ARMOUR];
+const SELF_STATUSES_UNTIL_OPPONENT_TURN_END = [CANT_MOVE_SELF, IMMUNE_TO_REACT, UNTARGETABLE, SHARES_ARMOUR, CANNOT_BE_MOVED];
 
 /**
  * "This unit cannot be knocked back until the start of your next turn" (e.g. Brace for Impact): the same knockback
@@ -363,6 +364,16 @@ export function applySelfCannotMove(
 }
 
 /**
+ * "Until the end of your opponent's next turn, this unit cannot be moved" (e.g. Plant the Pike): reads a
+ * { type: 'cannotBeMoved', target: 'self' } effect on the ability.
+ */
+export function applySelfCannotBeMoved(caster: BattlefieldUnit, ability: CardAbility | null | undefined): BattlefieldUnit {
+  const eff = ((ability?.effects || []) as any[]).find((e) => e.type === 'cannotBeMoved' && e.target === 'self');
+  if (!eff) return caster;
+  return addStatus(caster, CANNOT_BE_MOVED);
+}
+
+/**
  * Reusable remove passives status (Silencing Strike):
  * "A unit that took damage from this attack has no passive until the end of your opponent's next turn."
  * Reads a 'removePassives' effect aimed at the damaged unit.
@@ -448,6 +459,8 @@ export function isUnitMovementDisabled(
   if (!unit) return false;
   if (unit.statuses?.includes(CANNOT_MOVE) || unit.statuses?.includes(CANT_MOVE_SELF)) return true;
   if (unit.card.isWall) return true;
+  // "Then, this unit may no longer move this turn" (Magical Omnipresence, after its placement)
+  if (unit.passiveTurnMarks?.omnipresence_placed === getCurrentTurnNumber()) return true;
   const passives = getUnitPassives(unit);
   if (passives.some((p) => p.effects?.some((e: any) => e.type === 'cannotMove'))) return true;
   if (unit.card.id === 'raging_bonfire' || unit.card.id === 'obstructing_wall') return true;
@@ -514,6 +527,33 @@ export function applyLockStep(
   return { ...target, lockStepBy: caster.instanceId };
 }
 
+/**
+ * "When this unit attacks a single unit, if the target takes the next turn, its melee attacks deal 2 damage less on the
+ * first hit during that turn. This effect does not stack." (e.g. Blade Breaker): the attacker's passive { trigger:
+ * 'self.attacksSingleUnit', effects: [{ type: 'reduceDamageDealt', target: 'hitUnit', amount, scope: 'firstHit',
+ * appliesTo: 'itsMeleeAttacks' }] }, for an attack with one target (no area, no several targets).
+ */
+export function applyAttackerSingleTargetReduction(
+  target: BattlefieldUnit,
+  ability: CardAbility | null | undefined,
+  caster?: BattlefieldUnit | null
+): BattlefieldUnit {
+  if (!caster || !ability || caster.owner === target.owner) return target;
+  const singleTarget =
+    !ability.targetCount && !((ability.effects || []) as any[]).some((e) => e.type === 'damage' && typeof e.area === 'string');
+  if (!singleTarget) return target;
+  for (const p of getUnitPassives(caster)) {
+    if (p.trigger !== 'self.attacksSingleUnit') continue;
+    const eff: any = (p.effects || []).find(
+      (e: any) => e.type === 'reduceDamageDealt' && e.appliesTo === 'itsMeleeAttacks' && typeof e.amount === 'number'
+    );
+    if (!eff) continue;
+    if ((target.meleeFirstHitReduction?.amount || 0) >= eff.amount) return target;
+    return { ...target, meleeFirstHitReduction: { amount: eff.amount, source: p.name } };
+  }
+  return target;
+}
+
 /** One call for every status an ability can leave on the unit it hits. Add new ones here. */
 export function applyAbilityStatuses(
   target: BattlefieldUnit,
@@ -521,7 +561,7 @@ export function applyAbilityStatuses(
   lastTurnUnitIds: Record<PlayerId, string | null>,
   caster?: BattlefieldUnit | null
 ): BattlefieldUnit {
-  return applyLockStep(applyAttackerMark(applyDamageOnTakingTurn(applyFirstHitReduction(
+  return applyAttackerSingleTargetReduction(applyLockStep(applyAttackerMark(applyDamageOnTakingTurn(applyFirstHitReduction(
     applyCannotMove(
       applyCannotPromoteOrFuse(
         applyMoveTax(applyActionTax(applyTurnDenial(target, ability, lastTurnUnitIds), ability), ability),
@@ -531,7 +571,7 @@ export function applyAbilityStatuses(
       caster
     ),
     ability
-  ), ability, caster), ability, caster), ability, caster);
+  ), ability, caster), ability, caster), ability, caster), ability, caster);
 }
 
 /** AP cost of the universal move action for this unit right now. */
@@ -580,6 +620,10 @@ export function expireTurnRestrictions(
     // First-hit reduction (Predictive Strike) lapses when its owner's turn ends
     if (u.owner === player && u.firstHitReduction) {
       next[hex] = { ...(next[hex] || u), firstHitReduction: undefined };
+      changed = true;
+    }
+    if (u.owner === player && u.meleeFirstHitReduction) {
+      next[hex] = { ...(next[hex] || u), meleeFirstHitReduction: undefined };
       changed = true;
     }
     // "If it takes the next turn" (Flame Blast) lapses once its controller's turn ends

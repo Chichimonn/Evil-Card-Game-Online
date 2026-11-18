@@ -140,6 +140,15 @@ export function getEffectiveAbilityRange(
     maxRange = 2;
   }
 
+  // The ability's own range change: { type: 'modifyRange', target: 'thisAbility', setRange: [min, max], if } (e.g. Heat
+  // Distortion: "If this unit is on a scorched tile, this ability has Range 1-4 instead")
+  ((ability.effects || []) as any[]).forEach((e) => {
+    if (e.type !== 'modifyRange' || e.target !== 'thisAbility' || !Array.isArray(e.setRange)) return;
+    if (e.if === 'self.onScorchedTile' && !(attackerUnit && isHexScorchedNow(attackerUnit.hexId))) return;
+    minRange = e.setRange[0];
+    maxRange = e.setRange[1] ?? e.setRange[0];
+  });
+
   const flowingActive = isMelee && isFlowingStanceActive(attackerUnit);
   if (flowingActive) {
     minRange = 1;

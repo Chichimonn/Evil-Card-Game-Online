@@ -4,6 +4,20 @@ import { getUnitPassives } from './unitPassives';
 
 const isKnockbackImmunityEffect = (e: any) => e?.type === 'immune' && e?.to === 'knockback';
 
+// "Until the end of your opponent's next turn, this unit cannot be moved" (e.g. Plant the Pike)
+export const CANNOT_BE_MOVED = 'cannot_be_moved';
+
+/**
+ * "Cannot be moved" (rules: Cannot be moved): a unit that cannot be moved by effects other than its own, including
+ * knockback and Pull. It may still move itself, and it may still be placed or swapped. From a passive
+ * ({ type: 'cannotBeMoved' }, e.g. Immovable) or the CANNOT_BE_MOVED status (e.g. Plant the Pike).
+ */
+export function cannotBeMovedByOthers(unit: BattlefieldUnit | null | undefined): boolean {
+  if (!unit) return false;
+  if (unit.statuses?.includes(CANNOT_BE_MOVED)) return true;
+  return getUnitPassives(unit).some((p) => (p.effects || []).some((e: any) => e.type === 'cannotBeMoved' && !e.duration));
+}
+
 /**
  * A passive whose knockback immunity is a choice made when the unit would be knocked back
  * (e.g. Hold the Gate), rather than an always-on immunity.
@@ -20,6 +34,7 @@ function isOptionalKnockbackImmunity(passive: CardPassive): boolean {
 export function isImmuneToKnockback(unit: BattlefieldUnit | null | undefined): boolean {
   if (!unit) return false;
   if (unit.knockbackImmuneThisTurn) return true;
+  if (cannotBeMovedByOthers(unit)) return true;
   return getUnitPassives(unit).some((p) => {
     if (p.id === 'knockback_immunity') return true;
     const effects = p.effects || [];

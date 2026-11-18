@@ -65,6 +65,7 @@ import {
 } from './utils/reinforceRules';
 import {
   isImmuneToKnockback,
+  cannotBeMovedByOthers,
   getOptionalKnockbackImmunityPassive,
   applyOptionalKnockbackImmunity,
   getAbilityKnockbackTiles,
@@ -132,7 +133,6 @@ import {
   getAttachPassive,
   getAttachBonuses,
   getAttachMaxHpBonus,
-  meetsAttachRequirement
 } from './utils/fairyAttachments';
 import { getAbilityHitStructure, executeSequentialHits, AttackExecutionOptions, AttackHit, getAbilitySelfDamage, applyAttackerBonusPassives, reduceNonAttackDamage, getFalloffDamageBase } from './utils/attackLogic';
 import {
@@ -152,6 +152,7 @@ import {
   hasEsotericPathways,
   getEsotericPathwaysHexes,
   hasMagicalOmnipresence,
+  OMNIPRESENCE_MARK,
   canOmnipresenceUnitMove,
   getMagicalOmnipresenceHexes,
   getMoveScorchEffect,
@@ -213,7 +214,7 @@ import GameLogPanel from './components/GameLogPanel';
 import OnlineLobbyModal from './components/OnlineLobbyModal';
 import { RoomConnection, RoomRole, RoomStatus, normalizeRoomCode } from './net/connection';
 import { makeSecret, commitTo, checkReveal, combineSeed, seatsFromSeed } from './net/lobby';
-import { ONLINE_SCENARIOS, applyOnlineScenario } from './dev/onlineScenarios';
+import { ONLINE_SCENARIOS, applyOnlineScenario, applyTestBoard } from './dev/onlineScenarios';
 import { NetMessage, DecisionKind } from './net/messages';
 import { LOCAL_VERSION, formatVersion } from './version';
 import { getReactAbilitySpec, getReactAbilityChoices, getReadiedAbility, buildReadiedUse } from './utils/readySpell';
@@ -286,6 +287,7 @@ import {
   applyUseLimitStatuses,
   addUseLimitStatus,
   applySelfKnockbackImmunity,
+  applySelfCannotBeMoved,
   canUseReactEffects,
   CANNOT_USE_RANGED,
   ACTION_TAX,
@@ -545,6 +547,10 @@ export default function App() {
 
   // Game End & Victory State (Rule 8)
   const [winner, setWinner] = useState<PlayerId | 'draw' | null>(null);
+  // Rule 8.1.1: "Victory is not checked until at least 1 unit has been killed" (kept in a ref too, for checks made
+  // within the same update)
+  const [unitKilled, setUnitKilled] = useState(false);
+  const unitKilledRef = useRef(false);
   const [victoryReason, setVictoryReason] = useState<string>('');
   const [isVictoryOpen, setIsVictoryOpen] = useState(false);
 
@@ -984,6 +990,8 @@ export default function App() {
     setConsecutivePasses(0);
     setLastTurnUnitIds({ player1: null, player2: null });
     setWinner(null);
+    setUnitKilled(false);
+    unitKilledRef.current = false;
     setIsVictoryOpen(false);
     setLockedAssist(null);
     setPendingAssistDeployment(null);
@@ -1135,8 +1143,22 @@ export default function App() {
     const p1Units = units.filter((u) => u.owner === 'player1' && !u.card.isWall && u.card.type !== 'token');
     const p2Units = units.filter((u) => u.owner === 'player2' && !u.card.isWall && u.card.type !== 'token');
 
-    // Only trigger if game has started with units
-    if (turnCount > 1 || units.length >= 2) {
+    // Rule 8.1.1: victory is not checked until at least 1 unit has been killed. Checks are made right after units are
+    // defeated, so a unit (token or not) that was in play and is gone from this board, and not carried or engulfed by
+    // another unit, counts as killed.
+    if (!unitKilledRef.current) {
+      const stillThere = new Set(units.map((u) => u.instanceId));
+      Object.values(currentUnits).forEach((u) => {
+        if (u.engulfedCard) stillThere.add(`engulfed:${u.engulfedCard.id}`);
+      });
+      const gone = Object.values(unitsOnBoard).some(
+        (u) => !stillThere.has(u.instanceId) && !leftPlayAliveRef.current.has(u.instanceId) && !u.card.isWall
+      );
+      if (!gone) return;
+      unitKilledRef.current = true;
+      setUnitKilled(true);
+    }
+    {
       if (p1Units.length === 0 && p2Units.length > 0) {
         setWinner('player2');
         setVictoryReason('Player 1 has no non-token units left on the board.');
@@ -1501,26 +1523,18 @@ export default function App() {
   };
 
   // Attaching (e.g. the fairies' Harmony passives): `mover` moved onto the friendly unit on `toHex` (by `via`: the Move
-  // action, or a moving ability such as Fairy Flutter). It leaves play onto that unit, which ends the turn. It always
-  // attaches; its bonus applies only while that unit meets the requirement (see utils/fairyAttachments).
+  // action, or a moving ability such as Fairy Flutter). It leaves play onto that unit, which ends the turn. It can only
+  // attach to a unit that meets the requirement, and its bonus then applies while it stays attached (see
+  // utils/fairyAttachments).
   const attachMoverOnto = (fromHex: string, toHex: string, mover: BattlefieldUnit, via: string) => {
     const target = unitsOnBoard[toHex];
     if (!target) return;
     const attach = getAttachPassive(mover.card);
-    const withIt: BattlefieldUnit = { ...target, attachedCards: [...(target.attachedCards || []), mover.card] };
-    const sameAlready = (target.attachedCards || []).some((c) => getAttachPassive(c)?.passive.id === attach?.passive.id);
-    const live = attach ? meetsAttachRequirement(withIt, attach.effect.requires) : false;
     setUnitsOnBoard((prev) => (prev[fromHex]?.instanceId === mover.instanceId && prev[toHex] ? attachUnitOnto(prev, fromHex, toHex) : prev));
     setActiveTurnUnitHex(null);
     setSelectedHex(toHex);
     playCardDrawSound();
-    const state = !attach
-      ? ''
-      : sameAlready
-      ? ` ${attach.passive.name} is already on it, and does not stack.`
-      : live
-      ? ` ${attach.passive.name} now applies to it.`
-      : ` ${attach.passive.name} won't apply until it meets the requirement.`;
+    const state = attach ? ` ${attach.passive.name} now applies to it.` : '';
     showNotification(`🧚 ${mover.card.name} (${via}) attached to ${target.card.name} on ${toHex}.${state}`);
     appendLog('move', `${mover.card.name} attached to ${target.card.name} (${via})`, mover.owner);
     switchTurn(false);
@@ -1698,12 +1712,27 @@ export default function App() {
         let unitToUpdate = u;
         // "At the end of this unit's turn, if it used N abilities this turn, it armours up to M" (e.g. Waxing Momentum):
         // trigger 'self.endOfOwnTurn', { type: 'armour', target: 'self', upTo, if: 'self.abilitiesUsedThisTurn>=N' }
+        // Also { if: 'self.attackedThisTurn' } (e.g. Eerie Presence: "if it attacked this turn")
         if (unitThatTookTurn && u.instanceId === unitThatTookTurn.instanceId) {
           getUnitPassives(u).forEach((p) => {
             if (p.trigger !== 'self.endOfOwnTurn') return;
             const eff: any = (p.effects || []).find((e: any) => e.type === 'armour' && typeof e.upTo === 'number');
             const need = typeof eff?.if === 'string' ? eff.if.match(/^self\.abilitiesUsedThisTurn>=(\d+)$/) : null;
             if (!eff || (need && getAbilitiesUsedThisTurn(u) < parseInt(need[1], 10)) || unitToUpdate.armour >= eff.upTo) return;
+            if (eff.if === 'self.attackedThisTurn' && getAttacksUsedThisTurn(u) === 0) return;
+            unitToUpdate = { ...unitToUpdate, armour: eff.upTo };
+            showNotification(`${u.card.name}'s ${p.name}: armoured up to ${eff.upTo}.`);
+          });
+        }
+        // "At the end of each of your turns, if this unit did not take that turn, armour up to N" (e.g. Patient Watch):
+        // trigger 'ownerTurnEnd', { type: 'armour', target: 'self', upTo, if: 'self.didNotTakeTurn' }
+        if (u.owner === activePlayer && (!unitThatTookTurn || u.instanceId !== unitThatTookTurn.instanceId)) {
+          getUnitPassives(u).forEach((p) => {
+            if (p.trigger !== 'ownerTurnEnd') return;
+            const eff: any = (p.effects || []).find(
+              (e: any) => e.type === 'armour' && typeof e.upTo === 'number' && e.if === 'self.didNotTakeTurn'
+            );
+            if (!eff || unitToUpdate.armour >= eff.upTo) return;
             unitToUpdate = { ...unitToUpdate, armour: eff.upTo };
             showNotification(`${u.card.name}'s ${p.name}: armoured up to ${eff.upTo}.`);
           });
@@ -1754,6 +1783,10 @@ export default function App() {
         // its opponent: it lapses when that turn ends
         if (unitToUpdate.knockbackImmuneThisTurn && unitToUpdate.owner !== activePlayer) {
           unitToUpdate = { ...unitToUpdate, knockbackImmuneThisTurn: undefined };
+        }
+        // A ward (e.g. Moonlight Ward) lasts until the end of its giver's opponent's next turn
+        if (unitToUpdate.attackWard && unitToUpdate.owner !== activePlayer) {
+          unitToUpdate = { ...unitToUpdate, attackWard: undefined };
         }
         // "...this turn" buffs for the next attack / armour ability (e.g. Perfect Form) lapse
         if (unitToUpdate.nextAttackBonus || unitToUpdate.nextArmourAbilityBonus) {
@@ -1847,7 +1880,13 @@ export default function App() {
   const activeTurnUnit = activeTurnUnitHex ? unitsOnBoard[activeTurnUnitHex] || null : null;
 
   // Board-wide state the damage rules read (scorched tiles, this turn's number)
-  setBoardContext({ scorchedTiles, unitsOnBoard, turnNumber: turnCount });
+  setBoardContext({
+    scorchedTiles,
+    unitsOnBoard,
+    turnNumber: turnCount,
+    lastTurnUnitIds,
+    handSizes: { player1: player1Hand.length, player2: player2Hand.length }
+  });
 
   // The unit taking the turn can be moved (e.g. Bouncy Membrane's knockback) or defeated (e.g. a splash passive) by
   // another unit's passive: follow it to its new tile, or end the turn if it is gone
@@ -2203,8 +2242,8 @@ export default function App() {
     if (activeAbility) return []; // Suppress movement tiles while targeting an ability
 
     let moveHexes: string[] = [];
-    if (hasMagicalOmnipresence(unit)) {
-      // Moves at range 2 instead of 1 (any unoccupied tile within Range 2, ignoring units in the way)
+    if (hasMagicalOmnipresence(unit) && !(pendingFreeMove && pendingFreeMove.unitInstanceId === unit.instanceId)) {
+      // The first move it spends AP on is a placement on any empty tile within Range 1-2 instead
       moveHexes = getMagicalOmnipresenceHexes(activeTurnUnitHex, unitsOnBoard);
     } else {
       moveHexes = getSurroundingHexes(activeTurnUnitHex).filter((hexId) => !unitsOnBoard[hexId]);
@@ -2274,7 +2313,7 @@ export default function App() {
         const hasEsoteric = hasEsotericPathways(activeTurnUnit);
         let msg = `Move Mode: Click any highlighted surrounding tile to move (${moveCost} AP).`;
         if (hasOmni) {
-          msg = `Move Mode (Magical Omnipresence): Click any highlighted tile within Range 2 to move (${moveCost} AP, 1/Turn).`;
+          msg = `Move Mode (Magical Omnipresence): Click any highlighted tile within Range 1-2 to place this unit there (${moveCost} AP). It can't move again this turn.`;
         } else if (hasEsoteric) {
           msg = `Move Mode: Click any highlighted tile to move (${moveCost} AP). Wraparound movement active via Esoteric Pathways.`;
         }
@@ -2348,6 +2387,8 @@ export default function App() {
       ability.id === 'build_structure' ||
       ability.id === 'pitch_camp' ||
       (!ability.effects?.some((e) => e.type === 'damage') &&
+        // (not one that targets a unit in range, then places it around this unit, e.g. Drag and Drop)
+        ability.target !== 'friendlyUnit' &&
         ability.effects?.some((e) => e.tile === 'chosenEmptySurrounding' || e.tile === 'chosenEmptySurroundingSelf'))
     ) {
       if (bonusRange > 0) {
@@ -2607,6 +2648,11 @@ export default function App() {
       if (!multiStageTargetInfo && activeAbility?.requires === 'target.attackedBySelfThisTurn') {
         return Boolean(unitsOnBoard[h] && hasAttackedUnitThisTurn(attacker, unitsOnBoard[h].instanceId));
       }
+      // "Use only if this attack is (not) made from the tile behind the target" (e.g. Gleeful Execution, Carve a Smile)
+      if (!multiStageTargetInfo && attacker && unitsOnBoard[h] && (activeAbility?.requires === 'selfOnTileBehindTarget' || activeAbility?.requires === '!selfOnTileBehindTarget')) {
+        const behind = isAttackFromBehind(activeTurnUnitHex!, h, unitsOnBoard[h].owner, activeAbility);
+        return activeAbility.requires === 'selfOnTileBehindTarget' ? behind : !behind;
+      }
       // "A unit surrounding a Toadstool" (e.g. Spray of Spores): next to one of your tokens of that kind
       const tokenReq = !multiStageTargetInfo && activeAbility?.requires?.match(/^target\.surroundingFriendlyToken:(.+)$/);
       if (tokenReq) {
@@ -2660,6 +2706,13 @@ export default function App() {
   const validTributeHexes = useMemo(() => {
     if (activeTurnUnitHex && !abilityReinforcePending) return [];
     if (!selectedCardForReinforce || selectedCardForReinforce.reinforce?.mode !== 'tribute') return [];
+    // Once all its sacrifices are chosen, the empty tile on your back row it is placed on (Rule: Tribute)
+    if (tributeSacrificeHexes.length >= (selectedCardForReinforce.reinforce?.count || 2)) {
+      const backRow = activePlayer === 'player1' ? 1 : 6;
+      return ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H']
+        .map((c) => `${c}${backRow}`)
+        .filter((h) => !unitsOnBoard[h] && !sealedReinforceHexes.has(h));
+    }
     return Object.entries(unitsOnBoard)
       .filter(([hexId, u]) => {
         if (u.owner !== activePlayer || u.card.isWall) return false;
@@ -2669,7 +2722,7 @@ export default function App() {
         return activePlayer === 'player1' ? (rowNum >= 1 && rowNum <= 3) : (rowNum >= 4 && rowNum <= 6);
       })
       .map(([hexId]) => hexId);
-  }, [activeTurnUnitHex, abilityReinforcePending, selectedCardForReinforce, unitsOnBoard, activePlayer]);
+  }, [activeTurnUnitHex, abilityReinforcePending, selectedCardForReinforce, unitsOnBoard, activePlayer, tributeSacrificeHexes, sealedReinforceHexes]);
 
   // Assist Deployment Hexes: Unoccupied tiles on active player's back row (Row 1 for P1, Row 6 for P2)
   const assistDeployHexes = useMemo(() => {
@@ -2781,8 +2834,11 @@ export default function App() {
   // "When you reinforce this card / when this card promotes a unit with damage on it, discard a card. If you can't, this
   // card goes to the graveyard (the units stay)" (e.g. Solid Ribcage, Heartless Gestalt): { type: 'discardOrFail',
   // trigger }. The source passive's name, if the card has one for this trigger.
+  // ("A passive that refers to reinforcing this card applies while it is in your hand, but not during setup")
   const getDiscardCost = (card: CardItem, trigger: string): string | null =>
-    (card.passives || []).find((p) => (p.effects || []).some((e: any) => e.type === 'discardOrFail' && e.trigger === trigger))?.name || null;
+    gamePhase === 'setup'
+      ? null
+      : (card.passives || []).find((p) => (p.effects || []).some((e: any) => e.type === 'discardOrFail' && e.trigger === trigger))?.name || null;
   // Asks the player to discard one of these cards (the cost is already known to be payable)
   const askDiscard = (owner: PlayerId, cards: CardItem[], title: string, why: string) => {
     askCardChoice(
@@ -3104,16 +3160,18 @@ export default function App() {
     if (cardToPlace.reinforce?.mode === 'tribute') {
       const requiredTributeCount = cardToPlace.reinforce?.count || 2;
       const tributeReqText = (cardToPlace.reinforce?.requirement || []).map((opts) => opts.join('/')).join(', ');
-      if (validTributeHexes.length < requiredTributeCount || countUnmetTributeSlots(cardToPlace, validTributeHexes.map((h) => unitsOnBoard[h]).filter(Boolean)) > 0) {
-        showNotification(
-          `Cannot reinforce ${cardToPlace.name}: You must control at least ${requiredTributeCount} friendly Basic units on your side of the board (${isP1 ? 'Rows 1-3' : 'Rows 4-6'}) to sacrifice to your Graveyard${tributeReqText ? ` (including ${tributeReqText})` : ''}.`
-        );
+      const tributeBackRow = isP1 ? 1 : 6;
+      const emptyBackRow = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H']
+        .map((c) => `${c}${tributeBackRow}`)
+        .filter((h) => !unitsOnBoard[h] && !sealedReinforceHexes.has(h));
+      const choosingTile = tributeSacrificeHexes.length >= requiredTributeCount;
+      if (emptyBackRow.length === 0) {
+        showNotification(`Cannot reinforce ${cardToPlace.name}: a Tribute unit is placed on an empty tile on your back row (Row ${tributeBackRow}), and there are none.`);
         return;
       }
-
-      if (!validTributeHexes.includes(hexId)) {
+      if (!choosingTile && (validTributeHexes.length < requiredTributeCount || countUnmetTributeSlots(cardToPlace, validTributeHexes.map((h) => unitsOnBoard[h]).filter(Boolean)) > 0)) {
         showNotification(
-          `Must click a friendly Basic unit on your side of the board (${isP1 ? 'Rows 1-3' : 'Rows 4-6'}) to sacrifice.`
+          `Cannot reinforce ${cardToPlace.name}: You must control at least ${requiredTributeCount} friendly Basic units on your side of the board (${isP1 ? 'Rows 1-3' : 'Rows 4-6'}) to sacrifice to your Graveyard${tributeReqText ? ` (including ${tributeReqText})` : ''}.`
         );
         return;
       }
@@ -3124,8 +3182,17 @@ export default function App() {
         return;
       }
 
+      if (!validTributeHexes.includes(hexId)) {
+        showNotification(
+          choosingTile
+            ? `Click an empty tile on your back row (Row ${tributeBackRow}) to place ${cardToPlace.name} on (or click a chosen unit to deselect it).`
+            : `Must click a friendly Basic unit on your side of the board (${isP1 ? 'Rows 1-3' : 'Rows 4-6'}) to sacrifice.`
+        );
+        return;
+      }
+
       // The picks left must still be able to cover the class requirement (e.g. "at least one must be Flaming")
-      {
+      if (!choosingTile) {
         const picked = [...tributeSacrificeHexes, hexId].map((h) => unitsOnBoard[h]).filter(Boolean);
         if (countUnmetTributeSlots(cardToPlace, picked) > requiredTributeCount - picked.length) {
           showNotification(`${cardToPlace.name} needs ${tributeReqText} among its sacrifices. Choose a unit that matches.`);
@@ -3133,24 +3200,21 @@ export default function App() {
         }
       }
 
-      if (tributeSacrificeHexes.length < requiredTributeCount - 1) {
+      if (!choosingTile) {
         const nextSacrifices = [...tributeSacrificeHexes, hexId];
         setTributeSacrificeHexes(nextSacrifices);
         showNotification(
-          `Selected ${nextSacrifices.length}/${requiredTributeCount} basic units to sacrifice (${unitsOnBoard[hexId].card.name}). Click another basic unit on your side to sacrifice to Graveyard.`
+          nextSacrifices.length < requiredTributeCount
+            ? `Selected ${nextSacrifices.length}/${requiredTributeCount} basic units to sacrifice (${unitsOnBoard[hexId].card.name}). Click another basic unit on your side to sacrifice to Graveyard.`
+            : `Selected ${nextSacrifices.length}/${requiredTributeCount} basic units to sacrifice. Now click an empty tile on your back row (Row ${tributeBackRow}) to place ${cardToPlace.name} on.`
         );
         return;
       }
 
-      if (tributeSacrificeHexes.length === requiredTributeCount - 1) {
-        // The Tribute unit is placed on the last sacrifice's tile: that tile must not be sealed
-        if (sealedReinforceHexes.has(hexId)) {
-          showNotification(
-            `${hexId} is sealed (enemy Sealed Gate). The Tribute unit lands on your last sacrifice, so choose a last sacrifice outside its range (click a selected unit to deselect it and reorder).`
-          );
-          return;
-        }
-        const allSacrificeHexes = [...tributeSacrificeHexes, hexId];
+      {
+        // Rule (Tribute): "choosing an empty tile on your back row and [number] friendly basic units ... Send them to
+        // the graveyard, then place this card on that tile"
+        const allSacrificeHexes = [...tributeSacrificeHexes];
         const sacrificedUnits = allSacrificeHexes.map((h) => unitsOnBoard[h]).filter(Boolean);
         if (sacrificedUnits.length < requiredTributeCount) return;
 
@@ -3170,7 +3234,7 @@ export default function App() {
           setPlayer2Hand((prev) => prev.filter((_, idx) => idx !== handIdx));
         }
 
-        // Place tribute unit onto the final sacrifice hex
+        // Place the tribute unit on the chosen empty back-row tile
         const deployHex = hexId;
         const tributeUnit: BattlefieldUnit = {
           instanceId: newInstanceId('unit'),
@@ -3665,6 +3729,15 @@ export default function App() {
           unitHex: activeTurnUnitHex
         });
       }
+    }
+    if (activeTurnUnit && activeTurnUnitHex && isOtherUnit && !isFriendly) {
+      getAttackLoots(
+        activeTurnUnit,
+        activeTurnUnitHex,
+        null,
+        { dealtDamage: damageDealt > 0, killedEnemy: exec.finalDamageCounters >= tgt.card.hp },
+        unitsOnBoard
+      ).forEach((l) => triggerLoot(l.player, l.amount, l.title, activeTurnUnit.card.name));
     }
 
     // First-attack heal per hit (e.g. Bloodrush): the attack counter only advances when the multi-step attack
@@ -5623,7 +5696,9 @@ export default function App() {
         const targetUnit = unitsOnBoard[hexId];
         if (!targetUnit) return;
         // A unit immune to non-damage effects (Machine Heart) "cannot be moved": this unit moves to it instead
-        const pullBlocked = targetUnit.instanceId !== activeTurnUnit.instanceId && isImmuneToNonDamageEffects(targetUnit);
+        const pullBlocked =
+          targetUnit.instanceId !== activeTurnUnit.instanceId &&
+          (isImmuneToNonDamageEffects(targetUnit) || cannotBeMovedByOthers(targetUnit));
         const closestEmpty = pullBlocked ? [] : getClosestEmptySurroundingHexes(activeTurnUnitHex, hexId, unitsOnBoard);
 
         if (closestEmpty.length > 1) {
@@ -6364,6 +6439,110 @@ export default function App() {
         return;
       }
 
+      // Subcase 3.004: "Look at the top X cards of your deck, where X is the number of enemy units on or surrounding the
+      // target tile. Put one into your hand and the rest on the bottom of your deck" (e.g. Chart the Field):
+      // { type: 'lookTop', count: 'enemyUnitsOnOrSurroundingTargetTile', toHand: 1, restTo: 'bottomOfDeck' }
+      const chartEff: any = activeAbility.effects?.find(
+        (e: any) => e.type === 'lookTop' && e.count === 'enemyUnitsOnOrSurroundingTargetTile'
+      );
+      if (chartEff) {
+        const deck = activePlayer === 'player1' ? player1Deck : player2Deck;
+        const x = [hexId, ...getSurroundingHexes(hexId)].filter((h) => unitsOnBoard[h] && unitsOnBoard[h].owner !== activePlayer).length;
+        const newAp = Math.max(0, activeTurnUnit.currentAp - cost);
+        const nextCounts = recordAbilityUse(activeTurnUnit.usedTurnCounts || {}, activeAbility);
+        const casterHex = activeTurnUnitHex;
+        setUnitsOnBoard((prev) =>
+          prev[casterHex] ? { ...prev, [casterHex]: { ...prev[casterHex], currentAp: newAp, usedTurnCounts: nextCounts } } : prev
+        );
+        setActiveAbility(null);
+        const looked = deck.slice(0, x);
+        if (looked.length === 0) {
+          showNotification(
+            `${activeTurnUnit.card.name} used ${activeAbility.name} on ${hexId}: ${x === 0 ? 'no enemy units there' : 'your deck is empty'}, so there's nothing to look at. (${cost} AP spent, ${newAp} AP remaining).`
+          );
+          if (cost > 0 && newAp <= 0) switchTurn(false);
+          return;
+        }
+        playCardDrawSound();
+        setResearchPending({ cards: looked, player: activePlayer, sourceTitle: activeAbility.name, unitName: activeTurnUnit.card.name, afterAp: newAp });
+        showNotification(`${activeTurnUnit.card.name} used ${activeAbility.name}: ${x} enemy unit(s) near ${hexId}. Choose 1 of the top ${looked.length} cards for your hand.`);
+        return;
+      }
+
+      // Subcase 3.005: a ward on a friendly target (e.g. Moonlight Ward): { type: 'wardNextAttack', target: 'friendlyTarget',
+      // preventUpTo }. "Until the end of your opponent's next turn, the next time that unit would take damage from an
+      // attack, prevent up to N of that damage. This effect does not stack."
+      const wardEff: any = activeAbility.effects?.find((e: any) => e.type === 'wardNextAttack' && typeof e.preventUpTo === 'number');
+      if (wardEff && unitsOnBoard[hexId] && unitsOnBoard[hexId].owner === activePlayer) {
+        const warded = unitsOnBoard[hexId];
+        const newAp = Math.max(0, activeTurnUnit.currentAp - cost);
+        const nextCounts = recordAbilityUse(activeTurnUnit.usedTurnCounts || {}, activeAbility);
+        const casterHex = activeTurnUnitHex;
+        setUnitsOnBoard((prev) => {
+          const next = { ...prev };
+          if (next[hexId] && (next[hexId].attackWard?.amount || 0) < wardEff.preventUpTo) {
+            next[hexId] = { ...next[hexId], attackWard: { amount: wardEff.preventUpTo, source: activeAbility.name } };
+          }
+          if (next[casterHex]) next[casterHex] = { ...next[casterHex], currentAp: newAp, usedTurnCounts: nextCounts };
+          return next;
+        });
+        playCardDrawSound();
+        setActiveAbility(null);
+        showNotification(
+          `🌙 ${activeTurnUnit.card.name} used ${activeAbility.name} on ${warded.card.name}: the next time it would take damage from an attack, up to ${wardEff.preventUpTo} is prevented. (${cost} AP spent, ${newAp} AP remaining).`
+        );
+        if (cost > 0 && newAp <= 0) switchTurn(false);
+        return;
+      }
+
+      // Subcase 3.006: "Place the target on an empty tile surrounding this unit" for a friendly target (e.g. Drag and Drop):
+      // { type: 'place', unit: 'friendlyTarget', tile: 'chosenEmptySurroundingSelf' }. The tile is chosen from a list.
+      const dropEff: any = activeAbility.effects?.find(
+        (e: any) => e.type === 'place' && e.unit === 'friendlyTarget' && e.tile === 'chosenEmptySurroundingSelf'
+      );
+      if (dropEff && unitsOnBoard[hexId] && unitsOnBoard[hexId].owner === activePlayer && hexId !== activeTurnUnitHex) {
+        const carried = unitsOnBoard[hexId];
+        const casterHex = activeTurnUnitHex;
+        const spots = getSurroundingHexes(casterHex).filter((h) => !unitsOnBoard[h]);
+        if (spots.length === 0) {
+          showNotification(`${activeAbility.name}: there is no empty tile around ${activeTurnUnit.card.name}.`);
+          return;
+        }
+        if (isImmuneToNonDamageEffects(carried)) {
+          showNotification(`${carried.card.name} is immune to non-damage effects right now, so it can't be placed.`);
+          return;
+        }
+        const ability = activeAbility;
+        const caster = activeTurnUnit;
+        askCardChoice(
+          {
+            title: ability.name,
+            message: `Choose the empty tile around ${caster.card.name} to place ${carried.card.name} on.`,
+            options: spots.map((h) => ({ label: h, value: h }))
+          },
+          (dest) => {
+            const newAp = Math.max(0, caster.currentAp - cost);
+            const nextCounts = recordAbilityUse(caster.usedTurnCounts || {}, ability);
+            setUnitsOnBoard((prev) => {
+              const from = Object.keys(prev).find((h) => prev[h].instanceId === carried.instanceId);
+              const next = { ...prev };
+              if (next[casterHex]) next[casterHex] = { ...next[casterHex], currentAp: newAp, usedTurnCounts: nextCounts };
+              if (!from || next[dest]) return next;
+              const u = next[from];
+              delete next[from];
+              next[dest] = { ...u, hexId: dest };
+              return next;
+            });
+            playCardDrawSound();
+            showNotification(`${caster.card.name} used ${ability.name}: placed ${carried.card.name} on ${dest}. (${cost} AP spent, ${newAp} AP remaining).`);
+            appendLog('move', `${carried.card.name} placed on ${dest} (${ability.name})`);
+            if (cost > 0 && newAp <= 0) switchTurn(false);
+          }
+        );
+        setActiveAbility(null);
+        return;
+      }
+
       // Subcase 3.01: Healing a friendly target (e.g. Soothing Sap, or Tree's Bounty used on a friendly unit)
       const friendlyHealEff: any = activeAbility.effects?.find((e: any) => e.type === 'heal' && e.target === 'friendlyTarget');
       const clickedUnit = unitsOnBoard[hexId];
@@ -6373,20 +6552,45 @@ export default function App() {
           return;
         }
         const healAmount = typeof friendlyHealEff.amount === 'number' ? friendlyHealEff.amount : 0;
-        const healed = Math.min(healAmount, clickedUnit.damageCounters);
+        // "Deals 3 damage. Then, if the target is friendly, that unit heals 6 damage" (e.g. Sandwich Lob): a damage effect
+        // with no enemy-only condition on an ability that can target either side hits the friendly unit first
+        const friendlyHitEff: any =
+          activeAbility.target === 'anyUnit' && clickedUnit.instanceId !== activeTurnUnit.instanceId
+            ? activeAbility.effects?.find((e: any) => e.type === 'damage' && !e.if && typeof e.amount === 'number')
+            : null;
+        const hitAmount = friendlyHitEff ? friendlyHitEff.amount * (typeof friendlyHitEff.hits === 'number' ? friendlyHitEff.hits : 1) : 0;
+        const hitAbsorbed = Math.min(clickedUnit.armour, hitAmount);
+        const countersAfterHit = clickedUnit.damageCounters + hitAmount - hitAbsorbed;
+        const killedByHit = hitAmount > 0 && countersAfterHit >= clickedUnit.card.hp;
+        const healed = killedByHit ? 0 : Math.min(healAmount, countersAfterHit);
         const newAp = Math.max(0, activeTurnUnit.currentAp - cost);
         const nextCounts = recordAbilityUse(activeTurnUnit.usedTurnCounts || {}, activeAbility);
         const casterHex = activeTurnUnitHex;
         setUnitsOnBoard((prev) => {
-          const next = { ...prev };
+          let next = { ...prev };
+          if (next[hexId] && hitAmount > 0) {
+            if (killedByHit) {
+              sendToGraveyard([next[hexId]]);
+              delete next[hexId];
+            } else {
+              next[hexId] = { ...next[hexId], armour: next[hexId].armour - hitAbsorbed, damageCounters: countersAfterHit, tookDamageThisTurn: true };
+              next = applyDamageEventsAndPassives(
+                [{ hexId, damagedUnitOwner: clickedUnit.owner, damageAmount: hitAmount - hitAbsorbed }],
+                next
+              );
+            }
+          }
           if (next[hexId]) next[hexId] = { ...next[hexId], damageCounters: Math.max(0, next[hexId].damageCounters - healAmount) };
           if (next[casterHex]) next[casterHex] = { ...next[casterHex], currentAp: newAp, usedTurnCounts: nextCounts };
+          if (killedByHit) checkVictory(next);
           return next;
         });
         playCardDrawSound();
         setActiveAbility(null);
         showNotification(
-          `💚 ${activeTurnUnit.card.name} used ${activeAbility.name} on ${clickedUnit.card.name}: healed ${healed} damage. (${cost} AP spent, ${newAp} AP remaining).`
+          `💚 ${activeTurnUnit.card.name} used ${activeAbility.name} on ${clickedUnit.card.name}: ${
+            hitAmount > 0 ? `dealt ${hitAmount}${hitAbsorbed ? ` (${hitAbsorbed} to armour)` : ''}, ` : ''
+          }${killedByHit ? `${clickedUnit.card.name} was defeated` : `healed ${healed} damage`}. (${cost} AP spent, ${newAp} AP remaining).`
         );
         if (cost > 0 && newAp <= 0) switchTurn(false);
         return;
@@ -7157,13 +7361,19 @@ export default function App() {
         const nextCounts = recordAbilityUse(activeTurnUnit.usedTurnCounts || {}, activeAbility);
         const blocked =
           (targetUnit.owner !== activePlayer && isImmuneToNonDamageEffects(targetUnit)) ||
-          (hookEff.asMove && isUnitMovementDisabled(targetUnit));
+          cannotBeMovedByOthers(targetUnit);
         const dest = blocked
           ? hexId
           : getPullDestination(activeTurnUnitHex, hexId, typeof hookEff.distance === 'number' ? hookEff.distance : 1, unitsOnBoard);
         const casterHex = activeTurnUnitHex;
+        // "Then, if the target was moved this way and is now surrounding this unit, armour up to N" (e.g. Waxing Pull)
+        const pullArmourEff: any = activeAbility.effects?.find(
+          (e: any) => e.type === 'armour' && e.target === 'self' && e.if === 'pulledUnitNowSurroundingSelf' && typeof e.upTo === 'number'
+        );
+        const pullArmour = pullArmourEff && dest !== hexId && getHexDistance(casterHex, dest) === 1 ? pullArmourEff.upTo : 0;
         setUnitsOnBoard((prev) => {
           let next = { ...prev, [casterHex]: { ...prev[casterHex], currentAp: newAp, usedTurnCounts: nextCounts } };
+          if (pullArmour > next[casterHex].armour) next[casterHex] = { ...next[casterHex], armour: pullArmour };
           if (dest !== hexId && next[hexId] && !next[dest]) {
             const u = next[hexId];
             delete next[hexId];
@@ -7172,12 +7382,13 @@ export default function App() {
           }
           return next;
         });
+        if (dest !== hexId) getPullLoots(activeTurnUnit, targetUnit).forEach((l) => triggerLoot(l.player, l.amount, l.title, activeTurnUnit.card.name));
         playCardDrawSound();
         setActiveAbility(null);
         showNotification(
           `${activeTurnUnit.card.name} used ${activeAbility.name}: ${
             dest !== hexId ? `moved ${targetUnit.card.name} to ${dest}` : `${targetUnit.card.name} couldn't be moved closer`
-          }. (${cost} AP spent, ${newAp} AP remaining).`
+          }${pullArmour > activeTurnUnit.armour ? `, armoured up to ${pullArmour}` : ''}. (${cost} AP spent, ${newAp} AP remaining).`
         );
         if (cost > 0 && newAp <= 0) switchTurn(false);
         return;
@@ -8027,6 +8238,27 @@ export default function App() {
           hitsToExecute = [
             { hitIndex: 1, damage: armourRemovedBeforeAttack, conditionalNote: `1 damage per armour stolen (${armourRemovedBeforeAttack})` }
           ];
+        } else if (
+          activeAbility.effects?.some((e: any) => e.type === 'damage' && e.amount?.formula === 'armourRemoved' && typeof e.amount?.plus === 'number')
+        ) {
+          // "Then deal 2 damage plus 1 damage for each armour removed this way" (e.g. Dissolving Spit):
+          // { type: 'damage', amount: { formula: 'armourRemoved', plus: 2 } }
+          const spitEff: any = activeAbility.effects!.find((e: any) => e.type === 'damage' && e.amount?.formula === 'armourRemoved');
+          hitsToExecute = [
+            {
+              hitIndex: 1,
+              damage: spitEff.amount.plus + armourRemovedBeforeAttack,
+              conditionalNote: `${spitEff.amount.plus} + ${armourRemovedBeforeAttack} (armour removed)`
+            }
+          ];
+          applyAttackerBonusPassives(hitsToExecute, activeAbility, activeTurnUnit, targetUnit, {
+            attacker: activeTurnUnit,
+            target: targetUnit,
+            ability: activeAbility,
+            attackerHex: activeTurnUnitHex,
+            targetHex: hexId,
+            unitsOnBoard
+          });
           } else if (activeAbility.id === 'coup_de_grace') {
           hitsToExecute = [
             {
@@ -8090,6 +8322,19 @@ export default function App() {
             leftParry -= cut;
             return { ...h, damage: Math.max(0, h.damage - cut) };
           });
+        }
+        // "The next time that unit would take damage from an attack, prevent up to N of that damage" (e.g. Moonlight Ward)
+        let wardPrevented = 0;
+        if (!isFriendlyTarget && targetUnit.attackWard && hitsToExecute.some((h) => h.damage > 0)) {
+          let leftWard = targetUnit.attackWard.amount;
+          hitsToExecute = hitsToExecute.map((h) => {
+            const cut = Math.min(leftWard, h.damage);
+            leftWard -= cut;
+            wardPrevented += cut;
+            return { ...h, damage: h.damage - cut };
+          });
+          showNotification(`🌙 ${targetUnit.attackWard.source} prevented ${wardPrevented} damage to ${targetUnit.card.name}.`);
+          targetUnit = { ...targetUnit, attackWard: undefined };
         }
 
         let exec = executeSequentialHits(
@@ -8276,8 +8521,9 @@ export default function App() {
         // The attack's own self heal (e.g. Red Thirst: "Heal 3 damage from this unit"; Overgrowth Spores: equal to the
         // total damage dealt)
         const abilityHealEff: any = activeAbility.effects?.find((e: any) => e.type === 'heal' && e.target === 'self');
+        // ({ if: 'damageDealt' }: "If this attack deals damage, heal 2 damage from this unit", e.g. Purple Siphon)
         const abilityHeal =
-          !abilityHealEff || isFeedingFrenzy
+          !abilityHealEff || isFeedingFrenzy || (abilityHealEff.if === 'damageDealt' && !(damage > 0))
             ? 0
             : abilityHealEff.amount === 'totalDamageDealt'
             ? damage
@@ -8303,6 +8549,7 @@ export default function App() {
         let attackFinalAp = newAp;
         let lootTriggerAmount = 0;
         let lootTriggerTitle = '';
+        let extraAttackLoots: { amount: number; title: string; player: PlayerId }[] = [];
         let twinFuryActive = false;
         let defLootTriggered = false;
         let noxiousBurstVictims: BattlefieldUnit[] = [];
@@ -8343,7 +8590,9 @@ export default function App() {
           if (isDefeated) {
             const unitPassives = getUnitPassives(activeTurnUnit);
             const bloodlustPassive = unitPassives.find(
-              (p) => p.id === 'bloodlust' || (p.text || '').toLowerCase().includes('kills an enemy unit')
+              (p) =>
+                p.id === 'bloodlust' ||
+                (p.trigger === 'self.killsEnemyUnit' && (p.effects || []).some((e: any) => e.type === 'gainAP'))
             );
             if (bloodlustPassive && canTriggerPassiveThisTurn(activeTurnUnit, bloodlustPassive)) {
               bonusAp = 1;
@@ -8492,6 +8741,16 @@ export default function App() {
             lootTriggerAmount = Math.max(lootTriggerAmount, 1);
             lootTriggerTitle = 'Shrapnel Volley';
           }
+          // 7. Dead Shot, Flare Pistol, Smash and Stash, Shared Spoils (see getAttackLoots)
+          if (!isFeedingFrenzy) {
+            extraAttackLoots = getAttackLoots(
+              activeTurnUnit,
+              activeTurnUnitHex,
+              activeAbility,
+              { dealtDamage: totalDmgDealt > 0, killedEnemy: isDefeated && targetUnit.owner !== activeTurnUnit.owner },
+              unitsOnBoard
+            );
+          }
 
           // Defender Iron Clout (Dreadnought Privateer):
           const defenderPassives = getUnitPassives(targetUnit);
@@ -8550,7 +8809,10 @@ export default function App() {
                   ...((activeTurnUnit.usedOnTargets || {})[String(activeAbility.id)] || []),
                   targetUnit.instanceId
                 ]
-              }
+              },
+              ...(!attackFromBehind
+                ? { attackedFromFrontIds: [...(activeTurnUnit.attackedFromFrontIds || []), targetUnit.instanceId] }
+                : {})
             };
           }
 
@@ -8807,7 +9069,7 @@ export default function App() {
 
         setActiveAbility(null);
         // Used up a waiting next-attack buff; maybe grant a next-armour-ability buff (e.g. Perfect Form)
-        afterAttackUsed(activeTurnUnit);
+        afterAttackUsed(activeTurnUnit, activeAbility);
         const isFree = cost === 0;
 
         // Riders once the attack has resolved, on the board as it now is
@@ -8820,6 +9082,11 @@ export default function App() {
         const pullEff: any = activeAbility.effects?.find((e: any) => e.type === 'pull' && e.target === 'hitUnit');
         const followEff: any = activeAbility.effects?.find((e: any) => e.type === 'move' && e.tile === 'targetFormerTile');
         const mirrorEff: any = activeAbility.effects?.find((e: any) => e.type === 'mirrorDamage');
+        // "Then, if the tile on the opposite side of this unit from the target is empty, place the target there" (e.g.
+        // Keelhaul): { type: 'place', unit: 'hitUnit', tile: 'tileOppositeSelfFromTarget' }
+        const flingEff: any = activeAbility.effects?.find(
+          (e: any) => e.type === 'place' && e.unit === 'hitUnit' && e.tile === 'tileOppositeSelfFromTarget'
+        );
         const mirrorHolds =
           Boolean(mirrorEff) && (!mirrorEff.if || evalAttackerCondition(mirrorEff.if, activeTurnUnit, attackFromBehind) === true);
         const bounce =
@@ -8855,13 +9122,25 @@ export default function App() {
               next = resolvePassiveDamage(next, [{ hex: beyond, amount: damage, source: riderAbility.name }]);
             }
           }
+          if (flingEff && !isDefeated) {
+            const tHex = hexOf(riderTargetId);
+            const cHex = hexOf(riderAttacker.instanceId);
+            const across = tHex && cHex && getHexDistance(tHex, cHex) === 1 ? getHexBehind(tHex, cHex) : null;
+            if (tHex && across && !next[across] && !isImmuneToNonDamageEffects(next[tHex], damage > 0)) {
+              const u = next[tHex];
+              next = { ...next };
+              delete next[tHex];
+              next[across] = { ...u, hexId: across };
+              riderNotes.push(`placed ${u.card.name} on ${across}`);
+            }
+          }
           // "Pull the target N tiles toward this unit" (e.g. Barbed Tether, Caustic Vine)
           if (pullEff && !isDefeated) {
             const tHex = hexOf(riderTargetId);
             const cHex = hexOf(riderAttacker.instanceId);
             // ("Move the target unit 1 tile closer to this one", e.g. Stage Hook, is a move: a unit that cannot move
             // stays, and its move triggers apply)
-            if (tHex && cHex && !isImmuneToNonDamageEffects(next[tHex], damage > 0) && !(pullEff.asMove && isUnitMovementDisabled(next[tHex]))) {
+            if (tHex && cHex && !isImmuneToNonDamageEffects(next[tHex], damage > 0) && !cannotBeMovedByOthers(next[tHex])) {
               const dest = getPullDestination(cHex, tHex, typeof pullEff.distance === 'number' ? pullEff.distance : 1, next);
               if (dest !== tHex) {
                 const u = next[tHex];
@@ -8929,6 +9208,17 @@ export default function App() {
           if (riderNotes.length > 0) showNotification(`${riderAbility.name}: ${riderNotes.join(' • ')}.`);
           return next;
         });
+        // "Once per turn, when this unit pulls an enemy unit, Loot N" (e.g. Salvage), when the rider pull above moves it
+        if (
+          pullEff &&
+          !isDefeated &&
+          !isFriendlyTarget &&
+          !isImmuneToNonDamageEffects(targetUnit, damage > 0) &&
+          !cannotBeMovedByOthers(targetUnit) &&
+          getPullDestination(activeTurnUnitHex, hexId, typeof pullEff.distance === 'number' ? pullEff.distance : 1, unitsOnBoard) !== hexId
+        ) {
+          getPullLoots(activeTurnUnit, targetUnit).forEach((l) => triggerLoot(l.player, l.amount, l.title, activeTurnUnit.card.name));
+        }
 
         let notif = '';
         if (isFeedingFrenzy) {
@@ -9161,6 +9451,7 @@ export default function App() {
           });
         }
 
+        extraAttackLoots.forEach((l) => triggerLoot(l.player, l.amount, l.title, activeTurnUnit.card.name));
         if (lootTriggerAmount > 0) {
           triggerLoot(activePlayer, lootTriggerAmount, lootTriggerTitle, activeTurnUnit.card.name, {
             unitHex: activeTurnUnitHex,
@@ -9251,6 +9542,14 @@ export default function App() {
           }
           setPendingFreeMove({ unitInstanceId: activeTurnUnit.instanceId, sourceName: freeMoveSource! });
           setIsMovingMode(true);
+          const afterMoveArmour: any = afterMoveHolds
+            ? activeAbility.effects?.find(
+                (e: any) => e.type === 'armour' && e.timing === 'afterMove' && e.if === '!self.surroundingEnemyUnit' && typeof e.upTo === 'number'
+              )
+            : null;
+          freeMoveArmourRef.current = afterMoveArmour
+            ? { instanceId: activeTurnUnit.instanceId, upTo: afterMoveArmour.upTo, source: activeAbility.name }
+            : null;
           showNotification(`${freeMoveSource}: you may move ${activeTurnUnit.card.name} 1 tile for free (or click Skip).`);
         }
 
@@ -9331,6 +9630,7 @@ export default function App() {
               attacksUsedThisTurn: 0,
               usedTurnCounts: {},
               usedOnTargets: {},
+              attackedFromFrontIds: undefined,
               tookDamageThisTurn: false,
               movedThisTurn: false,
               movesThisTurn: 0,
@@ -9406,6 +9706,7 @@ export default function App() {
         usedTurnCounts: {},
         attacksUsedThisTurn: 0,
         usedOnTargets: {},
+              attackedFromFrontIds: undefined,
         movedThisTurn: false,
         movesThisTurn: 0,
         lockedIn: false,
@@ -9449,7 +9750,43 @@ export default function App() {
     const isEsotericMove = esotericHexes.includes(toHexId);
     const isOmni = hasMagicalOmnipresence(movingUnit);
     const moveDist = getHexDistance(fromHexId, toHexId);
-    const isOmniMove = isOmni && moveDist >= 1 && moveDist <= 2;
+    const isOmniMove = isOmni && !isFreeMove && moveDist >= 1 && moveDist <= 2;
+    // Magical Omnipresence: the first move it spends AP on places it on an empty tile within Range 1-2 instead (a place,
+    // not a move: nothing that happens "when a unit moves" happens), and then it may no longer move this turn
+    if (isOmniMove && !unitsOnBoard[toHexId]) {
+      const newApOmni = currentUnit.currentAp - moveCost;
+      const startingTurn = activeTurnUnitHex !== fromHexId;
+      const placedUnit: BattlefieldUnit = {
+        ...currentUnit,
+        hexId: toHexId,
+        currentAp: newApOmni,
+        statuses: currentUnit.statuses?.filter((s) => s !== MOVE_TAX),
+        usedTurnCounts: countUniversalMove(currentUnit.usedTurnCounts),
+        passiveTurnMarks: { ...(currentUnit.passiveTurnMarks || {}), [OMNIPRESENCE_MARK]: turnCount }
+      };
+      setUnitsOnBoard((prev) => {
+        if (!prev[fromHexId] || prev[fromHexId].instanceId !== currentUnit.instanceId || prev[toHexId]) return prev;
+        const next = { ...prev };
+        delete next[fromHexId];
+        next[toHexId] = placedUnit;
+        return next;
+      });
+      setActiveTurnUnitHex(toHexId);
+      setSelectedHex(toHexId);
+      setActiveAbility(null);
+      setIsMovingMode(false);
+      playCardDrawSound();
+      appendLog('move', `${currentUnit.card.name} placed on ${toHexId} (Magical Omnipresence)`);
+      showNotification(
+        `${currentUnit.card.name}'s Magical Omnipresence: placed on ${toHexId} instead of moving. It may no longer move this turn. (${moveCost} AP spent, ${newApOmni} AP remaining).`
+      );
+      if (startingTurn) {
+        triggerForesight(movingUnit);
+        triggerTurnTakenPassives(placedUnit);
+      }
+      if (newApOmni <= 0) switchTurn(false);
+      return;
+    }
 
     if (!surrounding.includes(toHexId) && !isEsotericMove && !isOmniMove) {
       showNotification(
@@ -9550,7 +9887,7 @@ export default function App() {
       unitsOnBoard[toHexId] &&
       moveThrough?.carriesUnit &&
       !currentUnit.carriedUnit &&
-      !isUnitMovementDisabled(unitsOnBoard[toHexId])
+      !cannotBeMovedByOthers(unitsOnBoard[toHexId])
     ) {
       const carried = unitsOnBoard[toHexId];
       const carryAp = currentUnit.currentAp - moveCost;
@@ -9970,6 +10307,27 @@ export default function App() {
       switchTurn(false);
     }
   };
+
+  // "Then, move this unit 1 tile for free. If it is not surrounding an enemy unit afterward, armour up to N" (e.g. Strike
+  // and Withdraw): { type: 'armour', target: 'self', upTo, timing: 'afterMove', if: '!self.surroundingEnemyUnit' }, checked
+  // once the free move after the attack is done or skipped
+  const freeMoveArmourRef = useRef<{ instanceId: string; upTo: number; source: string } | null>(null);
+  useEffect(() => {
+    if (pendingFreeMove || !freeMoveArmourRef.current) return;
+    const { instanceId, upTo, source } = freeMoveArmourRef.current;
+    freeMoveArmourRef.current = null;
+    const hex = Object.keys(unitsOnBoard).find((h) => unitsOnBoard[h].instanceId === instanceId);
+    if (!hex) return;
+    const u = unitsOnBoard[hex];
+    const nextToEnemy = getSurroundingHexes(hex).some((h) => unitsOnBoard[h] && unitsOnBoard[h].owner !== u.owner);
+    if (nextToEnemy || u.armour >= upTo) return;
+    setUnitsOnBoard((prev) => {
+      const h = Object.keys(prev).find((k) => prev[k].instanceId === instanceId);
+      return h && prev[h].armour < upTo ? { ...prev, [h]: { ...prev[h], armour: upTo } } : prev;
+    });
+    showNotification(`${source}: ${u.card.name} isn't next to an enemy, so it armours up to ${upTo}.`);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingFreeMove]);
 
   // Once a free move made "before choosing a target" is done or skipped, target the waiting free ability
   useEffect(() => {
@@ -10401,7 +10759,11 @@ export default function App() {
     if (prePull) {
       const r = parseInt(prePull.target.split(':')[1], 10);
       const pulled = Object.keys(board).filter(
-        (h) => board[h].owner !== activePlayer && getHexDistance(casterHex, h) === r && !isImmuneToNonDamageEffects(board[h])
+        (h) =>
+          board[h].owner !== activePlayer &&
+          getHexDistance(casterHex, h) === r &&
+          !isImmuneToNonDamageEffects(board[h]) &&
+          !cannotBeMovedByOthers(board[h])
       );
       pulled.forEach((h) => {
         const dest = getPullDestination(casterHex, h, typeof prePull.distance === 'number' ? prePull.distance : 1, board);
@@ -10543,7 +10905,7 @@ export default function App() {
       setSelectedHex(casterHex);
     }
     // Used up a waiting next-attack buff; maybe grant a next-armour-ability buff (e.g. Perfect Form)
-    afterAttackUsed(activeTurnUnit);
+    afterAttackUsed(activeTurnUnit, ability);
     res.defeated.forEach((u) => {
       if (u.card.type === 'token') return;
       if (u.owner === 'player1') setPlayer1Graveyard((g) => [...g, u.card]);
@@ -11451,8 +11813,11 @@ export default function App() {
       // "Surrounding friendly units may use this unit's armour as their own" (Battered Shield), "this unit cannot move
       // until ..." (e.g. Iceshell Stance), and "cannot be knocked back until the start of your next turn" (e.g. Brace for
       // Impact)
-      const cur = applySelfKnockbackImmunity(
-        applySelfCannotMove(applySelfArmourShare(prev[casterHexForBuff] || activeTurnUnit, ability), ability),
+      const cur = applySelfCannotBeMoved(
+        applySelfKnockbackImmunity(
+          applySelfCannotMove(applySelfArmourShare(prev[casterHexForBuff] || activeTurnUnit, ability), ability),
+          ability
+        ),
         ability
       );
       let next: Record<string, BattlefieldUnit> = {
@@ -11921,7 +12286,32 @@ export default function App() {
 
   // After a unit attacks: a waiting "next attack" buff has been used, then a once-per-turn "next armour ability"
   // buff may be granted (e.g. Perfect Form)
-  const afterAttackUsed = (unit: BattlefieldUnit) => {
+  // Also "Whenever this unit uses an attack, if it is the first time using that attack this turn, gain 1 armour" (e.g.
+  // Tonfa Technique): { trigger: 'self.usesAttack', effects: [{ type: 'armour', amount, if: 'firstUseOfThisAttackThisTurn' }] }.
+  // `unit` is the attacker as it was before this attack (its use of `ability` not counted yet).
+  const afterAttackUsed = (unit: BattlefieldUnit, ability?: CardAbility | null) => {
+    if (ability) {
+      const key = String(ability.baseAbilityId || ability.id);
+      const firstUse = !(unit.usedTurnCounts?.[key] || unit.usedTurnCounts?.[ability.name]);
+      let gain = 0;
+      const sources: string[] = [];
+      getUnitPassives(unit).forEach((p) => {
+        if (p.trigger !== 'self.usesAttack') return;
+        (p.effects || []).forEach((e: any) => {
+          if (e.type === 'armour' && typeof e.amount === 'number' && e.if === 'firstUseOfThisAttackThisTurn' && firstUse) {
+            gain += e.amount;
+            sources.push(p.name);
+          }
+        });
+      });
+      if (gain > 0) {
+        setUnitsOnBoard((prev) => {
+          const hex = Object.keys(prev).find((h) => prev[h].instanceId === unit.instanceId);
+          return hex ? { ...prev, [hex]: { ...prev[hex], armour: prev[hex].armour + gain } } : prev;
+        });
+        showNotification(`${unit.card.name}'s ${sources.join(', ')}: gained ${gain} armour.`);
+      }
+    }
     const buffs = getNextActionBuffPassives(unit);
     const grant = buffs.afterAttack && unit.passiveTurnMarks?.[buffs.afterAttack.markKey] !== turnCount ? buffs.afterAttack : undefined;
     if (!grant && !unit.nextAttackBonus) return;
@@ -12393,6 +12783,7 @@ export default function App() {
     unitsOnBoard,
     scorchedTiles,
     hexColors,
+    unitKilled,
     winner,
     victoryReason
   });
@@ -12449,6 +12840,8 @@ export default function App() {
     setScorchedTiles(s.scorchedTiles);
     setHexColors(s.hexColors);
     setWinner(s.winner);
+    setUnitKilled(Boolean(s.unitKilled));
+    unitKilledRef.current = Boolean(s.unitKilled);
     setVictoryReason(s.victoryReason);
     setIsVictoryOpen(Boolean(s.winner));
     // Nothing in progress carries over
@@ -12501,7 +12894,12 @@ export default function App() {
         setTimeout(() => (window as any).__evilGame.sync(), 300);
         return s.steps;
       },
-      room: () => (roomRef.current ? { role: roomRef.current.role, code: roomRef.current.code, status: roomRef.current.status, localPlayer } : null)
+      room: () => (roomRef.current ? { role: roomRef.current.role, code: roomRef.current.code, status: roomRef.current.status, localPlayer } : null),
+      // (test aid: any board, e.g. board([{ id: 'solar_warden', owner: 'player1', hex: 'C3' }], { hands: { player1: ['opal_mage'] } }))
+      board: (units: any[], opts?: any) => {
+        loadGameState(applyTestBoard(captureGameState(), units, (id) => allCardList.find((c) => c.id === id) || null, opts));
+        return 'ok';
+      }
     };
   });
 
@@ -13826,6 +14224,41 @@ export default function App() {
   const triggerTurnTakenPassives = (unit: BattlefieldUnit) => {
     const unitId = unit.instanceId;
     const unitHexNow = Object.keys(unitsOnBoard).find((h) => unitsOnBoard[h].instanceId === unitId);
+    // "When this unit takes a turn, if you have fewer cards in hand than your opponent, draw 1 card" (e.g. Waning Tide)
+    // and "When this unit starts its turn with more than one enemy unit surrounding it, draw a card" (e.g. Scrub Check):
+    // { trigger: 'self.takesTurn', effects: [{ type: 'draw', amount, if: 'owner.fewerCardsInHandThanOpponent' |
+    // 'self.enemyUnitsSurrounding>=N' }] }. Drawing locks the turn in to this unit.
+    if (unitHexNow) {
+      const ownHand = unit.owner === 'player1' ? player1Hand : player2Hand;
+      const theirHand = unit.owner === 'player1' ? player2Hand : player1Hand;
+      const ownDeck = unit.owner === 'player1' ? player1Deck : player2Deck;
+      const enemiesAround = getSurroundingHexes(unitHexNow).filter((h) => unitsOnBoard[h] && unitsOnBoard[h].owner !== unit.owner).length;
+      let toDraw = 0;
+      const drawSources: string[] = [];
+      getUnitPassives(unit).forEach((p) => {
+        if (p.trigger !== 'self.takesTurn') return;
+        (p.effects || []).forEach((e: any) => {
+          if (e.type !== 'draw' || typeof e.amount !== 'number') return;
+          const around = typeof e.if === 'string' ? e.if.match(/^self\.enemyUnitsSurrounding>=(\d+)$/) : null;
+          if (e.if === 'owner.fewerCardsInHandThanOpponent' && !(ownHand.length < theirHand.length)) return;
+          if (around && enemiesAround < parseInt(around[1], 10)) return;
+          if (e.if && e.if !== 'owner.fewerCardsInHandThanOpponent' && !around) return;
+          toDraw += e.amount;
+          drawSources.push(p.name);
+        });
+      });
+      const drawn = Math.min(toDraw, ownDeck.length);
+      if (drawn > 0) {
+        for (let i = 0; i < drawn; i++) drawCardForPlayer(unit.owner);
+        healOnDraw(unit, drawn);
+        setUnitsOnBoard((prev) => {
+          const h = Object.keys(prev).find((k) => prev[k].instanceId === unitId);
+          return h ? { ...prev, [h]: { ...prev[h], lockedIn: true } } : prev;
+        });
+        showNotification(`${unit.card.name}'s ${drawSources.join(', ')}: drew ${drawn} card${drawn === 1 ? '' : 's'}.`);
+        appendLog('cards', `${unit.card.name}'s ${drawSources.join(', ')}: drew ${drawn}`, unit.owner);
+      }
+    }
     // "When an enemy unit starts its turn surrounding this unit, that unit cannot use 1AP abilities this turn" (e.g.
     // Suffocation Draught): { trigger: 'enemyUnitStartsTurnSurroundingSelf', effects: [{ type: 'cannotUseAbilities',
     // target: 'thatUnit', cost: 1, duration: 'thisTurn' }] }
@@ -14314,6 +14747,67 @@ export default function App() {
         player === 'player1' ? ctx.p1Deck : ctx.p2Deck
       )
     );
+  };
+
+  // Loot from attacks, read from card data (once-per-turn passives are tracked here by unit and turn):
+  //   the attacker's { trigger: 'self.killsEnemyUnitWithAttack', limits: { oncePerTurn }, effects: [{ type: 'loot' }] }
+  //     (e.g. Dead Shot)
+  //   the ability's own { type: 'loot', amount, if: 'targetKilled' | 'damageDealt' } (e.g. Flare Pistol, Smash and Stash)
+  //   another friendly unit surrounding the attacker with { trigger: 'friendlyUnitSurroundingSelfDealsDamageWithAttack',
+  //     limits: { oncePerTurn }, effects: [{ type: 'loot' }] } (e.g. Shared Spoils)
+  //   the puller's { trigger: 'self.pullsEnemyUnit', limits: { oncePerTurn } } (e.g. Salvage; see getPullLoots)
+  const passiveLootTurnRef = useRef<Record<string, number>>({});
+  const takeOncePerTurnLoot = (unit: BattlefieldUnit, passive: CardPassive): boolean => {
+    const key = `${unit.instanceId}:${passive.id || passive.name}`;
+    if (isOncePerTurn(passive) && passiveLootTurnRef.current[key] === turnCount) return false;
+    passiveLootTurnRef.current[key] = turnCount;
+    return true;
+  };
+  const getAttackLoots = (
+    attacker: BattlefieldUnit,
+    attackerHex: string,
+    ability: CardAbility | null | undefined,
+    outcome: { dealtDamage: boolean; killedEnemy: boolean },
+    board: Record<string, BattlefieldUnit>
+  ): { amount: number; title: string; player: PlayerId }[] => {
+    const out: { amount: number; title: string; player: PlayerId }[] = [];
+    const lootOf = (effects: any[] | undefined) => {
+      const e: any = (effects || []).find((x: any) => x.type === 'loot' && typeof x.amount === 'number');
+      return e ? e.amount : 0;
+    };
+    if (outcome.killedEnemy) {
+      getUnitPassives(attacker).forEach((p) => {
+        const amount = p.trigger === 'self.killsEnemyUnitWithAttack' ? lootOf(p.effects) : 0;
+        if (amount > 0 && takeOncePerTurnLoot(attacker, p)) out.push({ amount, title: p.name, player: attacker.owner });
+      });
+    }
+    ((ability?.effects || []) as any[]).forEach((e) => {
+      if (e.type !== 'loot' || typeof e.amount !== 'number') return;
+      if ((e.if === 'targetKilled' && outcome.killedEnemy) || (e.if === 'damageDealt' && outcome.dealtDamage)) {
+        out.push({ amount: e.amount, title: ability!.name, player: attacker.owner });
+      }
+    });
+    if (outcome.dealtDamage) {
+      getSurroundingHexes(attackerHex).forEach((h) => {
+        const ally = board[h];
+        if (!ally || ally.owner !== attacker.owner || ally.instanceId === attacker.instanceId) return;
+        getUnitPassives(ally).forEach((p) => {
+          const amount = p.trigger === 'friendlyUnitSurroundingSelfDealsDamageWithAttack' ? lootOf(p.effects) : 0;
+          if (amount > 0 && takeOncePerTurnLoot(ally, p)) out.push({ amount, title: `${ally.card.name}'s ${p.name}`, player: ally.owner });
+        });
+      });
+    }
+    return out;
+  };
+  // "Once per turn, when this unit pulls an enemy unit, Loot N" (e.g. Salvage)
+  const getPullLoots = (puller: BattlefieldUnit, pulled: BattlefieldUnit | null | undefined): { amount: number; title: string; player: PlayerId }[] => {
+    if (!pulled || pulled.owner === puller.owner) return [];
+    const out: { amount: number; title: string; player: PlayerId }[] = [];
+    getUnitPassives(puller).forEach((p) => {
+      const e: any = p.trigger === 'self.pullsEnemyUnit' ? (p.effects || []).find((x: any) => x.type === 'loot') : null;
+      if (e && typeof e.amount === 'number' && takeOncePerTurnLoot(puller, p)) out.push({ amount: e.amount, title: p.name, player: puller.owner });
+    });
+    return out;
   };
 
   // "Once per turn, when this unit ... takes damage to its armour, Loot N" (e.g. Iron Clout): { trigger:
