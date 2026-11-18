@@ -65,8 +65,9 @@ async function buildCardFontEmbedCSS(): Promise<string> {
 }
 
 /**
- * Whether a captured card face came out whole: a card is an opaque black-framed rectangle with a dark stone top bar.
- * A capture that lost the card's styles has see-through edges or loose pictures where the top bar should be.
+ * Whether a captured card face came out whole: a card is an opaque black-framed rectangle with a coloured name bar
+ * (its class colour, split between classes on a card with several, so the colour itself isn't checked). A capture that
+ * lost the card's styles has see-through edges or nothing where the bar should be.
  */
 function isWholeCardFace(face: HTMLCanvasElement): boolean {
   try {
@@ -82,10 +83,10 @@ function isWholeCardFace(face: HTMLCanvasElement): boolean {
     // The middle of each edge, just inside it
     const edges = [pixel(0.5, 0.02), pixel(0.03, 0.5), pixel(0.97, 0.5), pixel(0.5, 0.98)];
     if (edges.some((p) => p[3] < 200)) return false;
-    // Both ends of the top bar are its dark stone colour (stone-900, rgb 28 25 23) on every card
-    const isBar = (p: Uint8ClampedArray) =>
-      p[3] >= 200 && Math.abs(p[0] - 28) <= 12 && Math.abs(p[1] - 25) <= 12 && Math.abs(p[2] - 23) <= 12;
-    return isBar(pixel(0.03, 0.03)) && isBar(pixel(0.97, 0.03));
+    // Both ends of the name bar, below the black its top half sits on, are opaque and coloured (no darker than
+    // stone-900, rgb 28 25 23, in their brightest channel), not the black of the frame
+    const isBar = (p: Uint8ClampedArray) => p[3] >= 200 && Math.max(p[0], p[1], p[2]) >= 20;
+    return isBar(pixel(0.04, 0.09)) && isBar(pixel(0.96, 0.09));
   } catch {
     // Can't check here: take the capture as it is
     return true;
