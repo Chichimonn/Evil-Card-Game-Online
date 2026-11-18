@@ -119,6 +119,8 @@ interface DeckSelectModalProps {
   onConfirmDecks: (decks: { player1: SelectableDeck; player2: SelectableDeck }) => void;
   allCards: CardItem[];
   customArtMap: Record<string, string>;
+  // Singleplayer (e.g. Endless): only the player's own deck is chosen (the computer doesn't use one)
+  singlePlayer?: boolean;
 }
 
 // Preset decks locked into everyone's list at the bottom (No descriptions)
@@ -194,6 +196,7 @@ export const DeckSelectModal: React.FC<DeckSelectModalProps> = ({
   onConfirmDecks,
   allCards,
   customArtMap = {},
+  singlePlayer = false,
 }) => {
   const { cardImages } = useCardImages();
   const [selectedDeckIds, setSelectedDeckIds] = useState<Record<DeckPlayer, string>>({ player1: '', player2: '' });
@@ -224,7 +227,7 @@ export const DeckSelectModal: React.FC<DeckSelectModalProps> = ({
     player1: selectedDeckIds.player1 ? allDecksMap.get(selectedDeckIds.player1) || null : null,
     player2: selectedDeckIds.player2 ? allDecksMap.get(selectedDeckIds.player2) || null : null
   };
-  const canProceed = Boolean(selectedDecks.player1 && selectedDecks.player2);
+  const canProceed = Boolean(selectedDecks.player1 && (singlePlayer || selectedDecks.player2));
 
   if (!isOpen) return null;
 
@@ -237,7 +240,7 @@ export const DeckSelectModal: React.FC<DeckSelectModalProps> = ({
           htmlFor={`deck-dropdown-${player}`}
           className={`text-xs font-mono font-bold uppercase tracking-wider ${accent === 'sky' ? 'text-sky-300' : 'text-rose-300'}`}
         >
-          {PLAYER_LABEL[player]}'s deck:
+          {singlePlayer ? 'Your deck:' : `${PLAYER_LABEL[player]}'s deck:`}
         </label>
 
         <div className="relative">
@@ -347,7 +350,7 @@ export const DeckSelectModal: React.FC<DeckSelectModalProps> = ({
               <Sword className="w-4 h-4" />
             </div>
             <h3 className="font-serif font-bold text-lg text-stone-100">
-              Choose each player's deck:
+              {singlePlayer ? 'Choose your deck:' : "Choose each player's deck:"}
             </h3>
           </div>
           <button
@@ -360,9 +363,9 @@ export const DeckSelectModal: React.FC<DeckSelectModalProps> = ({
         </div>
 
         {/* Body: one deck picker per player */}
-        <div className="p-6 grid grid-cols-1 sm:grid-cols-2 gap-6 bg-stone-900/60 overflow-y-auto">
+        <div className={`p-6 grid grid-cols-1 ${singlePlayer ? '' : 'sm:grid-cols-2'} gap-6 bg-stone-900/60 overflow-y-auto`}>
           {renderPlayerPicker('player1')}
-          {renderPlayerPicker('player2')}
+          {!singlePlayer && renderPlayerPicker('player2')}
         </div>
 
         {/* Footer */}
@@ -376,8 +379,8 @@ export const DeckSelectModal: React.FC<DeckSelectModalProps> = ({
 
           <button
             onClick={() => {
-              if (selectedDecks.player1 && selectedDecks.player2) {
-                onConfirmDecks({ player1: selectedDecks.player1, player2: selectedDecks.player2 });
+              if (selectedDecks.player1 && (singlePlayer || selectedDecks.player2)) {
+                onConfirmDecks({ player1: selectedDecks.player1, player2: selectedDecks.player2 || selectedDecks.player1 });
               }
             }}
             disabled={!canProceed}

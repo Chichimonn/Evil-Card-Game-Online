@@ -11,11 +11,12 @@
  * 0.7.0: Bridging the Gap (28 basic units, three of them reworked older cards), Hidden Avatars renamed Rival Kingdoms,
  *   the card changes and rules updates from the November 2026 notes.
  * 0.7.1: art fixes for Bridging the Gap.
+ * 0.7.2: Endless singleplayer mode (Campaign coming 2027) and a Lead the Charge fix.
  * BUILD_ID: made automatically from all of the game's code and card data (see vite.config.ts), so two copies with any
  * rules difference never match even if GAME_VERSION wasn't bumped. The dev server makes it when it starts, so restart
  * it after editing to get the new fingerprint.
  */
-export const GAME_VERSION = '0.7.1';
+export const GAME_VERSION = '0.7.2';
 
 declare const __BUILD_ID__: string;
 export const BUILD_ID: string = typeof __BUILD_ID__ === 'string' ? __BUILD_ID__ : 'unknown';

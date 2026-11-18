@@ -25,6 +25,7 @@ export interface MultiStageState {
   targets: string[]; // List of hexes chosen in previous stages
   metadata?: {
     carriedUnitHex?: string; // Spirit Away
+    chargeDone?: boolean; // Lead the Charge: the charge has happened (cancelling still uses the ability)
     tiebreakEmptyHexes?: string[]; // Grappling Hook / Boarding Hook
     targetUnitHex?: string; // Grappling Hook / Boarding Hook / Umbral Flail
     primaryTargetHex?: string; // Anchor Smash
@@ -746,8 +747,8 @@ export function getMultiStageTargetInfo(
         const currentHex = casterHex;
         const inRange = bonusRange > 0 ? getHexesInRange(currentHex, 1, 1 + bonusRange) : getSurroundingHexes(currentHex);
         const surrEnemies = inRange.filter((hex) => {
-          const u = unitsOnBoard[currentHex];
-          return u && (u.owner !== activePlayer || (hasFeedingFrenzy(unitsOnBoard[currentHex]) && hex !== currentHex));
+          const u = unitsOnBoard[hex];
+          return u && hex !== currentHex && (u.owner !== activePlayer || hasFeedingFrenzy(unitsOnBoard[currentHex]));
         });
         return {
           validHexes: surrEnemies,

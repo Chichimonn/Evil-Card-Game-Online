@@ -8,6 +8,8 @@ interface VictoryModalProps {
   reason: string;
   onPlayAgain: () => void;
   onClose: () => void;
+  // A heading in place of "Player N Wins!" (e.g. the end of an Endless run)
+  title?: string;
 }
 
 export const VictoryModal: React.FC<VictoryModalProps> = ({
@@ -15,12 +17,13 @@ export const VictoryModal: React.FC<VictoryModalProps> = ({
   winner,
   reason,
   onPlayAgain,
-  onClose
+  onClose,
+  title
 }) => {
   if (!isOpen || !winner) return null;
 
   const isDraw = winner === 'draw';
-  const winnerTitle = isDraw ? 'Match Ended in a Draw' : winner === 'player1' ? 'Player 1 Wins!' : 'Player 2 Wins!';
+  const winnerTitle = title ?? (isDraw ? 'Match Ended in a Draw' : winner === 'player1' ? 'Player 1 Wins!' : 'Player 2 Wins!');
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-md animate-in fade-in select-none">

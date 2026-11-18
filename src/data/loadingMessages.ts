@@ -1,0 +1,43 @@
+/**
+ * Messages shown one at a time on the loading screen while the cards load, in a random order. Add as many as you
+ * like; each should end with "...".
+ */
+export const LOADING_MESSAGES: string[] = [
+  "Sharpening Javelin Knight's javelins...",
+  "Splashing fresh blood on Blood Sage's robes...",
+  "Stirring up Poisonblade Assassin's vial...",
+  "Asking Longbow Knight's squire to bring arrows...",
+  "Adjusting the tightness of Blade Singer's headband...",
+  "Polishing Gemstone Paladin's mineral collection...",
+  "Shoveling the snow off of Frostbinder's driveway...",
+  "Showing Harsh Inquisitor a magic trick to get him angry...",
+  "Polishing Sentinel Knight's very cool brimmed helmet...",
+  "Telling Greatsword Knight that his sword is very big...",
+  "Reminding Shade Assassin not to startle the guests...",
+  "Convinving Combat Cook make me dinner tonight...",
+  "Reshelving Archivist Sage's hard copies...",
+  "Gathering firewood for Happy Camper to use...",
+  "Topping up Powder Keg Plunderer's powder kegs...",
+  "Charging Battle Engineer's batteries...",
+  "Untangling Octopod Titan's tentacles...",
+  "Counting all 2,500 bones in Conjured Bonelord...",
+  "Explaining the 'nine lives' expression to Alien Wildcat's handler...",
+  "Waking Lunar Vigilante up for the night shift...",
+  "Ironing Faceless King's royal robes...",
+  "Packing Surveying Sage's sandwiches...",
+  "Feeding Frenzied Burster (carefully)...",
+  "Convincing Clown Assassin to work for exposure...",
+  "Asking Bosun Plunderer what a bosun actually does...",
+  "Asking Arbalest Knight to please stop standing still...",
+  "Mending Chain Whip Fighter's chain whip...",
+  "Bailing water out of High Seas Captain's ship...",
+  "Herding the Toadstools back into a circle...",
+  "Teaching Reverberant Fairy to stop repeating itself...",
+  "Teaching the Freaks to get sturdy...",
+  "Herding all the Wildcats into one playpen...",
+  "Lighting Powder Keg Plunderer's torch...",
+  "Performing the Avatar ritual...",
+  "Asking Moon's Acolyte to please keep it down...",
+  "Recommending anger management to Cutthroat Assassin...",
+  "Trying really hard to break Prismatic Mage's diamond..."
+];

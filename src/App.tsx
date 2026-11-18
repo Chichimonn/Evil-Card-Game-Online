@@ -13,6 +13,19 @@ import { Deckbuilder } from './components/Deckbuilder';
 import { HexGridArena } from './components/HexGridArena';
 import { DeckSelectModal, SelectableDeck, buildSelectableDecks } from './components/DeckSelectModal';
 import { PlayModeModal } from './components/PlayModeModal';
+import {
+  ENDLESS_CPU,
+  ENDLESS_PLAYER,
+  WAVES_PER_ROUND,
+  waveBudget,
+  startsNewRound,
+  cpuUnitPool,
+  chooseWaveUnits,
+  randomPromotedCards,
+  freeHomeRowHexes,
+  pullBackToOwnHalf
+} from './game/endless';
+import { isCpuUsableAbility, chooseCpuAction, chooseCpuTarget, chooseCpuUnit, distanceToNearestEnemy } from './game/cpuPlayer';
 import { GraveyardZone } from './components/GraveyardZone';
 import { DeckPile } from './components/DeckPile';
 import { CoinFlipModal } from './components/CoinFlipModal';
@@ -80,6 +93,7 @@ import {
   getApSpent,
   isPromotedAbilityProvider,
   getQualifyingPromotedAbilities,
+  expandVariableCostAbilities,
   getProviderPreEffects,
   isRevealGatedProvider,
   buildProviderExecutable,
@@ -550,6 +564,15 @@ export default function App() {
   // Rule 8.1.1: "Victory is not checked until at least 1 unit has been killed" (kept in a ref too, for checks made
   // within the same update)
   const [unitKilled, setUnitKilled] = useState(false);
+  // ---- Endless (singleplayer, see game/endless.ts): the player (Player 1) against waves of computer units (Player 2) ----
+  const [endlessMode, setEndlessMode] = useState(false);
+  // The deck picker was opened for an Endless run
+  const endlessDeckPickRef = useRef(false);
+  const [isEndlessDeckSelect, setIsEndlessDeckSelect] = useState(false);
+  // The wave in play (0 before the first one arrives)
+  const [endlessWave, setEndlessWave] = useState(0);
+  // The player's whole deck, shuffled back in every 10 waves
+  const endlessDeckRef = useRef<CardItem[]>([]);
   const unitKilledRef = useRef(false);
   const [victoryReason, setVictoryReason] = useState<string>('');
   const [isVictoryOpen, setIsVictoryOpen] = useState(false);
@@ -974,9 +997,22 @@ export default function App() {
     setPlayer1Deck(p1Cards.slice(7));
     setPlayer1Graveyard([]);
 
-    const p2Cards = shuffleWith(decks.player2.cardList, matchRandom);
-    setPlayer2Hand(p2Cards.slice(0, 7));
-    setPlayer2Deck(p2Cards.slice(7));
+    const endless = endlessDeckPickRef.current;
+    endlessDeckPickRef.current = false;
+    setEndlessMode(endless);
+    setEndlessWave(0);
+    endlessDeckRef.current = endless ? decks.player1.cardList : [];
+    endlessRoundResetRef.current = new Set();
+    if (endless) {
+      // (the computer never uses cards: no hand, no deck)
+      setPlayer2Hand([]);
+      setPlayer2Deck([]);
+      setLocalPlayer(ENDLESS_PLAYER);
+    } else {
+      const p2Cards = shuffleWith(decks.player2.cardList, matchRandom);
+      setPlayer2Hand(p2Cards.slice(0, 7));
+      setPlayer2Deck(p2Cards.slice(7));
+    }
     setPlayer2Graveyard([]);
 
     resetMatchRecord();
@@ -1017,6 +1053,12 @@ export default function App() {
     savedCamerasRef.current = {};
 
     setActiveTab('play');
+    if (endless) {
+      // Endless: no coin flip, the player goes first
+      setIsCoinFlipOpen(false);
+      handleCoinFlipComplete(ENDLESS_PLAYER);
+      return;
+    }
     // Open Coin Flip per Rule 4
     setIsCoinFlipOpen(true);
   };
@@ -1157,6 +1199,17 @@ export default function App() {
       if (!gone) return;
       unitKilledRef.current = true;
       setUnitKilled(true);
+    }
+    if (endlessMode) {
+      if (p1Units.length === 0) {
+        const cleared = Math.max(0, endlessWave - 1);
+        setWinner(ENDLESS_CPU);
+        setVictoryReason(
+          `Your last unit fell during wave ${endlessWave}. You cleared ${cleared} wave${cleared === 1 ? '' : 's'}.`
+        );
+        setIsVictoryOpen(true);
+      }
+      return;
     }
     {
       if (p1Units.length === 0 && p2Units.length > 0) {
@@ -4466,7 +4519,9 @@ export default function App() {
         ability,
         casterHex: finalHex,
         stage: 2,
-        targets: []
+        targets: [],
+        // (the charge has happened: cancelling now skips the attack but still uses the ability, see handleCancelMultiStage)
+        metadata: { chargeDone: true }
       });
       showNotification(
         `Lead the Charge: ${finalHex !== casterHex ? `Charged to ${finalHex}! ` : ''}${
@@ -4768,6 +4823,12 @@ export default function App() {
     if (multiStageState?.metadata?.strikeCandidates) {
       finishMultiStageAbility(multiStageState.casterHex);
       showNotification(`${multiStageState.ability.name}: strike skipped.`);
+      return;
+    }
+    // Lead the Charge after its charge: the unit has moved (and may have hit units on the way), so the ability is used
+    if (multiStageState?.metadata?.chargeDone) {
+      finishMultiStageAbility(multiStageState.casterHex);
+      showNotification(`${multiStageState.ability.name}: attack skipped after the charge; the ability is used.`);
       return;
     }
     if (multiStageState?.ability.id === 'sidestepping_crush' && multiStageState.stage === 2) {
@@ -14973,6 +15034,294 @@ export default function App() {
       onToggle={() => setIsLogOpen((o) => !o)}
     />
   );
+  // ---- Endless: waves ----
+  // When the computer has no non-token units left (and nothing is being decided or resolved), the next wave comes. Every
+  // 10 waves the player's board, hand and graveyard go back into their deck for a new starting phase first.
+  const endlessBusy =
+    Boolean(openDecision()) ||
+    popupQueue.length > 0 ||
+    Boolean(activeAbility || multiStageState || pendingFreeMove || pendingRabbleMove || pendingMomentumCharge || readySpellReact) ||
+    isTurnTransitioning ||
+    isCoinFlipOpen;
+  useEffect(() => {
+    if (!endlessMode || activeTab !== 'play' || winner || gamePhase !== 'playing' || endlessBusy) return;
+    const cpuUnits = Object.values(unitsOnBoard).filter((u) => u.owner === ENDLESS_CPU && u.card.type !== 'token' && !u.card.isWall);
+    if (cpuUnits.length > 0) return;
+    const wave = endlessWave + 1;
+    const timer = setTimeout(() => {
+      if (startsNewRound(wave) && endlessWave % WAVES_PER_ROUND === 0 && gamePhase === 'playing' && !endlessRoundResetRef.current.has(wave)) {
+        // A new round: everything back into the deck, a new opening hand and starting phase
+        endlessRoundResetRef.current.add(wave);
+        const cards = shuffleWith(endlessDeckRef.current, matchRandom);
+        setPlayer1Hand(cards.slice(0, 7));
+        setPlayer1Deck(cards.slice(7));
+        setPlayer1Graveyard([]);
+        setUnitsOnBoard({});
+        setScorchedTiles({});
+        setActiveTurnUnitHex(null);
+        setSelectedHex(null);
+        setIsMovingMode(false);
+        setActiveAbility(null);
+        setConsecutivePasses(0);
+        setLastTurnUnitIds({ player1: null, player2: null });
+        setUnitKilled(false);
+        unitKilledRef.current = false;
+        setGamePhase('setup');
+        setSetupConsecutiveStarts(0);
+        setP1HasCycled(false);
+        setP2HasCycled(false);
+        setInitialFirstPlayer(ENDLESS_PLAYER);
+        setActivePlayer(ENDLESS_PLAYER);
+        setTurnCount(1);
+        setBoardYaw(0);
+        lastSetupPlayerRef.current = ENDLESS_PLAYER;
+        appendLog('note', `Endless: wave ${endlessWave} cleared. Your board, hand and graveyard were shuffled back into your deck.`);
+        showNotification(
+          `🌊 Wave ${endlessWave} cleared! Your cards are shuffled back into your deck. New starting phase: waves ${wave}-${wave + WAVES_PER_ROUND - 1} have a unit budget of ${waveBudget(wave)}.`
+        );
+        return;
+      }
+      spawnEndlessWave(wave);
+    }, 700);
+    return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [endlessMode, activeTab, winner, gamePhase, endlessBusy, unitsOnBoard, endlessWave]);
+  const endlessRoundResetRef = useRef<Set<number>>(new Set());
+
+  // Puts a wave's units on the computer's home row. The player's units on its half go back to the closest empty tile
+  // of their own half first (no choices).
+  const spawnEndlessWave = (wave: number) => {
+    const pool = cpuUnitPool(allCardList);
+    const basics = pool.filter((c) => c.basic !== false && (c.basic === true || c.reinforce?.mode === 'basic'));
+    const allBasics = allCardList.filter((c) => c.type !== 'token' && c.basic === true);
+    const picks = chooseWaveUnits(waveBudget(wave), pool, matchRandom);
+    const pulled = pullBackToOwnHalf(unitsOnBoard, ENDLESS_PLAYER);
+    let board = pulled.board;
+    const tiles = freeHomeRowHexes(ENDLESS_CPU, board, matchRandom);
+    const placed: string[] = [];
+    picks.forEach((card) => {
+      const hex = tiles.shift();
+      if (!hex) return;
+      const promotedCards = randomPromotedCards(card, allBasics.length ? allBasics : basics, matchRandom);
+      // Faceless King's Perfect Synthesis: a random passive from among its promoted cards
+      const synth = (card.passives || []).some((p) => (p.effects || []).some((e: any) => e.type === 'copyPassive'));
+      const passiveChoices = promotedCards.flatMap((c) => c.passives || []);
+      const chosenPassive = synth && passiveChoices.length ? passiveChoices[Math.floor(matchRandom() * passiveChoices.length)] : undefined;
+      board = {
+        ...board,
+        [hex]: {
+          instanceId: newInstanceId('unit'),
+          card,
+          owner: ENDLESS_CPU,
+          hexId: hex,
+          damageCounters: 0,
+          armour: 0,
+          currentAp: card.ap,
+          promotedCards,
+          ...(chosenPassive ? { chosenPassive } : {})
+        } as BattlefieldUnit
+      };
+      placed.push(promotedCards.length ? `${card.name} (from ${promotedCards.map((c) => c.name).join(' + ')})` : card.name);
+    });
+    setUnitsOnBoard(board);
+    setEndlessWave(wave);
+    appendLog('note', `Endless: wave ${wave} arrives (budget ${waveBudget(wave)}): ${placed.join(', ')}`);
+    showNotification(
+      `🌊 Wave ${wave} (budget ${waveBudget(wave)}): ${placed.join(', ') || 'no room on the computer\'s home row'}.${
+        pulled.moved.length ? ` Your units were placed back on your side: ${pulled.moved.map((m) => `${m.name} ${m.from}→${m.to}`).join(', ')}.` : ''
+      }`
+    );
+  };
+
+  // ---- Endless: the computer's choices ----
+  // Any choice the computer has to make (its loot, scry, a discard prompt, a knockback immunity, ...) is answered at
+  // random, through the same handlers an online answer uses.
+  useEffect(() => {
+    if (!endlessMode || winner) return;
+    const d = openDecision();
+    if (!d || d.decider !== ENDLESS_CPU) return;
+    const timer = setTimeout(() => {
+      const r = matchRandom();
+      if (d.kind === 'knockback') handleKnockbackChoice(r < 0.5);
+      else if (d.kind === 'readySpell') handleReadySpellAnswer(r < 0.5);
+      else if (d.kind === 'popupOrder') handlePopupOrderChoice(String(popupOrderChoice?.options[0]?.key ?? ''));
+      else if (d.kind === 'loot') {
+        const hand = player2Hand;
+        const need = Math.min(lootPending?.drawnCards.length ?? lootPending?.count ?? 0, hand.length);
+        handleConfirmLoot(Array.from({ length: need }, (_, i) => hand.length - 1 - i));
+      } else if (d.kind === 'scry') handleScryChoice(r < 0.5);
+      else if (d.kind === 'research') handleResearchChoice(0);
+      else if (d.kind === 'deckArrange') {
+        const da = deckArrangePending;
+        if (da && da.index < da.cards.length) handleDeckArrangeScry(r < 0.5);
+        else handleDeckArrangeOrder(0);
+      } else if (d.kind === 'cardChoice') {
+        const options = cardChoicePrompt?.options || [];
+        if (options.length) answerCardChoice(options[Math.floor(r * options.length)].value);
+      }
+    }, 450);
+    return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [endlessMode, winner, cardChoicePrompt, lootPending, scryPending, researchPending, deckArrangePending, knockbackChoicePending, readySpellPrompt, popupOrderChoice]);
+
+  // ---- Endless: the computer's turns ----
+  // One step at a time (choose a unit, an action, a target, ...), through the same handlers the player's clicks use.
+  // It acts at random but favours attacking (see game/cpuPlayer.ts). A step that changes nothing still moves the tick on.
+  const [cpuTick, setCpuTick] = useState(0);
+  const cpuTurnRef = useRef<{ key: string; steps: number; moves: number; stageSteps: number; failed: Set<string> }>({
+    key: '',
+    steps: 0,
+    moves: 0,
+    stageSteps: 0,
+    failed: new Set()
+  });
+  useEffect(() => {
+    if (!endlessMode || activeTab !== 'play' || winner || activePlayer !== ENDLESS_CPU || isTurnTransitioning || isCoinFlipOpen) return;
+    if (openDecision() || popupQueue.length > 0 || pendingRabbleMove || pendingMomentumCharge || readySpellReact) return;
+    // (a new wave is about to arrive: wait for it)
+    if (gamePhase === 'playing' && !Object.values(unitsOnBoard).some((u) => u.owner === ENDLESS_CPU && u.card.type !== 'token')) return;
+    const timer = setTimeout(() => {
+      runCpuStep();
+      setCpuTick((t) => t + 1);
+    }, 600);
+    return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    endlessMode, activeTab, winner, activePlayer, isTurnTransitioning, isCoinFlipOpen, gamePhase, unitsOnBoard, activeTurnUnitHex,
+    activeAbility, multiStageState, pendingFreeMove, popupQueue, cardChoicePrompt, lootPending, scryPending, researchPending,
+    knockbackChoicePending, readySpellPrompt, popupOrderChoice, deckArrangePending, pendingRabbleMove, pendingMomentumCharge,
+    readySpellReact, setupConsecutiveStarts, turnCount, cpuTick
+  ]);
+
+  // The computer ends its turn: a pass only when its unit did nothing (a pass counts toward Rule 6.2.8's draw)
+  const cpuEndTurn = () => {
+    const u = activeTurnUnit;
+    const acted = Boolean(u && (u.currentAp < (u.turnStartingAp ?? u.card.ap) || Object.keys(u.usedTurnCounts || {}).length > 0));
+    switchTurn(!acted);
+  };
+
+  const runCpuStep = () => {
+    // Setup: the computer has nothing to reinforce, so it chooses Start
+    if (gamePhase === 'setup') {
+      handleSetupStartClick();
+      return;
+    }
+    const key = `${turnCount}`;
+    const t = cpuTurnRef.current;
+    if (t.key !== key) cpuTurnRef.current = { key, steps: 0, moves: 0, stageSteps: 0, failed: new Set() };
+    const turn = cpuTurnRef.current;
+    turn.steps += 1;
+    const random = matchRandom;
+    // (a turn that keeps going nowhere ends)
+    if (turn.steps > 60) {
+      if (multiStageState) handleCancelMultiStage();
+      setActiveAbility(null);
+      setPendingFreeMove(null);
+      setIsMovingMode(false);
+      cpuEndTurn();
+      return;
+    }
+
+    // A free move offered after an attack: take a step toward the nearest enemy, or skip it
+    if (pendingFreeMove && activeTurnUnitHex) {
+      const steps = getSurroundingHexes(activeTurnUnitHex).filter((h) => !unitsOnBoard[h]);
+      const here = distanceToNearestEnemy(activeTurnUnitHex, unitsOnBoard, ENDLESS_CPU);
+      const closer = steps.filter((h) => distanceToNearestEnemy(h, unitsOnBoard, ENDLESS_CPU) < here);
+      const dest = closer.length && here > 1 ? closer[Math.floor(random() * closer.length)] : null;
+      if (dest) handleUnitMove(activeTurnUnitHex, dest);
+      else {
+        setPendingFreeMove(null);
+        setIsMovingMode(false);
+      }
+      return;
+    }
+
+    // An ability with several steps: pick targets until it is done, finish it when it can be, or give up
+    if (multiStageState) {
+      turn.stageSteps += 1;
+      const legal = Array.from(new Set([...validAttackHexes, ...(isAbilityTargetingAnyTile(multiStageState.ability) ? abilityRangeHexes : [])]));
+      const target = turn.stageSteps <= 6 ? chooseCpuTarget(multiStageState.ability, legal, unitsOnBoard, ENDLESS_CPU, random) : null;
+      if (target) handleHexClick(target);
+      else if (multiStageState.targets.length > 0) handleFinishMultiStage();
+      else {
+        turn.failed.add(multiStageState.ability.id);
+        handleCancelMultiStage();
+      }
+      return;
+    }
+    turn.stageSteps = 0;
+
+    // Targeting an ability: a promoted ability to use for a provider, or the tile to click
+    if (activeAbility) {
+      if (isPromotedAbilityProvider(activeAbility) && !activeAbility.id.includes('__') && activeTurnUnit) {
+        const choices = getQualifyingPromotedAbilities(activeAbility, activeTurnUnit.promotedCards, activeTurnUnit).filter(
+          (q) => isCpuUsableAbility(q.ability) && !turn.failed.has(`${activeAbility.id}:${q.ability.id}`)
+        );
+        if (choices.length === 0) {
+          turn.failed.add(activeAbility.id);
+          setActiveAbility(null);
+          return;
+        }
+        const pickQ = choices[Math.floor(random() * choices.length)];
+        turn.failed.add(`${activeAbility.id}:${pickQ.ability.id}`);
+        handlePromotedAbilitySelect(pickQ.ability, activeAbility);
+        return;
+      }
+      const legal = isStraightLineAbility(activeAbility)
+        ? validAttackHexes
+        : Array.from(new Set([...validAttackHexes, ...(isAbilityTargetingAnyTile(activeAbility) ? abilityRangeHexes : [])]));
+      const target = chooseCpuTarget(activeAbility, legal, unitsOnBoard, ENDLESS_CPU, random);
+      if (target) {
+        handleHexClick(target);
+        return;
+      }
+      turn.failed.add(String(activeAbility.baseAbilityId || activeAbility.id));
+      setActiveAbility(null);
+      // (a free ability already paid for by its provider can't be taken back: the AP is spent)
+      if (activeAbility.prepaidByParent && activeTurnUnit && activeTurnUnit.currentAp <= 0) switchTurn(false);
+      return;
+    }
+
+    // Choosing the unit to take the turn
+    if (!activeTurnUnitHex || !activeTurnUnit) {
+      const candidates = Object.keys(unitsOnBoard).filter((h) => {
+        const u = unitsOnBoard[h];
+        return u.owner === ENDLESS_CPU && !u.card.isWall && u.card.ap > 0 && canChooseUnitForTurn(u, unitsOnBoard, ENDLESS_CPU).allowed;
+      });
+      const hex = chooseCpuUnit(candidates, unitsOnBoard, ENDLESS_CPU, random);
+      if (!hex) switchTurn(true);
+      else handleHexClick(hex);
+      return;
+    }
+
+    // An action for the unit taking the turn
+    const unit = activeTurnUnit;
+    const usable = expandVariableCostAbilities([...(unit.card.abilities || []), ...(unit.grantedAbilities || [])]).filter(
+      (a) =>
+        isCpuUsableAbility(a) &&
+        !turn.failed.has(String(a.baseAbilityId || a.id)) &&
+        unit.currentAp >= getAbilityApCost(a) &&
+        canUseAbilityThisTurn(unit, a).allowed &&
+        !getAuraAbilityBlock(unit, a, unitsOnBoard)
+    );
+    const canMove =
+      turn.moves < 6 &&
+      !isUnitMovementDisabled(unit) &&
+      canOmnipresenceUnitMove(unit) &&
+      unit.currentAp >= getUniversalMoveCost(unit, unitsOnBoard);
+    const action = chooseCpuAction(unit, activeTurnUnitHex, unitsOnBoard, usable, canMove, random);
+    if (action.kind === 'end') {
+      cpuEndTurn();
+      return;
+    }
+    if (action.kind === 'move') {
+      turn.moves += 1;
+      handleUnitMove(activeTurnUnitHex, action.to);
+      return;
+    }
+    handleAbilityClick(action.ability);
+  };
+
   // (while reconnecting, nobody plays on: the two games would drift apart)
   const isWaitingForOpponent = activeTab === 'play' && localPlayer !== null && (localPlayer !== inputOwner || Boolean(reconnect));
 
@@ -15235,11 +15584,23 @@ export default function App() {
           onClose={() => setIsPlayModeOpen(false)}
           onHotSeat={() => {
             setIsPlayModeOpen(false);
+            endlessDeckPickRef.current = false;
+            setIsEndlessDeckSelect(false);
+            if (!isOnline()) setLocalPlayer(null);
             setIsDeckSelectOpen(true);
           }}
           onOnline={() => {
             setIsPlayModeOpen(false);
+            endlessDeckPickRef.current = false;
+            setIsEndlessDeckSelect(false);
+            setEndlessMode(false);
             setIsLobbyOpen(true);
+          }}
+          onEndless={() => {
+            setIsPlayModeOpen(false);
+            endlessDeckPickRef.current = true;
+            setIsEndlessDeckSelect(true);
+            setIsDeckSelectOpen(true);
           }}
         />
       </div>
@@ -15272,6 +15633,7 @@ export default function App() {
           onConfirmDecks={handleDecksSelected}
           allCards={allCardList}
           customArtMap={customArtMap}
+          singlePlayer={isEndlessDeckSelect}
         />
       </div>
 
@@ -15301,8 +15663,11 @@ export default function App() {
           isOpen={isVictoryOpen}
           winner={winner}
           reason={victoryReason}
+          title={endlessMode ? `Endless run over: wave ${endlessWave}` : undefined}
           onPlayAgain={() => {
             setIsVictoryOpen(false);
+            endlessDeckPickRef.current = endlessMode;
+            setIsEndlessDeckSelect(endlessMode);
             setIsDeckSelectOpen(true);
           }}
           onClose={() => setIsVictoryOpen(false)}
@@ -15695,6 +16060,13 @@ export default function App() {
 
             {/* Leave Match and Concede, together on the right (clear of the turn banner in the middle) */}
             <div className="flex items-center">
+            {endlessMode && (
+              <div className="mr-3 px-4 py-2 rounded-xl bg-stone-900/95 border border-amber-500/80 text-amber-200 text-sm font-mono font-bold shadow-2xl pointer-events-none">
+                {endlessWave === 0
+                  ? 'Endless: wave 1 arrives when the game starts'
+                  : `Endless · Wave ${endlessWave} · Budget ${waveBudget(endlessWave)}`}
+              </div>
+            )}
             <button
               data-input-always
               onClick={() => {
@@ -15711,7 +16083,8 @@ export default function App() {
               <Lock className="w-4 h-4 text-amber-500" />
               <span>Leave Match</span>
             </button>
-            {(gamePhase === 'setup' || gamePhase === 'playing') && !winner && (
+            {/* (singleplayer has nobody to concede to: Leave Match is the one way out) */}
+            {(gamePhase === 'setup' || gamePhase === 'playing') && !winner && !endlessMode && (
               <button
                 data-input-always
                 onClick={askConcede}

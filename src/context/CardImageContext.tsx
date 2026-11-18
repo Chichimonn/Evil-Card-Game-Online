@@ -13,6 +13,7 @@ import { toSvg } from 'html-to-image';
 import { getAllCachedCardFaces, saveCachedCardFace, removeCachedCardFaces } from '../services/cardImageDB';
 import { getProcessedArt } from '../utils/artHalo';
 import { getTokenGalleryCards } from '../utils/tokenCards';
+import { LOADING_MESSAGES } from '../data/loadingMessages';
 
 // Every card face drawn: the real cards, then the tokens (shown after them in the gallery)
 const RENDERED_CARDS: CardItem[] = [...initialCardsData.cards, ...getTokenGalleryCards(initialCardsData)];
@@ -259,48 +260,23 @@ function waitFor(root: HTMLElement | null, check: () => boolean, ms: number): Pr
 }
 
 /**
- * The download speed while the loading screen is up, in megabits per second, from the browser's network timings of
- * every file this page has fetched (each file's bytes spread over the time it took to arrive). Measured over the last
- * few seconds; null when nothing is downloading (e.g. the card art is all in, and the faces are being drawn).
+ * A message from LOADING_MESSAGES, changing every few seconds (never the same one twice in a row) while `active`.
  */
-function useDownloadSpeed(active: boolean): number | null {
-  const [mbps, setMbps] = useState<number | null>(null);
+function useRotatingMessage(active: boolean): string {
+  const pickOther = (current: number) => {
+    if (LOADING_MESSAGES.length < 2) return 0;
+    let next = current;
+    while (next === current) next = Math.floor(Math.random() * LOADING_MESSAGES.length);
+    return next;
+  };
+  const [index, setIndex] = useState(() => pickOther(-1));
   useEffect(() => {
-    if (!active || typeof PerformanceObserver === 'undefined') return;
-    const WINDOW_MS = 3000;
-    const transfers: { start: number; end: number; bytes: number }[] = [];
-    const add = (entries: PerformanceEntryList) =>
-      entries.forEach((e) => {
-        const r = e as PerformanceResourceTiming;
-        // (transferSize is 0 for files already in the browser's cache, and for other sites that don't share timings)
-        if (r.transferSize > 0) transfers.push({ start: r.fetchStart, end: Math.max(r.responseEnd, r.fetchStart + 1), bytes: r.transferSize });
-      });
-    let observer: PerformanceObserver | null = null;
-    try {
-      observer = new PerformanceObserver((list) => add(list.getEntries()));
-      observer.observe({ type: 'resource', buffered: true });
-    } catch {
-      return;
-    }
-    const tick = setInterval(() => {
-      const now = performance.now();
-      const from = now - WINDOW_MS;
-      let bytes = 0;
-      transfers.forEach((t) => {
-        const overlap = Math.min(t.end, now) - Math.max(t.start, from);
-        if (overlap > 0) bytes += (t.bytes * overlap) / (t.end - t.start);
-      });
-      setMbps(bytes > 0 ? (bytes * 8) / (WINDOW_MS / 1000) / 1e6 : null);
-    }, 500);
-    return () => {
-      clearInterval(tick);
-      observer?.disconnect();
-    };
+    if (!active) return;
+    const timer = setInterval(() => setIndex((i) => pickOther(i)), 2600);
+    return () => clearInterval(timer);
   }, [active]);
-  return mbps;
+  return LOADING_MESSAGES[index] || 'Loading cards...';
 }
-
-const formatMbps = (mbps: number) => (mbps >= 10 ? mbps.toFixed(0) : mbps >= 0.1 ? mbps.toFixed(1) : mbps.toFixed(2));
 
 export const CardImageProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const allCards = RENDERED_CARDS;
@@ -318,9 +294,7 @@ export const CardImageProvider: React.FC<{ children: React.ReactNode }> = ({ chi
 
   // The cards being drawn right now, one per drawing slot
   const [drawSlots, setDrawSlots] = useState<(CardItem | null)[]>([]);
-  const downloadMbps = useDownloadSpeed(!isReady);
-  // What the loading screen is doing, shown in brackets while nothing is downloading
-  const [loadStep, setLoadStep] = useState('checking saved cards');
+  const loadingMessage = useRotatingMessage(!isReady);
   const hostRef = useRef<HTMLDivElement>(null);
   const isRunningRef = useRef(false);
 
@@ -358,7 +332,6 @@ export const CardImageProvider: React.FC<{ children: React.ReactNode }> = ({ chi
 
       // 2. Download everything the missing faces need, all at once: each card's art (cleaned up with its white halo,
       // ready for the face to use), the set backgrounds and the card fonts
-      setLoadStep('downloading card art');
       const backgrounds = Array.from(
         new Set(missingCards.map(getCardBackgroundPath).filter((p): p is string => Boolean(p)))
       );
@@ -382,7 +355,6 @@ export const CardImageProvider: React.FC<{ children: React.ReactNode }> = ({ chi
 
       // 3. Draw the faces one after another (drawing is the page's own work, so several at once only get in each
       // other's way), each face's PNG being encoded off the page's main work while the next face is drawn
-      setLoadStep('drawing card faces');
       const queue = [...missingCards];
       const setSlot = (slot: number, card: CardItem | null) =>
         setDrawSlots((prev) => {
@@ -519,9 +491,11 @@ export const CardImageProvider: React.FC<{ children: React.ReactNode }> = ({ chi
           </div>
 
           <div className="w-80 sm:w-96 flex flex-col items-center gap-2.5 px-4">
-            <div className="flex items-center justify-between w-full text-xs font-mono text-stone-400">
-              {/* (with how fast the files are arriving, so a slow connection shows as one, or else what it is doing) */}
-              <span>Loading Cards {downloadMbps !== null ? `@ ${formatMbps(downloadMbps)} Mbps` : `(${loadStep})`}</span>
+            {/* A rotating message (see data/loadingMessages.ts), on its own line so long ones wrap rather than cut off */}
+            <p key={loadingMessage} className="w-full min-h-[2.5em] text-center text-sm font-mono text-stone-300 animate-in fade-in duration-300">
+              {loadingMessage}
+            </p>
+            <div className="flex items-center justify-end w-full text-xs font-mono text-stone-500">
               <span>
                 {loadedCount} / {totalCount}
               </span>
