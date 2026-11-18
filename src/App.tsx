@@ -310,6 +310,7 @@ import {
 import { getExtraSameDirectionMove } from './utils/movementAbilities';
 import { getAbilityRangePassiveBonus } from './utils/flowingStance';
 import { getGrantedAllyAttack, getAllyAttackChoices } from './utils/multiStageAbilities';
+import { getStartingScale } from './utils/device';
 import {
   hasFlowingStancePassive,
   isFlowingStanceActive,
@@ -338,6 +339,9 @@ const HoveredStandeeCardPreview: React.FC<{
     />
   );
 };
+
+// The game's starting size on this screen (1 is as designed, for a 1440p screen); see utils/device
+const STARTING_SCALE = getStartingScale();
 
 export default function App() {
   const { cardImages } = useCardImages();
@@ -15339,6 +15343,8 @@ export default function App() {
 
   return (
     <div className="fixed inset-0 h-full w-full overflow-hidden bg-stone-950 text-stone-100 flex flex-col font-sans selection:bg-sky-500 selection:text-stone-950 select-none"
+      // The game's size for this screen, as Chrome's zoom would set it (see utils/device)
+      style={{ zoom: STARTING_SCALE }}
       onClickCapture={blockWhileWaiting}
       onDoubleClickCapture={blockWhileWaiting}
       onMouseDownCapture={blockWhileWaiting}

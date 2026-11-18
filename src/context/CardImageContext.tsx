@@ -14,6 +14,7 @@ import { getAllCachedCardFaces, saveCachedCardFace, removeCachedCardFaces } from
 import { getProcessedArt } from '../utils/artHalo';
 import { getTokenGalleryCards } from '../utils/tokenCards';
 import { LOADING_MESSAGES } from '../data/loadingMessages';
+import { IS_MOBILE_DEVICE } from '../utils/device';
 
 // Every card face drawn: the real cards, then the tokens (shown after them in the gallery)
 const RENDERED_CARDS: CardItem[] = [...initialCardsData.cards, ...getTokenGalleryCards(initialCardsData)];
@@ -299,21 +300,6 @@ const BACKDROP_CSS = `
 @media (prefers-reduced-motion: reduce) { .loading-backdrop-image { animation: none !important; } }
 `;
 
-/**
- * Whether this is a phone or tablet (shown a warning while loading that the game is made for desktop). Going by what the
- * browser says it is, not the screen size, so a small desktop window or a touchscreen laptop isn't counted. An iPad asks
- * for desktop sites and says it's a Mac, so a "Mac" with a touchscreen counts too (real Macs have none).
- */
-function isMobileDevice(): boolean {
-  if (typeof navigator === 'undefined') return false;
-  const uaData = (navigator as Navigator & { userAgentData?: { mobile?: boolean } }).userAgentData;
-  if (uaData?.mobile) return true;
-  const ua = navigator.userAgent || '';
-  if (/Android|iPhone|iPad|iPod|Mobile|Silk|Kindle|Opera Mini|IEMobile/i.test(ua)) return true;
-  return /Macintosh/.test(ua) && navigator.maxTouchPoints > 1;
-}
-const IS_MOBILE_DEVICE = isMobileDevice();
-
 const LoadingBackdrop: React.FC = () => {
   const [current, setCurrent] = useState(0);
   useEffect(() => {
@@ -583,7 +569,7 @@ export const CardImageProvider: React.FC<{ children: React.ReactNode }> = ({ chi
                 {loadingMessage}
               </p>
             </div>
-            {/* Phones and tablets only (see isMobileDevice) */}
+            {/* Phones and tablets only (see utils/device) */}
             {IS_MOBILE_DEVICE && (
               <div role="note" className="w-full rounded-lg border border-amber-500/50 bg-amber-950/60 px-3 py-2 text-center text-xs leading-snug text-amber-200">
                 <span className="font-semibold text-amber-300">Heads up:</span> EVIL Card Game is made for desktop. It may
