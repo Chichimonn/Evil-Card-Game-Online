@@ -70,9 +70,14 @@ const matchesAny = (card: CardItem, words: string[]) =>
 
 /**
  * Random cards under a promoted or fused unit ("Its promotions and fusions get randomly determined inputs when put into
- * play"): for each card it needs, a random basic unit that fits that requirement slot.
+ * play"): for each card it needs, a random basic unit that fits that requirement slot. A promoted unit has 1, a Fusion
+ * N unit N (a Tribute unit's sacrifices don't stay under it, so it has none).
+ *
+ * `preferred` (if given) is where they come from first: the basic units the computer would field itself, so no fairy
+ * or other card that only attaches to units ends up under one (e.g. a Faceless King made of three fairies, with only
+ * Fairy Flutter to use). A slot nothing preferred fits (e.g. "Sage") takes a basic unit from `basics` that fits it.
  */
-export function randomPromotedCards(card: CardItem, basics: CardItem[], random: () => number): CardItem[] {
+export function randomPromotedCards(card: CardItem, basics: CardItem[], random: () => number, preferred?: CardItem[]): CardItem[] {
   const r = card.reinforce;
   if (!r || (r.mode !== 'promote' && r.mode !== 'fusion')) return [];
   const slots = (r.requirement || []) as string[][];
@@ -82,7 +87,8 @@ export function randomPromotedCards(card: CardItem, basics: CardItem[], random: 
     // One slot ("2 Knights", "2 Mages and/or Fighters") covers every card; several ("1 Mage + 1 Plunderer") one each,
     // and any past the listed slots may be any basic unit
     const words = slots.length === 1 ? slots[0] : slots[i] || [];
-    const fits = basics.filter((b) => matchesAny(b, words));
+    const preferredFits = (preferred || []).filter((b) => matchesAny(b, words));
+    const fits = preferredFits.length ? preferredFits : basics.filter((b) => matchesAny(b, words));
     out.push(pick(fits.length ? fits : basics, random));
   }
   return out;

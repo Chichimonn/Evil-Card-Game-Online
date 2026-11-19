@@ -5,6 +5,7 @@ import { isAttackAbility } from './providerChain';
 import { getBarredMinCost, getBarredExactCosts, CANNOT_USE_RANGED } from './turnRestrictions';
 import { getSurroundingHexes } from './hexGridMath';
 import { getUnitPassives } from './unitPassives';
+import { getCurrentTurnNumber } from './boardContext';
 
 /**
  * Checks if an ability or passive is flagged 1/Turn.
@@ -190,12 +191,23 @@ export function isAbilityLockedForUnit(
   }
 
   for (const id of checkIds) {
-    const lock = unit.lockedAbilities[id];
-    if (lock && lock.turnsRemaining > 0) {
-      return true;
-    }
+    if (isLockActive(unit.lockedAbilities[id])) return true;
   }
   return false;
+}
+
+/**
+ * Whether an ability lock holds right now. "During your next turn, this unit can't use this ability": used on turn N
+ * (turns count both players'), the opponent's turn is N + 1 and your next turn N + 2, the only turn it is locked. Read
+ * from the turn number, so a copy of the unit written back late (an attack landing after its turn ended) can't stretch it.
+ */
+export function isLockActive(
+  lock: { turnsRemaining: number; usedOnTurn?: number } | null | undefined,
+  turnNumber: number = getCurrentTurnNumber()
+): boolean {
+  if (!lock) return false;
+  if (typeof lock.usedOnTurn === 'number') return turnNumber > lock.usedOnTurn && turnNumber <= lock.usedOnTurn + 2;
+  return lock.turnsRemaining > 0;
 }
 
 /**

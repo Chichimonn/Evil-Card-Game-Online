@@ -6,7 +6,8 @@ import {
   parseHexId,
   offsetToCube,
   cubeToOffset,
-  toHexId
+  toHexId,
+  getAllStraightLinesFromHex
 } from './hexGridMath';
 import { executeSequentialHits, applyAttackerBonusPassives, extraHitConditionHolds, AttackHit, AttackExecutionOptions, markDamageCapUsed } from './attackLogic';
 import { withAttackStatuses } from './statusEffects';
@@ -45,6 +46,9 @@ const SUPPORTED_AREAS = [
   'enemyUnitsOnOrSurroundingTargetTile',
   'threeTilesBeyondTargetInLineFromSelf',
   'allTilesBehindTargetInLine',
+  // Every unit in the straight line from this unit through the target, to the board edge, friend or foe (e.g. Quartz
+  // Ray: it shoots through allies, and they take the damage too)
+  'allUnitsInLine',
   // The units an earlier knockback effect of this ability pushed (e.g. Sludge Wave: "...then deal 3 damage to them")
   'knockedBackUnits',
   // Every tile chosen as a target (e.g. Colossal Hedgehog)
@@ -156,6 +160,8 @@ function getAreaHexes(
     // e.g. Ley Rupture: every tile behind the target in a straight line from this unit, up to the board edge
     case 'allTilesBehindTargetInLine':
       return { hexes: tilesBeyond(casterHex, targetHex, 8), enemyOnly: false };
+    case 'allUnitsInLine':
+      return { hexes: getAllStraightLinesFromHex(casterHex).find((line) => line.includes(targetHex)) ?? [], enemyOnly: false };
     case 'enemyUnitsAlongPath':
       return { hexes: path ?? [], enemyOnly: true };
     case 'allUnitsOnPath':

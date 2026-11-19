@@ -2854,13 +2854,9 @@ const cardsJsonContent = `{
         {
           "id": "hold_the_gate",
           "name": "Hold the Gate",
-          "trigger": "self.wouldBeKnockedBackOnOpponentTurn",
-          "text": "During your opponent's turn, if this unit would be knocked back, you may make it immune to knockback until the end of the turn. If you do, this unit becomes unable to inflict knockback during your next turn.",
-          "effects": [
-            { "type": "immune", "to": "knockback", "target": "self", "duration": "untilEndOfTurn" },
-            { "type": "cannotInflictKnockback", "target": "self", "duration": "yourNextTurn" }
-          ],
-          "optional": true
+          "trigger": "static",
+          "text": "This unit cannot be moved while armoured.",
+          "effects": [{ "type": "cannotBeMoved", "target": "self", "if": "self.hasArmour" }]
         }
       ],
       "abilities": [
@@ -2868,15 +2864,15 @@ const cardsJsonContent = `{
           "id": "deny_entry",
           "name": "Deny Entry",
           "cost": 1,
-          "text": "Use a 1AP melee attack from among the promoted cards as this ability for free. You may have that attack apply knockback 1.",
+          "text": "Use a 1AP melee attack from among the promoted cards as this ability for free, except it applies knockback 1.",
           "effects": [
             {
               "type": "useAbility",
               "source": "promotedCards",
               "filter": { "cost": 1, "kind": "attack", "melee": true },
-              "free": true,
-              "optionalKnockback": 1
-            }
+              "free": true
+            },
+            { "type": "knockback", "target": "hitUnit", "distance": 1 }
           ],
           "tags": ["melee"]
         },
@@ -2894,8 +2890,8 @@ const cardsJsonContent = `{
           "id": "guardian_stance",
           "name": "Guardian Stance",
           "cost": 1,
-          "text": "Armour up to 6.",
-          "effects": [{ "type": "armour", "target": "self", "upTo": 6 }]
+          "text": "Armour up to 7.",
+          "effects": [{ "type": "armour", "target": "self", "upTo": 7 }]
         }
       ]
     },

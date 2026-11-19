@@ -5013,23 +5013,16 @@ export const initialCardsData: CardsDataSchema = {
         {
           "id": "hold_the_gate",
           "name": "Hold the Gate",
-          "trigger": "self.wouldBeKnockedBackOnOpponentTurn",
-          "text": "During your opponent's turn, if this unit would be knocked back, you may decide that it cannot be knocked back until the end of the turn. If you do, this unit becomes unable to inflict knockback during your next turn.",
+          "trigger": "static",
+          "text": "This unit cannot be moved while armoured.",
           "effects": [
             {
-              "type": "immune",
-              "to": "knockback",
+              "type": "cannotBeMoved",
               "target": "self",
-              "duration": "untilEndOfTurn"
-            },
-            {
-              "type": "cannotInflictKnockback",
-              "target": "self",
-              "duration": "yourNextTurn"
+              "if": "self.hasArmour"
             }
           ],
-          "script": null,
-          "optional": true
+          "script": null
         }
       ],
       "abilities": [
@@ -5037,7 +5030,7 @@ export const initialCardsData: CardsDataSchema = {
           "id": "deny_entry",
           "name": "Deny Entry",
           "cost": 1,
-          "text": "Use a 1AP melee attack from among the promoted cards as this ability for free. You may have that attack apply knockback 1.",
+          "text": "Use a 1AP melee attack from among the promoted cards as this ability for free, except it applies knockback 1.",
           "effects": [
             {
               "type": "useAbility",
@@ -5047,8 +5040,12 @@ export const initialCardsData: CardsDataSchema = {
                 "kind": "attack",
                 "melee": true
               },
-              "free": true,
-              "optionalKnockback": 1
+              "free": true
+            },
+            {
+              "type": "knockback",
+              "target": "hitUnit",
+              "distance": 1
             }
           ],
           "script": null,
@@ -5079,12 +5076,12 @@ export const initialCardsData: CardsDataSchema = {
           "id": "guardian_stance",
           "name": "Guardian Stance",
           "cost": 1,
-          "text": "Armour up to 6.",
+          "text": "Armour up to 7.",
           "effects": [
             {
               "type": "armour",
               "target": "self",
-              "upTo": 6
+              "upTo": 7
             }
           ]
         }

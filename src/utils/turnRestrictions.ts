@@ -668,7 +668,8 @@ export function expireTurnRestrictions(
 
 /**
  * Decrements and expires ability locks (such as Overload Gemstone:
- * "During your next turn, this unit can't use this ability") when the player's turn ends.
+ * "During your next turn, this unit can't use this ability") when the player's turn ends, whichever unit took it: a
+ * lock set on a turn lasts through its controller's next turn, then lifts.
  */
 export function expireLockedAbilities(
   units: Record<string, BattlefieldUnit>,
@@ -678,9 +679,15 @@ export function expireLockedAbilities(
   const next = { ...units };
   for (const [hex, u] of Object.entries(units)) {
     if (u.lockedAbilities) {
-      const nextLocked: Record<string, { abilityId: string; sourceAbilityName?: string; lockedForPlayer: PlayerId; turnsRemaining: number }> = {};
+      const nextLocked: NonNullable<BattlefieldUnit['lockedAbilities']> = {};
       let unitChanged = false;
       for (const [key, record] of Object.entries(u.lockedAbilities)) {
+        // A lock that knows its turn lifts once the controller's next turn (usedOnTurn + 2) has ended
+        if (typeof record.usedOnTurn === 'number') {
+          if (getCurrentTurnNumber() >= record.usedOnTurn + 2) unitChanged = true;
+          else nextLocked[key] = record;
+          continue;
+        }
         if (record.lockedForPlayer === player) {
           const remaining = record.turnsRemaining - 1;
           if (remaining > 0) {

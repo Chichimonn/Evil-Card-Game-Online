@@ -10,12 +10,17 @@ export const CANNOT_BE_MOVED = 'cannot_be_moved';
 /**
  * "Cannot be moved" (rules: Cannot be moved): a unit that cannot be moved by effects other than its own, including
  * knockback and Pull. It may still move itself, and it may still be placed or swapped. From a passive
- * ({ type: 'cannotBeMoved' }, e.g. Immovable) or the CANNOT_BE_MOVED status (e.g. Plant the Pike).
+ * ({ type: 'cannotBeMoved' }, e.g. Immovable; with if: 'self.hasArmour', e.g. Hold the Gate: "while armoured") or the
+ * CANNOT_BE_MOVED status (e.g. Plant the Pike). A condition this doesn't know never applies.
  */
 export function cannotBeMovedByOthers(unit: BattlefieldUnit | null | undefined): boolean {
   if (!unit) return false;
   if (unit.statuses?.includes(CANNOT_BE_MOVED)) return true;
-  return getUnitPassives(unit).some((p) => (p.effects || []).some((e: any) => e.type === 'cannotBeMoved' && !e.duration));
+  return getUnitPassives(unit).some((p) =>
+    (p.effects || []).some(
+      (e: any) => e.type === 'cannotBeMoved' && !e.duration && (!e.if || (e.if === 'self.hasArmour' && unit.armour > 0))
+    )
+  );
 }
 
 /**

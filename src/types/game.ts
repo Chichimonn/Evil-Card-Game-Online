@@ -39,7 +39,13 @@ export interface BattlefieldUnit {
   lockedIn?: boolean;
   bonusRangeThisTurn?: number;
   turnStartingAp?: number;
-  lockedAbilities?: Record<string, { abilityId: string; sourceAbilityName?: string; lockedForPlayer: PlayerId; turnsRemaining: number }>;
+  // "During your next turn, this unit can't use this ability" (e.g. Overload Gemstone): usedOnTurn is the turn number it
+  // was used on, and the lock holds only on the controller's next turn (usedOnTurn + 2). turnsRemaining is the older
+  // countdown, read only for a record without usedOnTurn.
+  lockedAbilities?: Record<
+    string,
+    { abilityId: string; sourceAbilityName?: string; lockedForPlayer: PlayerId; turnsRemaining: number; usedOnTurn?: number }
+  >;
   deathMark?: { casterInstanceId: string; casterOwner: PlayerId; bonusDamage: number } | null;
   // e.g. Perfect Form: buffs for this unit's next attack / next armour ability; cleared at the end of every turn
   // knockbackOnLastHit: e.g. Unstoppable Charge's next attack also inflicts knockback on its last hit

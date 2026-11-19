@@ -1785,6 +1785,32 @@ export default function App() {
         // "At the end of this unit's turn, if it used N abilities this turn, it armours up to M" (e.g. Waxing Momentum):
         // trigger 'self.endOfOwnTurn', { type: 'armour', target: 'self', upTo, if: 'self.abilitiesUsedThisTurn>=N' }
         // Also { if: 'self.attackedThisTurn' } (e.g. Eerie Presence: "if it attacked this turn")
+        // "During your next turn, this unit can't use this ability" (Overload Gemstone): locked through its controller's
+        // next turn, whichever unit takes it, then lifted (see expireLockedAbilities). Set here for every way it can be
+        // used (each use is recorded under its key, whatever its promoted attack resolved as).
+        if (
+          unitThatTookTurn &&
+          u.instanceId === unitThatTookTurn.instanceId &&
+          u.owner === activePlayer &&
+          Object.entries(u.usedTurnCounts || {}).some(
+            ([key, n]) => n > 0 && (key === 'overload_gemstone' || key.startsWith('overload_gemstone__') || key.startsWith('Overload Gemstone'))
+          )
+        ) {
+          unitToUpdate = {
+            ...unitToUpdate,
+            lockedAbilities: {
+              ...(unitToUpdate.lockedAbilities || {}),
+              overload_gemstone: {
+                abilityId: 'overload_gemstone',
+                sourceAbilityName: 'Overload Gemstone',
+                lockedForPlayer: u.owner,
+                turnsRemaining: 2,
+                // the turn that is ending: locked on this player's next turn only (see isLockActive)
+                usedOnTurn: turnCount
+              }
+            }
+          };
+        }
         if (unitThatTookTurn && u.instanceId === unitThatTookTurn.instanceId) {
           getUnitPassives(u).forEach((p) => {
             if (p.trigger !== 'self.endOfOwnTurn') return;
@@ -2615,6 +2641,21 @@ export default function App() {
       const lineMin = Array.isArray(activeAbility.range) && activeAbility.range.length > 1 ? activeAbility.range[0] : 1;
       const lines = getAllStraightLinesFromHex(sourceHex).map((line) => (lineMax ? line.slice(0, lineMax) : line));
       const enemyTargets: string[] = [];
+      // One that hits every unit in the line (e.g. Quartz Ray) isn't stopped by an ally: any line with an enemy in it
+      // can be fired along, by clicking any unit in it (the allies in the way are hit too)
+      if (activeAbility.effects?.some((e) => e.type === 'damage' && (e as any).area === 'allUnitsInLine')) {
+        lines.forEach((line) => {
+          const reach: string[] = [];
+          for (const [lineIdx, hexId] of line.entries()) {
+            const u = unitsOnBoard[hexId];
+            if (!u || lineIdx + 1 < lineMin) continue;
+            if (isReactEffect && isImmuneToReactEffects(u)) break;
+            reach.push(hexId);
+          }
+          if (reach.some((h) => unitsOnBoard[h].owner !== activePlayer)) enemyTargets.push(...reach);
+        });
+        return enemyTargets;
+      }
       lines.forEach((line) => {
         for (const [lineIdx, hexId] of line.entries()) {
           const u = unitsOnBoard[hexId];
@@ -6472,7 +6513,11 @@ export default function App() {
       if (activeAbility.id === 'reckless_leap') {
         showNotification("You must click a highlighted empty tile within 2 tiles in a straight line for Reckless Leap.");
       } else if (isStraightLineAbility(activeAbility)) {
-        showNotification(`${activeAbility.name} can only target the first enemy unit in an unobstructed straight line.`);
+        showNotification(
+          activeAbility.effects?.some((e) => e.type === 'damage' && (e as any).area === 'allUnitsInLine')
+            ? `${activeAbility.name} fires along a straight line with an enemy unit in it: click any unit in that line.`
+            : `${activeAbility.name} can only target the first enemy unit in an unobstructed straight line.`
+        );
       } else if (isAbilityTargetingEmptyTile(activeAbility)) {
         showNotification(`You must click a highlighted empty tile in range of ${activeAbility.name}.`);
       } else if (activeAbility.target === 'obstructingWall') {
@@ -7738,15 +7783,17 @@ export default function App() {
         const usedOnTargetBefore = (activeTurnUnit.usedOnTargets?.[String(activeAbility.baseAbilityId || activeAbility.id)] || []).includes(
           targetUnit.instanceId
         );
+        // A condition this doesn't know never applies the knockback
         const conditionalKbHolds =
           !!conditionalKb &&
           (!conditionalKb.if ||
-            (conditionalKb.if === 'thisAbilityUsedOnTargetEarlierThisTurn' ? usedOnTargetBefore : null) ||
-            (conditionalKb.if !== 'thisAbilityUsedOnTargetEarlierThisTurn' && evalAttackerCondition(
-              conditionalKb.if,
-              activeTurnUnit,
-              isAttackFromBehind(activeTurnUnitHex, hexId, targetUnit.owner, activeAbility)
-            ) !== false));
+            (conditionalKb.if === 'thisAbilityUsedOnTargetEarlierThisTurn'
+              ? usedOnTargetBefore
+              : evalAttackerCondition(
+                  conditionalKb.if,
+                  activeTurnUnit,
+                  isAttackFromBehind(activeTurnUnitHex, hexId, targetUnit.owner, activeAbility)
+                ) === true));
         const ownOptionalKb = conditionalKbHolds && conditionalKb!.optional ? conditionalKb!.distance : 0;
         const ownKbTiles =
           getAbilityKnockbackTiles(activeAbility) || (conditionalKbHolds && !conditionalKb!.optional ? conditionalKb!.distance : 0);
@@ -8835,13 +8882,17 @@ export default function App() {
               }
             }
           } else {
+            // Overload Gemstone's lock, by the turn it was used on (also set when the turn ends, see switchTurn): this write
+            // can land after the turn's end, so it carries the lock rather than dropping it, and the turn number keeps it
+            // to the controller's next turn only (see isLockActive)
             const nextLockedAbilities = { ...(activeTurnUnit.lockedAbilities || {}) };
             if (isOverloadGemstone) {
-              nextLockedAbilities['overload_gemstone'] = {
+              nextLockedAbilities.overload_gemstone = {
                 abilityId: 'overload_gemstone',
                 sourceAbilityName: 'Overload Gemstone',
                 lockedForPlayer: activeTurnUnit.owner,
-                turnsRemaining: 2
+                turnsRemaining: 2,
+                usedOnTurn: turnCount
               };
             }
 
@@ -11930,7 +11981,7 @@ export default function App() {
             ...me,
             lockedAbilities: {
               ...(me.lockedAbilities || {}),
-              [lockId]: { abilityId: lockId, sourceAbilityName: ability.name, lockedForPlayer: me.owner, turnsRemaining: 2 }
+              [lockId]: { abilityId: lockId, sourceAbilityName: ability.name, lockedForPlayer: me.owner, turnsRemaining: 2, usedOnTurn: turnCount }
             }
           }
         };
@@ -15098,7 +15149,8 @@ export default function App() {
     picks.forEach((card) => {
       const hex = tiles.shift();
       if (!hex) return;
-      const promotedCards = randomPromotedCards(card, allBasics.length ? allBasics : basics, matchRandom);
+      // (from the basic units the computer would field itself, e.g. no fairies, when one fits)
+      const promotedCards = randomPromotedCards(card, allBasics.length ? allBasics : basics, matchRandom, basics);
       // Faceless King's Perfect Synthesis: a random passive from among its promoted cards
       const synth = (card.passives || []).some((p) => (p.effects || []).some((e: any) => e.type === 'copyPassive'));
       const passiveChoices = promotedCards.flatMap((c) => c.passives || []);
@@ -15250,9 +15302,20 @@ export default function App() {
     // Targeting an ability: a promoted ability to use for a provider, or the tile to click
     if (activeAbility) {
       if (isPromotedAbilityProvider(activeAbility) && !activeAbility.id.includes('__') && activeTurnUnit) {
+        // Choosing several promoted abilities before using them (e.g. Grand Metamorphosis): only ones the chain still
+        // takes (not one already chosen when they must be different, not over its AP total, ...)
+        const choosing = providerChain && providerChain.phase === 'choosing' && providerChain.parent.id === activeAbility.id ? providerChain : null;
         const choices = getQualifyingPromotedAbilities(activeAbility, activeTurnUnit.promotedCards, activeTurnUnit).filter(
-          (q) => isCpuUsableAbility(q.ability) && !turn.failed.has(`${activeAbility.id}:${q.ability.id}`)
+          (q) =>
+            isCpuUsableAbility(q.ability) &&
+            !turn.failed.has(`${activeAbility.id}:${q.ability.id}`) &&
+            (!choosing || canAddToChain(choosing, q.ability).allowed)
         );
+        // Nothing more it can (or would) choose: use what it has chosen (as a player clicks Done)
+        if (choosing && choosing.queue.length > 0 && choices.length === 0) {
+          handleFinishChainChoosing();
+          return;
+        }
         if (choices.length === 0) {
           turn.failed.add(activeAbility.id);
           setActiveAbility(null);

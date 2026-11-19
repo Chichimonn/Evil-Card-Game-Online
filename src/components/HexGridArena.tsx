@@ -9,6 +9,7 @@ import { hasNoxiousBurstEffect } from '../utils/noxiousBurst';
 import { isFlowingStanceActive, hasCephalopodReach } from '../utils/flowingStance';
 import { getLeaderOfTheBunchBonusHp } from '../utils/leaderOfTheBunch';
 import { hasMagicalOmnipresence } from '../utils/movementAbilities';
+import { isLockActive } from '../utils/turnLimits';
 
 interface HexGridArenaProps {
   hexColors: Record<string, string>;
@@ -676,7 +677,7 @@ export const HexGridArena: React.FC<HexGridArenaProps> = ({
                       bonusRange={unit.bonusRangeThisTurn || 0}
                       hasMoveTax={hasColdFeetEffect(unit, unitsOnBoard) && !unit.movedThisTurn}
                       hasNoxiousBurst={hasNoxiousBurstEffect(unit)}
-                      hasOverloadLock={Boolean(unit.lockedAbilities?.['overload_gemstone'] && unit.lockedAbilities['overload_gemstone'].turnsRemaining > 0)}
+                      hasOverloadLock={isLockActive(unit.lockedAbilities?.['overload_gemstone'])}
                       hasFlowingStance={isFlowingStanceActive(unit)}
                       hasCannotPromoteOrFuse={Boolean(unit.statuses?.includes('cannot_promote_or_fuse'))}
                       hasCannotMove={Boolean(unit.statuses?.includes('cannot_move'))}
