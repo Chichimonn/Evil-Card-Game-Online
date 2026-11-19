@@ -3,6 +3,7 @@ import { CardItem } from '../types/card';
 import { CardThumbnail } from './CardThumbnail';
 import { resolveCardId } from '../data/cardsData';
 import { useCardImages } from '../context/CardImageContext';
+import { compareCards } from '../utils/cardSort';
 import { playCardDrawSound } from '../utils/audio';
 import { formatFusionRequirements, formatTributeRequirements } from '../utils/reinforceRules';
 import {
@@ -19,7 +20,9 @@ import {
   BookmarkCheck,
   FolderOpen,
   X,
-  GripVertical
+  GripVertical,
+  ChevronUp,
+  ChevronDown
 } from 'lucide-react';
  
 export interface DeckCardEntry {
@@ -98,8 +101,13 @@ export const Deckbuilder: React.FC<DeckbuilderProps> = ({
  
   const [searchFilter, setSearchFilter] = useState("");
   const [categoryFilter, setCategoryFilter] = useState<'all' | 'basic' | 'promote' | 'fusion' | 'tribute' | 'token'>('all');
-  const [classFilter, setClassFilter] = useState<string>('all');
-  const [sortBy, setSortBy] = useState<'class' | 'name' | 'hp' | 'ap'>('class');
+  // The classes turned on in the class toggles (none on: every class shows)
+  const [classFilter, setClassFilter] = useState<string[]>([]);
+  const [isClassBarOpen, setIsClassBarOpen] = useState(true);
+  // How many filters are narrowing the catalog: a type chosen, and each class on (for the hide tab's warning)
+  const filtersOn = (categoryFilter !== 'all' ? 1 : 0) + classFilter.length;
+  const toggleClass = (id: string) =>
+    setClassFilter((on) => (on.includes(id) ? on.filter((c) => c !== id) : [...on, id]));
   const [copied, setCopied] = useState(false);
   const [saveSuccessMsg, setSaveSuccessMsg] = useState<string | null>(null);
  
@@ -186,10 +194,20 @@ export const Deckbuilder: React.FC<DeckbuilderProps> = ({
     return options;
   }, [cards, deckClasses]);
 
-  const catalogCards = useMemo(() => {
-    const classRank = new Map(classOptions.map((cls, i) => [cls.id.toLowerCase(), i]));
- 
-    const filtered = cards.filter(card => {
+  // The catalog, and how many cards the search alone hides from it (ones every other filter lets through)
+  const { catalogCards, searchHiddenCount } = useMemo(() => {
+    const passesSearch = (card: CardItem) => {
+      if (!searchFilter.trim()) return true;
+      const query = searchFilter.toLowerCase();
+      return Boolean(
+        card.name.toLowerCase().includes(query) ||
+        card.id.toLowerCase().includes(query) ||
+        card.classTags?.some(t => t.toLowerCase().includes(query)) ||
+        card.reinforce?.requirement?.some(options => options.some(o => o !== '*' && o.toLowerCase().includes(query))) ||
+        card.abilities?.some(a => a.name.toLowerCase().includes(query))
+      );
+    };
+    const passesFilters = (card: CardItem) => {
       // Disallow tokens from player deck building
       if (isTokenCard(card)) return false;
  
@@ -199,44 +217,16 @@ export const Deckbuilder: React.FC<DeckbuilderProps> = ({
       if (categoryFilter === 'tribute' && card.reinforce?.mode !== 'tribute') return false;
  
       // Class Tag Filter
-      if (classFilter !== 'all' && !cardMatchesClass(card, classFilter, deckClasses)) return false;
- 
-      if (searchFilter.trim()) {
-        const query = searchFilter.toLowerCase();
-        return (
-          card.name.toLowerCase().includes(query) ||
-          card.id.toLowerCase().includes(query) ||
-          card.classTags?.some(t => t.toLowerCase().includes(query)) ||
-          card.reinforce?.requirement?.some(options => options.some(o => o !== '*' && o.toLowerCase().includes(query))) ||
-          card.abilities?.some(a => a.name.toLowerCase().includes(query))
-        );
-      }
+      // (a card of any class turned on)
+      if (classFilter.length > 0 && !classFilter.some((cls) => cardMatchesClass(card, cls, deckClasses))) return false;
       return true;
-    });
- 
-    // Sort by class (a card goes with its own class, else the class it requires), name, hp, or ap
-    return [...filtered].sort((a, b) => {
-      if (sortBy === 'class') {
-        const aClass = getCardSortClass(a, deckClasses)?.toLowerCase();
-        const bClass = getCardSortClass(b, deckClasses)?.toLowerCase();
-        const aRank = aClass ? (classRank.get(aClass) ?? classRank.size) : classRank.size + 1;
-        const bRank = bClass ? (classRank.get(bClass) ?? classRank.size) : classRank.size + 1;
- 
-        if (aRank !== bRank) return aRank - bRank;
-        return a.name.localeCompare(b.name);
-      }
-      if (sortBy === 'name') {
-        return a.name.localeCompare(b.name);
-      }
-      if (sortBy === 'hp') {
-        return b.hp - a.hp;
-      }
-      if (sortBy === 'ap') {
-        return b.ap - a.ap;
-      }
-      return 0;
-    });
-  }, [cards, categoryFilter, classFilter, searchFilter, sortBy, classOptions, deckClasses]);
+    };
+    const filtered = cards.filter(passesFilters);
+    const shown = filtered.filter(passesSearch);
+
+    // Basic units, then promotes, tributes and fusions, alphabetical within each; fairies last (see utils/cardSort)
+    return { catalogCards: [...shown].sort((a, b) => compareCards(a, b)), searchHiddenCount: filtered.length - shown.length };
+  }, [cards, categoryFilter, classFilter, searchFilter, deckClasses]);
  
   // Add card to deck (Max 3 copies of each card, max 40 total, no tokens)
   const handleAddCard = (card: CardItem) => {
@@ -793,10 +783,10 @@ export const Deckbuilder: React.FC<DeckbuilderProps> = ({
         )}
  
         {/* Catalog Header with Search & Filters */}
-        <div className="p-4 border-b border-stone-800 bg-stone-900 flex flex-col gap-3">
+        <div className="relative z-10 p-4 border-b border-stone-800 bg-stone-900 flex flex-col gap-3">
           <div className="flex items-center justify-between gap-3 flex-wrap">
             <h3 className="font-serif font-bold text-lg text-stone-100 flex items-center gap-2">
-              <span>Available Cards ({catalogCards.length})</span>
+              <span>Showing {catalogCards.length} Cards</span>
             </h3>
  
             {/* Controls Row: Search */}
@@ -815,73 +805,89 @@ export const Deckbuilder: React.FC<DeckbuilderProps> = ({
             </div>
           </div>
  
-          {/* Category Filter Chips (No tokens) & Sort Selector */}
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <div className="flex flex-wrap gap-1">
-              {[
-                { id: 'all', label: 'All Types' },
-                { id: 'basic', label: 'Basic Units' },
-                { id: 'promote', label: 'Promote' },
-                { id: 'fusion', label: 'Fusion' },
-                { id: 'tribute', label: 'Tribute' }
-              ].map(cat => (
-                <button
-                  key={cat.id}
-                  onClick={() => setCategoryFilter(cat.id as typeof categoryFilter)}
-                  className={`px-2.5 py-1 rounded text-xs font-medium transition-colors ${
-                    categoryFilter === cat.id
-                      ? 'bg-red-800 text-red-50 font-bold'
-                      : 'bg-stone-800 text-stone-400 hover:text-stone-200'
-                  }`}
-                >
-                  {cat.label}
-                </button>
-              ))}
-            </div>
- 
-            {/* Sort Selector: Class, Name, HP, AP */}
-            <div className="flex items-center gap-1.5 bg-stone-950 px-2 py-1 rounded-lg border border-stone-800">
-              <span className="text-[10px] font-mono text-stone-400 font-bold uppercase">Sort:</span>
-              {[
-                { id: 'class', label: 'Class' },
-                { id: 'name', label: 'Name' },
-                { id: 'hp', label: 'HP' },
-                { id: 'ap', label: 'AP' }
-              ].map(opt => (
-                <button
-                  key={opt.id}
-                  onClick={() => setSortBy(opt.id as typeof sortBy)}
-                  className={`px-2 py-0.5 rounded text-[11px] font-mono transition-colors ${
-                    sortBy === opt.id
-                      ? 'bg-red-800 text-red-50 font-black shadow-xs'
-                      : 'text-stone-400 hover:text-stone-200'
-                  }`}
-                >
-                  {opt.label}
-                </button>
-              ))}
+          {/* Class toggles: every class, by name; on shows the cards of that class or that require it (any class on
+              counts), and with none on every card shows. The small tab under the middle of the row hides it. */}
+          {isClassBarOpen && (
+          <div className="flex flex-col gap-3">
+          {/* Category Filter Chips (No tokens), in the order the cards are listed */}
+          <div className="flex flex-wrap gap-1">
+            {[
+              { id: 'all', label: 'All Types' },
+              { id: 'basic', label: 'Basic Units' },
+              { id: 'promote', label: 'Promote' },
+              { id: 'tribute', label: 'Tribute' },
+              { id: 'fusion', label: 'Fusion' }
+            ].map(cat => (
+              <button
+                key={cat.id}
+                onClick={() => setCategoryFilter(cat.id as typeof categoryFilter)}
+                className={`px-2.5 py-1 rounded text-xs font-medium transition-colors ${
+                  categoryFilter === cat.id
+                    ? 'bg-red-800 text-red-50 font-bold'
+                    : 'bg-stone-800 text-stone-400 hover:text-stone-200'
+                }`}
+              >
+                {cat.label}
+              </button>
+            ))}
+          </div>
+            <div className="flex flex-wrap items-center gap-x-1 gap-y-1 pt-1.5 border-t border-stone-800/80">
+              <span className="text-[10px] font-mono text-stone-400 font-bold uppercase mr-1">Class:</span>
+              {classOptions.map((cls) => {
+                const on = classFilter.includes(cls.id);
+                return (
+                  <button
+                    key={cls.id}
+                    onClick={() => toggleClass(cls.id)}
+                    aria-pressed={on}
+                    title={`${on ? 'Hide' : 'Show only'} ${cls.label} cards (${cls.count})`}
+                    className={`px-1.5 py-0.5 rounded text-xs font-medium transition-colors cursor-pointer ${
+                      on ? 'text-stone-50 bg-red-800/80' : 'text-stone-500 hover:text-stone-300'
+                    }`}
+                  >
+                    {cls.label}
+                  </button>
+                );
+              })}
             </div>
           </div>
- 
-          {/* Class Filter: every class, matching cards of that class or that require it */}
-          <div className="flex items-center gap-2 pt-1.5 border-t border-stone-800/80">
-            <label htmlFor="deckbuilder-class-filter" className="text-[10px] font-mono text-stone-400 font-bold uppercase">
-              Class:
-            </label>
-            <select
-              id="deckbuilder-class-filter"
-              value={classFilter}
-              onChange={(e) => setClassFilter(e.target.value)}
-              className="bg-stone-950 border border-stone-700 rounded px-2 py-1 text-xs font-mono text-stone-100 focus:outline-hidden focus:border-cyan-400 cursor-pointer"
-            >
-              <option value="all">All Classes</option>
-              {classOptions.map((cls) => (
-                <option key={cls.id} value={cls.id}>
-                  {cls.label}
-                </option>
-              ))}
-            </select>
-          </div>
+          )}
+          {/* The tab says in red when the catalog isn't showing every card: a search hiding cards (whether this box is open
+              or not), and a type or classes chosen while it's hidden */}
+          {(() => {
+            const searchApplied = searchHiddenCount > 0;
+            const filtersHidden = !isClassBarOpen && filtersOn > 0;
+            const warning =
+              searchApplied && filtersHidden
+                ? `Search and ${filtersOn === 1 ? 'filter' : 'filters'} applied`
+                : searchApplied
+                  ? 'Search applied'
+                  : filtersHidden
+                    ? `${filtersOn === 1 ? 'Filter' : 'Filters'} applied`
+                    : null;
+            return (
+          <button
+            onClick={() => setIsClassBarOpen((open) => !open)}
+            title={
+              isClassBarOpen
+                ? 'Hide the filters'
+                : filtersOn > 0
+                  ? `Show the filters (filtering by ${[...(categoryFilter !== 'all' ? [categoryFilter] : []), ...classFilter].join(', ')})`
+                  : 'Show the filters'
+            }
+            className={`absolute top-full left-1/2 -translate-x-1/2 z-10 px-3 py-0.5 rounded-b-md bg-stone-950/95 border border-t-0 transition-colors cursor-pointer flex items-center gap-1.5 ${
+              warning
+                ? 'border-red-600 text-red-400 hover:text-red-300'
+                : 'border-stone-800 text-stone-400 hover:text-stone-100'
+            }`}
+          >
+            {isClassBarOpen ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+            {warning && (
+              <span className="text-[10px] font-mono font-bold uppercase tracking-wider whitespace-nowrap">{warning}</span>
+            )}
+          </button>
+            );
+          })()}
         </div>
  
         {/* Catalog Card Grid: each column is exactly one tile wide */}

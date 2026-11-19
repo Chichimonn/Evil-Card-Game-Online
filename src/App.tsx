@@ -316,6 +316,7 @@ import { getExtraSameDirectionMove } from './utils/movementAbilities';
 import { getAbilityRangePassiveBonus } from './utils/flowingStance';
 import { getGrantedAllyAttack, getAllyAttackChoices } from './utils/multiStageAbilities';
 import { STARTING_SCALE } from './utils/device';
+import { compareCards } from './utils/cardSort';
 import {
   hasFlowingStancePassive,
   isFlowingStanceActive,
@@ -975,6 +976,8 @@ export default function App() {
   // Filtered cards for Gallery
   // The gallery lists the tokens after the real cards (for viewing only: decks use allCardList)
   const galleryCards = useMemo(() => [...allCardList, ...getTokenGalleryCards(cardsData)], [allCardList, cardsData]);
+  // Listed newest set first, then basic units, promotes, tributes and fusions, alphabetical within each; fairies
+  // together after every other unit, and tokens last (see utils/cardSort)
   const filteredCards = useMemo(() => {
     return galleryCards.filter((card) => {
       if (categoryFilter === 'token' && card.type !== 'token') return false;
@@ -996,7 +999,7 @@ export default function App() {
         return matchesName || matchesId || matchesAbility || matchesPassive;
       }
       return true;
-    });
+    }).sort((a, b) => compareCards(a, b, { bySet: true }));
   }, [galleryCards, categoryFilter, searchQuery]);
 
   // Setup match once both players' decks are chosen -> Triggers Coin Flip (Rule 4)
@@ -1070,6 +1073,10 @@ export default function App() {
     setBoardZoom(BASELINE_ZOOM);
     setCameraPan({ x: 0, y: 0 });
     savedCamerasRef.current = {};
+    // Each match starts on a random battlefield background (any picture, not the plain black); the arrows by the camera
+    // controls still change it. Only how it looks, and each screen has its own, so it isn't the match's seeded randomness.
+    const pictureChoices = boardBackgroundChoices.map((src, i) => (src ? i : -1)).filter((i) => i >= 0);
+    if (pictureChoices.length > 0) setBoardBackgroundIndex(pictureChoices[Math.floor(Math.random() * pictureChoices.length)]);
 
     setActiveTab('play');
     if (endless) {
@@ -16094,7 +16101,7 @@ export default function App() {
               <div className="bg-stone-950/95 border-b border-stone-800">
                 <div className="max-w-7xl mx-auto w-full px-6 py-3 flex items-center justify-between gap-4 flex-wrap">
                   <div>
-                    <h2 className="text-2xl font-bold font-serif text-stone-100">All Cards ({filteredCards.length} Cards)</h2>
+                    <h2 className="text-2xl font-bold font-serif text-stone-100">Showing {filteredCards.length} Cards</h2>
                   </div>
 
                   <div className="flex items-center gap-3">
@@ -16110,7 +16117,7 @@ export default function App() {
                     </div>
 
                     <div className="flex items-center gap-1 bg-stone-900 p-1 rounded border border-stone-800 text-xs">
-                      {['all', 'basic', 'promote', 'fusion', 'tribute'].map((cat) => (
+                      {['all', 'basic', 'promote', 'tribute', 'fusion'].map((cat) => (
                         <button
                           key={cat}
                           onClick={() => setCategoryFilter(cat as typeof categoryFilter)}
