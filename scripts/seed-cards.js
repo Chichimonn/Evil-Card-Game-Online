@@ -537,17 +537,15 @@ const cardsJsonContent = `{
         {
           "id": "fried_eggs_a_la_carte",
           "name": "Fried Eggs à-la-carte",
-          "cost": [1, 2],
+          "cost": 1,
           "range": [1, 2],
           "target": "unit",
-          "text": "Deals 1 damage. Hits 4 times per AP spent.",
+          "text": "Deals 1 damage. Hits 4 times.",
           "effects": [
             {
               "type": "damage",
               "amount": 1,
-              "hits": {
-                "perAP": 4
-              }
+              "hits": 4
             }
           ],
           "rangeText": "1-2"
@@ -1199,15 +1197,15 @@ const cardsJsonContent = `{
         {
           "id": "glacial_spikes",
           "name": "Glacial Spikes",
-          "cost": [1, 2],
+          "cost": 1,
           "tags": ["straightLine"],
           "range": [1, 3],
           "rangeText": "3",
-          "text": "Deals 5 damage per AP spent to all enemy units along the path.",
+          "text": "Deals 5 damage to all enemy units along the path.",
           "effects": [
             {
               "type": "damage",
-              "amount": { "perAP": 5 },
+              "amount": 5,
               "hits": 1,
               "area": "enemyUnitsAlongPath"
             }
@@ -1459,11 +1457,11 @@ const cardsJsonContent = `{
         {
           "id": "boulder_hurl",
           "name": "Boulder Hurl",
-          "cost": [1, 2],
+          "cost": 1,
           "range": [1, 2],
           "rangeText": "1-2",
           "target": "unit",
-          "text": "Deals 5 damage and gain 1 armour per AP spent.",
+          "text": "Deals 5 damage, then gain 1 armour.",
           "effects": [
             {
               "type": "damage",
@@ -1473,7 +1471,7 @@ const cardsJsonContent = `{
             {
               "type": "armour",
               "target": "self",
-              "amount": { "perAP": 1 }
+              "amount": 1
             }
           ]
         }
@@ -2922,7 +2920,7 @@ const cardsJsonContent = `{
           "id": "floating_weapon",
           "name": "Floating Weapon",
           "cost": 1,
-          "text": "Use a 1AP melee attack from among the promoted cards as this ability for free, except its range is still this ability's range (it is not longer melee).",
+          "text": "Use a 1AP melee attack from among the promoted cards as this ability for free, except its range is still this ability's range (it is no longer melee).",
           "effects": [
             {
               "type": "useAbility",
@@ -2940,10 +2938,10 @@ const cardsJsonContent = `{
         {
           "id": "steel_cyclone",
           "name": "Steel Cyclone",
-          "cost": [2, 3],
-          "text": "Deals 2 damage. Hits 4 times per AP spent.",
+          "cost": 3,
+          "text": "Deals 3 damage. Hits 7 times.",
           "effects": [
-            { "type": "damage", "amount": 2, "hits": { "perAP": 4 }, "area": "allUnitsInPath" }
+            { "type": "damage", "amount": 3, "hits": 7, "area": "allUnitsInPath" }
           ],
           "target": "tile",
           "targetText": "targets tile, hits all in path",

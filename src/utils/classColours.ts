@@ -2,14 +2,15 @@ import type { CSSProperties } from 'react';
 import { CardItem } from '../types/card';
 
 /**
- * Each class's colour on a card face: a dark shade of a hue on the rainbow, dark enough that white text reads easily
- * over it, and different enough from its neighbours to tell apart (neighbouring hues also alternate lighter and
- * darker). It fills the card's text boxes and the bar behind the bottom half of its name and the top half of its type
- * line.
+ * Each class's colour on a card face: a dark shade of a hue on the rainbow, different enough from its neighbours to tell
+ * apart (neighbouring hues also alternate lighter and darker), dark enough that white text reads over it (the top half
+ * of the name sits on it). It is the card's border: the edge all the way round the face. Everything read on the card
+ * (the bar behind the name and type line, the passive and ability boxes) is one dark surface, CARD_SURFACE_COLOUR, on
+ * every card.
  *
  * A card of several classes (e.g. Flaming Mage) isn't one mixed colour: it fades from one class's colour to the
  * other's across the card, left to right. A card with no class tag takes the classes its reinforce requirement names (Promote a Knight,
- * Fusion: 2 Mages and/or Fighters, Tribute 2: At least 1 Flaming); a card with none of those is plain dark grey.
+ * Fusion: 2 Mages and/or Fighters, Tribute 2: At least 1 Flaming); a card with none of those has a plain grey border.
  */
 
 // The classes in rainbow order: each gets an evenly spaced hue, alternately a little lighter and darker
@@ -39,7 +40,18 @@ const CLASS_ORDER = [
 const START_HUE = 5;
 const CHROMA = 0.085;
 const LIGHTNESS = [0.27, 0.32];
-export const NEUTRAL_CARD_COLOUR = '#1c1917';
+// The border of a card with no class (a grey a step lighter than the surface, so the edge still reads as one)
+export const NEUTRAL_CARD_COLOUR = '#44403c';
+
+/**
+ * The one dark surface of everything read on a card face: the name bar and every passive's and ability's box. The same
+ * colour as the app's top bar.
+ */
+export const CARD_SURFACE_COLOUR = '#2f2829';
+
+/** The off-black at a card's edges, that its colour fades in from (see getCardFill). */
+export const CARD_EDGE_COLOUR = '#1c1917';
+export const CARD_SURFACE_FILL: CSSProperties = { backgroundColor: CARD_SURFACE_COLOUR };
 
 const toHex = (L: number, C: number, hue: number): string => {
   const rad = (hue * Math.PI) / 180;
@@ -79,10 +91,34 @@ export function getColourClasses(card: CardItem): string[] {
   return known(((card.reinforce?.requirement || []) as string[][]).flat());
 }
 
-/** The card's fill as CSS: its class colour, a gradient across the card between its classes' colours, or dark grey. */
-export function getCardFill(card: CardItem): CSSProperties {
+/**
+ * How far in (card pixels: the face is 750 wide) a single colour fades from the off-black at the card's edges (the
+ * CARD_EDGE_COLOUR) to its full colour.
+ */
+export const CARD_EDGE_FADE = 80;
+
+/**
+ * Which edges of the area being filled are the card's own edges, so fade in from black there. A card face: all four.
+ * Something carrying the card on below it (the big card's extra actions): the sides and bottom, not the top, so it
+ * continues the face seamlessly. Something laid over the card (none): the colour alone.
+ */
+export type CardFillEdges = { top?: boolean; bottom?: boolean; sides?: boolean };
+
+/**
+ * The card's border as CSS: what's behind everything read on the card. It fades inward from the off-black at the card's
+ * edges (CARD_EDGE_FADE) to its colour: a single colour (a class's, or the grey of a card with no class), or for a card
+ * of several classes, the fade across the card, left to right, between its classes' colours (the edge fade laid over it).
+ */
+export function getCardFill(card: CardItem, edges: CardFillEdges = { top: true, bottom: true, sides: true }): CSSProperties {
   const colours = getColourClasses(card).map((c) => CLASS_COLOURS[c]);
-  if (colours.length === 0) return { backgroundColor: NEUTRAL_CARD_COLOUR };
-  if (colours.length === 1) return { backgroundColor: colours[0] };
-  return { backgroundColor: colours[0], backgroundImage: `linear-gradient(to right, ${colours.join(', ')})` };
+  const f = CARD_EDGE_FADE;
+  // The edge fade (on top), then the classes' fade across the card when it has several (under it)
+  const layers = [
+    edges.sides && `linear-gradient(to right, ${CARD_EDGE_COLOUR} 0px, transparent ${f}px, transparent calc(100% - ${f}px), ${CARD_EDGE_COLOUR} 100%)`,
+    edges.top && `linear-gradient(to bottom, ${CARD_EDGE_COLOUR} 0px, transparent ${f}px)`,
+    edges.bottom && `linear-gradient(to top, ${CARD_EDGE_COLOUR} 0px, transparent ${f}px)`,
+    colours.length > 1 && `linear-gradient(to right, ${colours.join(', ')})`
+  ].filter(Boolean);
+  const base = colours[0] || NEUTRAL_CARD_COLOUR;
+  return layers.length ? { backgroundColor: base, backgroundImage: layers.join(', ') } : { backgroundColor: base };
 }

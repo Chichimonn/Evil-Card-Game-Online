@@ -150,6 +150,7 @@ export interface DamageEvent {
   damagedUnitOwner?: PlayerId;
   damageAmount?: number;
   nonAttack?: boolean; // damage not from an attack (self-damage, scorched tiles, passives): "from an attack" passives skip it
+  instanceId?: string; // the unit damaged, when known (it may have been knocked off hexId by the same attack)
 }
 
 /**

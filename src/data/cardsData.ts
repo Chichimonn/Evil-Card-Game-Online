@@ -590,17 +590,15 @@ export const initialCardsData: CardsDataSchema = {
         {
           "id": "fried_eggs_a_la_carte",
           "name": "Fried Eggs à-la-carte",
-          "cost": [1, 2],
+          "cost": 1,
           "range": [1, 2],
           "target": "unit",
-          "text": "Deals 1 damage. Hits 4 times per AP spent.",
+          "text": "Deals 1 damage. Hits 4 times.",
           "effects": [
             {
               "type": "damage",
               "amount": 1,
-              "hits": {
-                "perAP": 4
-              }
+              "hits": 4
             }
           ],
           "rangeText": "1-2"
@@ -1359,20 +1357,18 @@ export const initialCardsData: CardsDataSchema = {
         {
           "id": "glacial_spikes",
           "name": "Glacial Spikes",
-          "cost": [1, 2],
-                    "tags": [],
+          "cost": 1,
+          "tags": [],
           "usesPath": true,
           "pathRule": "straight",
           "target": "tile",
           "range": [1, 3],
           "rangeText": "3",
-          "text": "Deals 5 damage per AP spent to all enemy units along the path.",
+          "text": "Deals 5 damage to all enemy units along the path.",
           "effects": [
             {
               "type": "damage",
-              "amount": {
-                "perAP": 5
-              },
+              "amount": 5,
               "hits": 1,
               "area": "enemyUnitsAlongPath"
             }
@@ -1650,17 +1646,14 @@ export const initialCardsData: CardsDataSchema = {
         {
           "id": "boulder_hurl",
           "name": "Boulder Hurl",
-          "cost": [
-            1,
-            2
-          ],
+          "cost": 1,
           "range": [
             1,
             2
           ],
           "rangeText": "1-2",
           "target": "unit",
-          "text": "Deals 5 damage and gain 1 armour per AP spent.",
+          "text": "Deals 5 damage, then gain 1 armour.",
           "effects": [
             {
               "type": "damage",
@@ -1670,9 +1663,7 @@ export const initialCardsData: CardsDataSchema = {
             {
               "type": "armour",
               "target": "self",
-              "amount": {
-                "perAP": 1
-              }
+              "amount": 1
             }
           ],
           "script": null
@@ -3276,26 +3267,38 @@ export const initialCardsData: CardsDataSchema = {
       ],
       "abilities": [
         {
+          "id": "deep_freeze",
+          "name": "Deep Freeze",
+          "cost": 1,
+          "text": "If the target takes the next turn, it must spend an additional 1AP on its first action that turn. Use this ability only against a target that this unit has dealt damage to this turn.",
+          "requires": "target.damagedBySelfThisTurn",
+          "effects": [
+            {
+              "type": "increaseActionCost",
+              "target": "target",
+              "amount": 1,
+              "scope": "firstActionOfTurn",
+              "duration": "nextTurnIfTargetTakesIt"
+            }
+          ],
+          "script": null,
+          "target": "unit",
+          "range": [
+            1,
+            3
+          ],
+          "rangeText": "1-3"
+        },
+        {
           "id": "glacial_bolt",
           "name": "Glacial Bolt",
-          "cost": [
-            1,
-            2
-          ],
-          "text": "Deals 6 damage. If 2AP was spent, if the target takes the next turn, it must spend an additional 1AP on its first action that turn.",
+          "cost": 1,
+          "text": "Deals 6 damage.",
           "effects": [
             {
               "type": "damage",
               "amount": 6,
               "hits": 1
-            },
-            {
-              "type": "increaseActionCost",
-              "target": "hitUnit",
-              "amount": 1,
-              "scope": "firstActionOfTurn",
-              "duration": "nextTurnIfTargetTakesIt",
-              "if": "apSpent==2"
             }
           ],
           "script": null,
@@ -5642,18 +5645,13 @@ export const initialCardsData: CardsDataSchema = {
         {
           "id": "steel_cyclone",
           "name": "Steel Cyclone",
-          "cost": [
-            2,
-            3
-          ],
-          "text": "Deals 2 damage. Hits 4 times per AP spent.",
+          "cost": 3,
+          "text": "Deals 3 damage. Hits 7 times.",
           "effects": [
             {
               "type": "damage",
-              "amount": 2,
-              "hits": {
-                "perAP": 4
-              },
+              "amount": 3,
+              "hits": 7,
               "area": "allUnitsInPath"
             }
           ],
@@ -5730,12 +5728,12 @@ export const initialCardsData: CardsDataSchema = {
         {
           "id": "gemstone_hammer",
           "name": "Gemstone Hammer",
-          "cost": [1, 2],
-          "text": "Deals 3 damage. Use a 1AP ranged attack from among the promoted cards as this ability for free. For each AP spent, do this again (counts as additional hits). Use only once per turn.",
+          "cost": 1,
+          "text": "Deals 2 damage. Then, use a 1AP ranged attack from among the promoted cards against the target for free.",
           "effects": [
             {
               "type": "damage",
-              "amount": 3,
+              "amount": 2,
               "hits": 1
             },
             {
@@ -5747,19 +5745,14 @@ export const initialCardsData: CardsDataSchema = {
                 "ranged": true
               },
               "free": true,
-              "times": {
-                "perAP": 1
-              },
+              "times": 1,
               "countsAsAdditionalHits": true
             }
           ],
           "script": null,
           "tags": [
             "melee"
-          ],
-          "limits": {
-            "oncePerTurn": true
-          }
+          ]
         }
       ],
       "classTags": []

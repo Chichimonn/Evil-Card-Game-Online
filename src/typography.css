@@ -4,7 +4,9 @@
  *     the board's tile labels;
  *   - titles: the cards' gothic face (Pirata One), for headings and anything marked font-title.
  *
- * Card faces set their own fonts and are left exactly as they are (nothing inside [data-card-face] is touched).
+ * Card faces set their own fonts and are left exactly as they are (nothing inside [data-card-face] is touched), and so
+ * are card boxes drawn beside a face (inside [data-card-boxes], e.g. the big card's Move, Draw and other actions), so
+ * they read in the card's fonts too.
  *
  * This file is kept apart from index.css on purpose: index.css is part of the card faces' signature, so changing it
  * would make every player draw their card faces again.
@@ -42,12 +44,12 @@ body {
   font-family: var(--app-font);
 }
 
-:is(.font-sans, .font-serif, .font-mono, input, textarea, select, button, option, svg text):not([data-card-face] *) {
+:is(.font-sans, .font-serif, .font-mono, input, textarea, select, button, option, svg text):not([data-card-face] *):not([data-card-boxes] *) {
   font-family: var(--app-font);
 }
 
 /* Titles: the gothic face has one weight, so it isn't thickened artificially when a title is set bold */
-:is(h1, h2, h3, h4, .font-title):not([data-card-face] *) {
+:is(h1, h2, h3, h4, .font-title):not([data-card-face] *):not([data-card-boxes] *) {
   font-family: var(--app-title-font);
   font-weight: 400;
   letter-spacing: 0.02em;

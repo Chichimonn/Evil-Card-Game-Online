@@ -6,7 +6,7 @@ import { formatFusionRequirements, formatTributeRequirements } from '../utils/re
 import { isStraightLineAbility } from '../utils/hexGridMath';
 import { useProcessedArt } from '../utils/artHalo';
 import { TYPE_LINES } from '../data/typeLines';
-import { getCardFill } from '../utils/classColours';
+import { getCardFill, CARD_SURFACE_FILL, type CardFillEdges } from '../utils/classColours';
 
 interface CardViewProps {
   card: CardItem;
@@ -15,6 +15,9 @@ interface CardViewProps {
   scale?: number;
   id?: string;
   extendToFitText?: boolean;
+  // Which edges of the face fade in from black (default all four; e.g. the big card leaves out the bottom when its extra
+  // actions carry the card on below it)
+  fillEdges?: CardFillEdges;
 }
 
 const replaceStaticWithPassive = (str: string): string => {
@@ -52,14 +55,22 @@ const BoxFrame: React.FC<{
   className: string;
   fill: React.CSSProperties;
   inset: { top: number; right: number; bottom: number; left: number };
-}> = ({ className, fill, inset }) => (
+  style?: React.CSSProperties;
+}> = ({ className, fill, inset, style }) => (
   <div
     data-box-bg
     aria-hidden
     className={`absolute -z-10 pointer-events-none ${className}`}
-    style={{ top: -inset.top, right: -inset.right, bottom: -inset.bottom, left: -inset.left, ...fill }}
+    style={{ top: -inset.top, right: -inset.right, bottom: -inset.bottom, left: -inset.left, ...fill, ...style }}
   />
 );
+
+/**
+ * The outline on all of a card's text (white on its colours and surfaces): a dark stroke drawn under each letter, so it
+ * reads over anything behind it. Set once on the card face (every line inherits it) and on anything else drawing card
+ * boxes (the big card's extra actions).
+ */
+export const CARD_TEXT_OUTLINE: React.CSSProperties = { WebkitTextStroke: '7px #0c0a09', paintOrder: 'stroke fill' };
 
 // Gothic serif faces (bundled in src/assets/fonts, declared in index.css): blackletter for names, old-style serif for card text
 export const CARD_HEADING_FONT = "'Card Pirata One', 'Cinzel', Georgia, serif";
@@ -111,11 +122,124 @@ export const getCardArtPaths = (card: CardItem): string[] => [
   `/assets/${card.art || `art/${card.id}.png`}`
 ];
 
+/**
+ * Lines up the boxes drawn inside root (passives' and abilities', marked data-box): each box's colour and ring start at
+ * the middle of its first line of tags, so the ring's top edge runs through the centre of the cost and tag chips and the
+ * top half of the name line sits on what's behind the box (outlined to read there). The card face does this for its own
+ * boxes; anything else drawing card boxes (the big card's extra actions, see FocusCardPanel) does it for its own.
+ */
+export function alignCardBoxes(root: HTMLElement): void {
+  root.querySelectorAll<HTMLElement>('[data-box]').forEach((box) => {
+    const head = box.querySelector<HTMLElement>('[data-box-head]');
+    const bg = box.querySelector<HTMLElement>(':scope > [data-box-bg]');
+    if (!head || !bg) return;
+    // (offsets are from the box's padding edge, as the layer's are)
+    const anchor = (head.firstElementChild as HTMLElement | null) || head;
+    const mid = anchor.offsetTop + anchor.offsetHeight / 2;
+    const ringTop = parseFloat(getComputedStyle(bg).borderTopWidth) || 0;
+    bg.style.top = `${Math.round(mid - ringTop / 2)}px`;
+    head.style.webkitTextStroke = String(CARD_TEXT_OUTLINE.WebkitTextStroke);
+    head.style.paintOrder = String(CARD_TEXT_OUTLINE.paintOrder);
+  });
+}
+
+/**
+ * The card text section's fitted size and spacing (set by the card's fit, see CardView), to draw more boxes the same size
+ * beside a card face (the big card's extra actions). Empty until the card has been fitted.
+ */
+export function readCardTextFit(cardRoot: HTMLElement | null): React.CSSProperties {
+  const text = cardRoot?.querySelector<HTMLElement>('[data-card-text]');
+  if (!text || !text.style.fontSize) return {};
+  const out: Record<string, string> = { fontSize: text.style.fontSize };
+  ['--card-lh', '--card-gap', '--card-pad', '--card-box-pad'].forEach((v) => (out[v] = text.style.getPropertyValue(v)));
+  return out as React.CSSProperties;
+}
+
+/** The card text section's box spacing (from the fitted values above): for drawing more boxes the way the card does. */
+export const CARD_TEXT_CLASS = 'flex flex-col p-[var(--card-pad)] gap-[var(--card-gap)] leading-[var(--card-lh)]';
+
+/** The card's own width and side padding (card pixels): its text section is CARD_WIDTH - 2 * CARD_PADDING wide. */
+export const CARD_FACE_WIDTH = 750;
+export const CARD_FACE_PADDING = 24;
+
+/**
+ * One ability's box, exactly as printed on a card: its frame (Assist and Inspiring in their bright colours) in the card's
+ * fill, its cost chip, name, tags, range and 1/Turn chips, and its text, in em of the text section's font size. The big
+ * card draws the unit's other actions (Move, Draw, abilities granted or borrowed) with it too, so they always look like
+ * the card's own boxes: change a box's look here and it changes on every card face and on the big card alike.
+ * costLabel: a cost to show instead of the ability's own (e.g. "Free"); null: no cost chip. frameStyle: laid on the box's
+ * drawn layer (e.g. the big card's light around it).
+ */
+export const CardAbilityBox: React.FC<{
+  ability: CardAbility;
+  fill?: React.CSSProperties;
+  costLabel?: string | null;
+  frameStyle?: React.CSSProperties;
+}> = ({ ability, fill = CARD_SURFACE_FILL, costLabel, frameStyle }) => {
+  const costDisplay = Array.isArray(ability.cost) ? ability.cost.join('-') : ability.cost;
+  const cost = costLabel === undefined ? `${costDisplay} AP` : costLabel;
+  const highlight = getAbilityHighlight(ability);
+  const chip = 'rounded-md font-bold flex items-center gap-[0.15em] px-[0.25em] text-[0.65em]';
+  return (
+    <div
+      data-box
+      className="relative isolate rounded-md flex flex-col px-[0.3em] py-[var(--card-box-pad)] border-solid border-transparent"
+      style={{ borderWidth: highlight.border }}
+    >
+      <BoxFrame
+        className={`${highlight.box} rounded-lg`}
+        fill={fill}
+        inset={{ top: highlight.border, right: highlight.border, bottom: highlight.border, left: highlight.border }}
+        style={frameStyle}
+      />
+      {/* Ability Header: Cost, Name, Tags, Range */}
+      <div data-box-head className="flex items-center gap-[0.25em] flex-wrap">
+        {cost !== null && (
+          <span className="inline-flex items-center gap-[0.1em] bg-amber-600 text-white font-bold rounded-md px-[0.2em] text-[0.8em]">
+            <Zap className="w-[0.8em] h-[0.8em] fill-white" />
+            {withNumerals(cost)}
+          </span>
+        )}
+        <span style={heading} className="text-white text-[1.1em]">{withNumerals(ability.name)}</span>
+        {ability.tags?.map((tag) => (
+          <span
+            key={tag}
+            className={`${highlight.tag[tag] || 'bg-stone-600'} text-white rounded-md capitalize px-[0.25em] font-bold text-[0.65em]`}
+          >
+            {tag}
+          </span>
+        ))}
+        {isStraightLineAbility(ability) ? (
+          <span className={`bg-amber-800 text-white ${chip}`}>
+            <Zap className="w-[0.9em] h-[0.9em] text-amber-300" />
+            Straight Line
+          </span>
+        ) : (ability.usesPath || ability.id === 'bananarang') ? (
+          <span className={`bg-amber-800 text-white ${chip}`}>
+            <Sparkles className="w-[0.9em] h-[0.9em] text-amber-300" />
+            {withNumerals(`Path: ${ability.rangeText || (ability.range ? (ability.range[0] === ability.range[1] ? `${ability.range[0]} tiles` : `${ability.range[0]}-${ability.range[1]} tiles`) : '3 tiles')}`)}
+          </span>
+        ) : (ability.rangeText || (ability.range && ability.range.length > 0)) ? (
+          <span className={`bg-sky-800 text-white ${chip}`}>
+            <Crosshair className="w-[0.9em] h-[0.9em]" />
+            {withNumerals(`Range: ${ability.rangeText || (ability.range ? (ability.range.length > 1 ? `${ability.range[0]}-${ability.range[1]}` : ability.range[0]) : '')}`)}
+          </span>
+        ) : null}
+        {ability.limits?.oncePerTurn && <span className={`bg-rose-700 text-white ${chip}`}>{withNumerals('1/Turn')}</span>}
+      </div>
+
+      {/* Ability Body Text */}
+      {ability.text && <p className="text-white">{withNumerals(formatCardText(ability.text))}</p>}
+    </div>
+  );
+};
+
 export const CardView: React.FC<CardViewProps> = ({
   card,
   customArtUrl,
   scale = 1,
-  id = 'card-render-canvas'
+  id = 'card-render-canvas',
+  fillEdges
 }) => {
   // Bumped once the card fonts finish loading, so the text is re-fitted with their real metrics
   const [fontsVersion, setFontsVersion] = useState(0);
@@ -208,20 +332,7 @@ export const CardView: React.FC<CardViewProps> = ({
       // to read there, like the type line); every other box is drawn whole
       // Every box's colour starts halfway down its first line, so the top half of each name line sits on what is
       // behind the box: the art for the first one, the black of the card for the rest (outlined to read there)
-      textEl.querySelectorAll<HTMLElement>('[data-box]').forEach((box) => {
-        const head = box.querySelector<HTMLElement>('[data-box-head]');
-        const bg = box.querySelector<HTMLElement>(':scope > [data-box-bg]');
-        if (!head || !bg) return;
-        // A box's ring (and its colour) starts at the middle of its first line of tags: the top edge of the ring runs
-        // through the centre of the cost and tag chips every time (offsets are from the box's padding edge, as the
-        // layer's are)
-        const anchor = (head.firstElementChild as HTMLElement | null) || head;
-        const mid = anchor.offsetTop + anchor.offsetHeight / 2;
-        const ringTop = parseFloat(getComputedStyle(bg).borderTopWidth) || 0;
-        bg.style.top = `${Math.round(mid - ringTop / 2)}px`;
-        head.style.webkitTextStroke = '7px #0c0a09';
-        head.style.paintOrder = 'stroke fill';
-      });
+      alignCardBoxes(textEl);
       const firstHead = textEl.querySelector<HTMLElement>('[data-box-head]');
       const firstBox = firstHead?.closest<HTMLElement>('[data-box]') || null;
       const headMid = firstHead ? firstHead.offsetTop + firstHead.offsetHeight / 2 : 0;
@@ -252,9 +363,9 @@ export const CardView: React.FC<CardViewProps> = ({
       } else if (firstHead) {
         topBottom = firstHead.offsetTop + firstHead.offsetHeight + 8;
       }
-      // Behind the text is black, except the top frame, which reaches down around the first box
-      const frameEnd = Math.round(topBottom + ring);
-      textEl.style.background = `linear-gradient(to bottom, transparent ${frameEnd}px, #000000 ${frameEnd}px)`;
+      // Behind the text is the card's border colour (the face's own background, showing through), except the top frame,
+      // which reaches down around the first box
+      textEl.style.background = 'transparent';
 
       // The top frame: from the middle of the name to below the first box, the width of the card's inside
       if (frameEl && headerEl) {
@@ -268,9 +379,10 @@ export const CardView: React.FC<CardViewProps> = ({
 
   // The type line as the card text database words it (see data/typeLines.ts), else one made from the reinforce data
   const typeLine = TYPE_LINES[card.id];
-  // The card's class colour, or a swirl of its classes' colours (see utils/classColours.ts): the bar behind its name and
-  // type line, and its text boxes
-  const cardFill = getCardFill(card);
+  // The card's class colour, or a fade between its classes' colours (see utils/classColours.ts): its border, all the way
+  // round. What's read on it (the name bar, the text boxes) is the one off-black every card shares.
+  const cardFill = getCardFill(card, fillEdges);
+  const surfaceFill = CARD_SURFACE_FILL;
   // The top frame's ring is always the plain one; a first ability with its own ring (e.g. Inspiring) keeps it around
   // its own box, laid over the frame's
   const topRingClass = 'border-[3px] border-stone-600';
@@ -302,9 +414,13 @@ export const CardView: React.FC<CardViewProps> = ({
         fontFamily: CARD_BODY_FONT,
         WebkitFontSmoothing: 'antialiased',
         MozOsxFontSmoothing: 'grayscale',
-        textRendering: 'geometricPrecision'
+        textRendering: 'geometricPrecision',
+        // (every line of text on the card outlined alike)
+        ...CARD_TEXT_OUTLINE,
+        // (the border: the card's padding, all the way round)
+        ...cardFill
       }}
-      className="relative shrink-0 shadow-2xl rounded-sm select-none bg-black overflow-hidden text-white flex flex-col"
+      className="relative shrink-0 shadow-2xl rounded-sm select-none overflow-hidden text-white flex flex-col"
       id={id}
       data-card-face={card.id}
     >
@@ -340,7 +456,7 @@ export const CardView: React.FC<CardViewProps> = ({
           data-header-bg
           aria-hidden
           className="absolute bottom-0 -z-10 rounded-xl border-b-[3px] border-stone-600 pointer-events-none"
-          style={{ top: 0, left: 0, right: 0, ...cardFill }}
+          style={{ top: 0, left: 0, right: 0, ...surfaceFill }}
         />
         <h2
           ref={nameRef}
@@ -355,7 +471,7 @@ export const CardView: React.FC<CardViewProps> = ({
           <div
             ref={typeLineRef}
             className="flex flex-wrap items-center gap-x-2 min-w-0 text-[26px] font-bold text-white leading-tight"
-            style={{ WebkitTextStroke: '7px #0c0a09', paintOrder: 'stroke fill', textShadow: '0 3px 6px rgba(0,0,0,0.9)' }}
+            style={{ ...CARD_TEXT_OUTLINE, textShadow: '0 3px 6px rgba(0,0,0,0.9)' }}
           >
             {subtitle}
           </div>
@@ -410,8 +526,8 @@ export const CardView: React.FC<CardViewProps> = ({
       {/* ================= TEXT SECTION (font size set by the fit above; everything inside is in em) ================= */}
       <div
         ref={textRef}
+        data-card-text
         className="w-[702px] shrink-0 flex flex-col justify-start relative z-10 pointer-events-auto p-[var(--card-pad)] gap-[var(--card-gap)] leading-[var(--card-lh)]"
-        style={{ backgroundColor: '#000000' }}
       >
         {/* Passives: tagged "Passive" on the name line (the rules text says when it applies) */}
         {card.passives && card.passives.length > 0 && (
@@ -422,7 +538,7 @@ export const CardView: React.FC<CardViewProps> = ({
                 data-box
                 className="relative isolate border-l-[6px] border-transparent text-white px-[0.3em] py-[var(--card-box-pad)]"
               >
-                <BoxFrame className="border-l-[6px] border-amber-500 rounded-lg" fill={cardFill} inset={{ top: 0, right: 0, bottom: 0, left: 6 }} />
+                <BoxFrame className="border-l-[6px] border-amber-500 rounded-lg" fill={surfaceFill} inset={{ top: 0, right: 0, bottom: 0, left: 6 }} />
                 <div data-box-head className="flex items-center gap-[0.25em]">
                   <span style={heading} className="text-white text-[1.1em] min-w-0 truncate">
                     {withNumerals(replaceStaticWithPassive(passive.name))}
@@ -443,62 +559,9 @@ export const CardView: React.FC<CardViewProps> = ({
         {/* Abilities */}
         {card.abilities && card.abilities.length > 0 && (
           <div className="flex flex-col gap-[var(--card-gap)]">
-            {card.abilities.map((ability) => {
-              const costDisplay = Array.isArray(ability.cost) ? ability.cost.join('-') : ability.cost;
-              const highlight = getAbilityHighlight(ability);
-              const chip = 'rounded-md font-bold flex items-center gap-[0.15em] px-[0.25em] text-[0.65em]';
-
-              return (
-                <div
-                  key={ability.id || ability.name}
-                  data-box
-                  className="relative isolate rounded-md flex flex-col px-[0.3em] py-[var(--card-box-pad)] border-solid border-transparent"
-                  style={{ borderWidth: highlight.border }}
-                >
-                  <BoxFrame
-                    className={`${highlight.box} rounded-lg`}
-                    fill={cardFill}
-                    inset={{ top: highlight.border, right: highlight.border, bottom: highlight.border, left: highlight.border }}
-                  />
-                  {/* Ability Header: Cost, Name, Tags, Range */}
-                  <div data-box-head className="flex items-center gap-[0.25em] flex-wrap">
-                    <span className="inline-flex items-center gap-[0.1em] bg-amber-600 text-white font-bold rounded-md px-[0.2em] text-[0.8em]">
-                      <Zap className="w-[0.8em] h-[0.8em] fill-white" />
-                      {withNumerals(`${costDisplay} AP`)}
-                    </span>
-                    <span style={heading} className="text-white text-[1.1em]">{withNumerals(ability.name)}</span>
-                    {ability.tags?.map((tag) => (
-                      <span
-                        key={tag}
-                        className={`${highlight.tag[tag] || 'bg-stone-600'} text-white rounded-md capitalize px-[0.25em] font-bold text-[0.65em]`}
-                      >
-                        {tag}
-                      </span>
-                    ))}
-                    {isStraightLineAbility(ability) ? (
-                      <span className={`bg-amber-800 text-white ${chip}`}>
-                        <Zap className="w-[0.9em] h-[0.9em] text-amber-300" />
-                        Straight Line
-                      </span>
-                    ) : (ability.usesPath || ability.id === 'bananarang') ? (
-                      <span className={`bg-amber-800 text-white ${chip}`}>
-                        <Sparkles className="w-[0.9em] h-[0.9em] text-amber-300" />
-                        {withNumerals(`Path: ${ability.rangeText || (ability.range ? (ability.range[0] === ability.range[1] ? `${ability.range[0]} tiles` : `${ability.range[0]}-${ability.range[1]} tiles`) : '3 tiles')}`)}
-                      </span>
-                    ) : (ability.rangeText || (ability.range && ability.range.length > 0)) ? (
-                      <span className={`bg-sky-800 text-white ${chip}`}>
-                        <Crosshair className="w-[0.9em] h-[0.9em]" />
-                        {withNumerals(`Range: ${ability.rangeText || (ability.range ? (ability.range.length > 1 ? `${ability.range[0]}-${ability.range[1]}` : ability.range[0]) : '')}`)}
-                      </span>
-                    ) : null}
-                    {ability.limits?.oncePerTurn && <span className={`bg-rose-700 text-white ${chip}`}>{withNumerals('1/Turn')}</span>}
-                  </div>
-
-                  {/* Ability Body Text */}
-                  <p className="text-white">{withNumerals(formatCardText(ability.text))}</p>
-                </div>
-              );
-            })}
+            {card.abilities.map((ability) => (
+              <CardAbilityBox key={ability.id || ability.name} ability={ability} fill={surfaceFill} />
+            ))}
           </div>
         )}
 
@@ -510,7 +573,7 @@ export const CardView: React.FC<CardViewProps> = ({
             className="relative isolate rounded-md flex flex-col px-[0.3em] py-[var(--card-box-pad)] border-solid border-transparent"
             style={{ borderWidth: 2 }}
           >
-            <BoxFrame className="border-2 border-stone-600 rounded-lg" fill={cardFill} inset={{ top: 2, right: 2, bottom: 2, left: 2 }} />
+            <BoxFrame className="border-2 border-stone-600 rounded-lg" fill={surfaceFill} inset={{ top: 2, right: 2, bottom: 2, left: 2 }} />
             <div data-box-head className="flex items-center gap-[0.25em] flex-wrap">
               <span className="inline-flex items-center gap-[0.1em] bg-stone-600 text-white font-bold rounded-md px-[0.2em] text-[0.8em]">
                 <ShieldAlert className="w-[0.8em] h-[0.8em]" />

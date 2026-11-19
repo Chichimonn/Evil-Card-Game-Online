@@ -1,9 +1,20 @@
 import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { CardAbility, CardItem } from '../types/card';
 import { BattlefieldUnit } from '../types/game';
-import { CardView, CARD_HEADING_FONT, CARD_BODY_FONT } from './CardView';
+import {
+  CardView,
+  CardAbilityBox,
+  alignCardBoxes,
+  readCardTextFit,
+  CARD_TEXT_CLASS,
+  CARD_TEXT_OUTLINE,
+  CARD_BODY_FONT,
+  CARD_FACE_WIDTH,
+  CARD_FACE_PADDING
+} from './CardView';
+import { getCardFill } from '../utils/classColours';
 import { getAbilityApCost } from '../utils/promotedAbilities';
-import { isOncePerTurn, getTurnUsageCount, isAbilityLockedForUnit } from '../utils/turnLimits';
+import { canUseAbilityThisTurn } from '../utils/turnLimits';
 
 /**
  * The match's one big card: the card in focus (a hand card hovered, a unit on the board, or the unit taking the turn),
@@ -18,17 +29,20 @@ import { isOncePerTurn, getTurnUsageCount, isAbilityLockedForUnit } from '../uti
  */
 
 /**
- * An action the unit taking the turn has besides its printed abilities (Move, Draw, Assist, an ability granted to it),
- * drawn as one more ability box under the card's own: the same look (its name hanging over the top of the box, outlined
- * in black), in the colour its button always had.
+ * An action the unit taking the turn has besides its printed abilities (Move, Draw, Assist, an ability granted or
+ * borrowed, a choice of cost), drawn as one more ability box under the card's own. It is drawn by the card's own box
+ * (CardAbilityBox, in CardView), in the card's colour and at the card's text size, so it always looks like the card.
  */
 export interface FocusAction {
   key: string;
   name: string;
-  cost?: string; // e.g. "1 AP"
+  cost?: string; // its cost chip, e.g. "1 AP" or "Free" (none if left out)
   text?: string;
-  // Its colour: the box's border, and the name's colour
-  tone: { border: string; name: string };
+  // The ability itself, when it is one (granted or borrowed): drawn exactly as a card prints it (its tags, range and so
+  // on); the name and text above are used otherwise
+  ability?: CardAbility;
+  // Tags for an action that isn't an ability (e.g. ["assist"]: drawn in Assist's colours, as on a card)
+  tags?: string[];
   usable: boolean;
   active?: boolean; // selected right now (e.g. Move while moving)
   why?: string; // shown on hover when it can't be used
@@ -71,6 +85,69 @@ const HOVER_GLOW = '0 0 0 3px rgba(252, 211, 77, 1), 0 0 18px rgba(252, 211, 77,
 const ACTIVE_GLOW = '0 0 0 4px rgba(251, 191, 36, 1), 0 0 26px rgba(251, 191, 36, 0.9)';
 const PRESSED_GLOW = 'inset 0 4px 14px rgba(0, 0, 0, 0.6), 0 0 0 3px rgba(252, 211, 77, 1)';
 
+// The card's text size and spacing before its fit has been read (the card face's largest, loosest: see CardView)
+const DEFAULT_TEXT_FIT: React.CSSProperties = {
+  fontSize: '36px',
+  ['--card-lh' as string]: '1.15',
+  ['--card-gap' as string]: '0.25em',
+  ['--card-pad' as string]: '0.3em',
+  ['--card-box-pad' as string]: '0.2em'
+};
+
+/**
+ * Card boxes drawn beside the card face, as the card draws them: in card pixels (width), at the card's fitted text size
+ * and spacing (fit), scaled down with the card. Takes up its scaled height. Its boxes are lined up as the card's are.
+ * border: the card's border fill, to carry the card on below it (its coloured edge down the sides and along the bottom,
+ * the card's text section inside it, all in that colour); without one, just the boxes.
+ */
+const ScaledCardText: React.FC<{
+  scale: number;
+  width: number;
+  fit: React.CSSProperties;
+  border?: React.CSSProperties;
+  className?: string;
+  style?: React.CSSProperties;
+  children: React.ReactNode;
+}> = ({ scale, width, fit, border, className = '', style, children }) => {
+  const innerRef = useRef<HTMLDivElement>(null);
+  const [height, setHeight] = useState(0);
+  // (every render: its boxes may have changed)
+  useLayoutEffect(() => {
+    if (innerRef.current) alignCardBoxes(innerRef.current);
+  });
+  useLayoutEffect(() => {
+    const el = innerRef.current;
+    if (!el) return;
+    const update = () => setHeight(el.offsetHeight);
+    update();
+    const ro = new ResizeObserver(update);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+  return (
+    <div className={`relative overflow-hidden ${className}`} style={{ height: height * scale, ...style }}>
+      <div
+        ref={innerRef}
+        // (card text: the app's font rules leave it in the card's fonts, see typography.css)
+        data-card-boxes
+        className={`absolute top-0 left-0 text-white ${border ? '' : CARD_TEXT_CLASS}`}
+        style={{
+          width,
+          transform: `scale(${scale})`,
+          transformOrigin: 'top left',
+          fontFamily: CARD_BODY_FONT,
+          WebkitFontSmoothing: 'antialiased',
+          ...CARD_TEXT_OUTLINE,
+          ...fit,
+          ...(border ? { ...border, padding: `0 ${CARD_FACE_PADDING}px ${CARD_FACE_PADDING}px` } : {})
+        }}
+      >
+        {border ? <div className={CARD_TEXT_CLASS}>{children}</div> : children}
+      </div>
+    </div>
+  );
+};
+
 export const FocusCardPanel: React.FC<Props> = ({
   card,
   customArtUrl,
@@ -95,6 +172,9 @@ export const FocusCardPanel: React.FC<Props> = ({
   const [hovered, setHovered] = useState<number | null>(null);
   const [pressed, setPressed] = useState<number | null>(null);
   const [pressedAction, setPressedAction] = useState<string | null>(null);
+  const [hoveredAction, setHoveredAction] = useState<string | null>(null);
+  // The card face's fitted text size and spacing (read from it once fitted), for the extra boxes
+  const [textFit, setTextFit] = useState<React.CSSProperties>({});
 
   // The card scaled to the panel's width
   useLayoutEffect(() => {
@@ -130,6 +210,8 @@ export const FocusCardPanel: React.FC<Props> = ({
         return { left: r.left - base.left, top: r.top - base.top, width: r.width, height: r.height };
       });
       setRects((prev) => (JSON.stringify(prev) === JSON.stringify(next) ? prev : next));
+      const fit = readCardTextFit(root);
+      setTextFit((prev) => (JSON.stringify(prev) === JSON.stringify(fit) ? prev : fit));
     };
     measure();
     const timers = [60, 250, 600, 1200, 2500].map((ms) => setTimeout(measure, ms));
@@ -143,28 +225,27 @@ export const FocusCardPanel: React.FC<Props> = ({
   const passiveCount = (card.passives || []).length;
   const abilities = card.abilities || [];
 
-  // Each printed ability: whether it can be used now (and why not), and whether it's the one being used
+  // Each printed ability: whether it can be used now (and why not: every rule the game checks when it's used, e.g.
+  // once per turn, locks, "only if this unit moved this turn", barred costs), and whether it's the one being used.
+  // One with a choice of cost (e.g. [1, 2]) is usable with AP for its cheapest; its costs are then offered under it.
   const abilityStates = abilities.map((ability) => {
-    if (!turnUnit) return { usable: false, active: false, cost: 0, why: '' };
-    // (one with a choice of cost is picked from its buttons in the action menu)
-    const variableCost = Array.isArray(ability.cost);
-    const cost = getAbilityApCost(ability);
-    const usedUp = isOncePerTurn(ability) && getTurnUsageCount(turnUnit, ability.id || ability.name) >= 1;
-    const isLocked = isAbilityLockedForUnit(turnUnit, ability);
-    const usable = !locked && !variableCost && !usedUp && !isLocked && turnUnit.currentAp >= cost;
-    const active = activeAbility?.id === ability.id || activeAbility?.parentAbilityId === ability.id;
-    const why = variableCost
-      ? 'choose its cost in the action menu'
-      : isLocked
-        ? 'locked'
-        : usedUp
-          ? 'already used this turn'
-          : turnUnit.currentAp < cost
-            ? `needs ${cost} AP`
-            : locked
-              ? 'finish the current choice first'
-              : '';
-    return { usable, active, cost, why };
+    if (!turnUnit) return { usable: false, active: false, cost: '', why: '' };
+    const costs = Array.isArray(ability.cost) ? ability.cost : [getAbilityApCost(ability)];
+    const cheapest = Math.min(...costs);
+    const check = canUseAbilityThisTurn(turnUnit, ability);
+    const usable = !locked && check.allowed && turnUnit.currentAp >= cheapest;
+    const active =
+      activeAbility?.id === ability.id ||
+      activeAbility?.parentAbilityId === ability.id ||
+      activeAbility?.baseAbilityId === ability.id;
+    const why = locked
+      ? 'finish the current choice first'
+      : !check.allowed
+        ? check.reason || 'not now'
+        : turnUnit.currentAp < cheapest
+          ? `needs ${cheapest} AP`
+          : '';
+    return { usable, active, cost: costs.join('–'), why };
   });
   const stateKey = JSON.stringify(abilityStates.map((a) => [a.usable, a.active]));
 
@@ -213,95 +294,64 @@ export const FocusCardPanel: React.FC<Props> = ({
     };
   }, [currentAp, card.id, card.ap, rects]);
 
-  // The extra actions' boxes, in the card's proportions: the name line, and how far it hangs over the box's top
-  const nameSize = Math.round(38 * scale);
-  const overhang = Math.round(nameSize * 0.55);
+  // The extra boxes are the card's own (CardAbilityBox: the shared off-black surface), at its fitted text size; the area
+  // under the card takes the card's border colour round it
+  // (the area under the card carries the face on: its fade from black down the sides and along the bottom, not the top;
+  // the borrowed abilities laid over the card: the colour alone)
+  const continuedBorder = getCardFill(card, { sides: true, bottom: true });
+  const overlayBorder = getCardFill(card, {});
+  const fit = { ...DEFAULT_TEXT_FIT, ...textFit };
+  // An action as the ability the box shows: the ability itself when it is one, else one made of its name, text and tags
+  const asAbility = (a: FocusAction): CardAbility =>
+    a.ability ?? ({ id: a.key, name: a.name, cost: 0, text: a.text || '', tags: a.tags } as CardAbility);
 
-  // One action's box (an action under the card, or a borrowed ability): see FocusAction
+  // One action's box (an action under the card, a borrowed ability, a choice of cost): see FocusAction. The light, dimming
+  // and press are the printed abilities' own.
   const renderBox = (a: FocusAction) => {
     const isPressed = pressedAction === a.key;
+    const glow = isPressed ? PRESSED_GLOW : a.active ? ACTIVE_GLOW : hoveredAction === a.key && a.usable ? HOVER_GLOW : undefined;
     return (
-            <button
-              key={a.key}
-              type="button"
-              disabled={!a.usable}
-              onClick={a.onClick}
-              onMouseDown={() => a.usable && setPressedAction(a.key)}
-              onMouseUp={() => setPressedAction(null)}
-              onMouseEnter={() => a.onHover?.(true)}
-              onMouseLeave={() => {
-                setPressedAction(null);
-                a.onHover?.(false);
-              }}
-              title={a.usable ? `${a.name}${a.cost ? ` (${a.cost})` : ''}` : `${a.name}: ${a.why || 'not now'}`}
-              className={`group relative isolate w-full text-left transition-[transform,opacity] duration-100 ${
-                a.usable ? 'cursor-pointer' : 'cursor-not-allowed opacity-50'
-              }`}
-              style={{
-                marginTop: -overhang,
-                padding: `0 ${Math.round(14 * scale)}px ${Math.round(10 * scale)}px`,
-                transform: isPressed ? 'scale(0.97)' : undefined
-              }}
-            >
-              {/* The box itself, from halfway down the name: under the text, so its light never crosses the name */}
-              <span
-                aria-hidden
-                className={`absolute inset-x-0 bottom-0 -z-10 rounded-lg border-2 bg-stone-900 transition-shadow duration-100 ${a.tone.border} ${
-                  a.active
-                    ? 'shadow-[0_0_0_4px_rgba(251,191,36,1),0_0_26px_rgba(251,191,36,0.9)]'
-                    : a.usable
-                      ? 'group-hover:shadow-[0_0_0_3px_rgba(252,211,77,1),0_0_18px_rgba(252,211,77,0.75)]'
-                      : ''
-                }`}
-                style={{
-                  top: overhang,
-                  boxShadow: isPressed ? PRESSED_GLOW : undefined
-                }}
-              />
-              <span className="flex items-center" style={{ gap: Math.round(10 * scale) }}>
-                {a.cost && (
-                  <span
-                    className="inline-flex items-center bg-amber-600 text-white font-bold rounded-md shrink-0"
-                    style={{ fontSize: Math.round(26 * scale), padding: `0 ${Math.round(6 * scale)}px`, fontFamily: CARD_BODY_FONT }}
-                  >
-                    {a.cost}
-                  </span>
-                )}
-                <span
-                  className={a.tone.name}
-                  style={{
-                    fontFamily: CARD_HEADING_FONT,
-                    fontSize: nameSize,
-                    lineHeight: 1.1,
-                    // (outlined in black, as a box's first line is on the card, where it hangs over the edge)
-                    WebkitTextStroke: `${Math.max(2, Math.round(7 * scale))}px #0c0a09`,
-                    paintOrder: 'stroke fill'
-                  }}
-                >
-                  {a.name}
-                </span>
-              </span>
-              {a.text && (
-                <span className="block text-white" style={{ fontFamily: CARD_BODY_FONT, fontSize: Math.round(30 * scale), lineHeight: 1.2 }}>
-                  {a.text}
-                </span>
-              )}
-            </button>
+      <button
+        key={a.key}
+        type="button"
+        disabled={!a.usable}
+        onClick={a.onClick}
+        onMouseDown={() => a.usable && setPressedAction(a.key)}
+        onMouseUp={() => setPressedAction(null)}
+        onMouseEnter={() => {
+          setHoveredAction(a.key);
+          a.onHover?.(true);
+        }}
+        onMouseLeave={() => {
+          setHoveredAction(null);
+          setPressedAction(null);
+          a.onHover?.(false);
+        }}
+        title={a.usable ? `${a.name}${a.cost ? ` (${a.cost})` : ''}` : `${a.name}: ${a.why || 'not now'}`}
+        className={`block w-full text-left ${a.usable ? 'cursor-pointer' : 'cursor-not-allowed'}`}
+        style={{
+          opacity: a.usable || a.active ? undefined : 0.5,
+          transform: isPressed ? 'scale(0.97)' : undefined,
+          transition: 'transform 100ms, opacity 150ms'
+        }}
+      >
+        <CardAbilityBox ability={asAbility(a)} costLabel={a.cost ?? null} frameStyle={{ boxShadow: glow, transition: 'box-shadow 120ms' }} />
+      </button>
     );
   };
 
-  // A borrowing's progress and its Done and Cancel, after its borrowed abilities
+  // A borrowing's progress and its Done and Cancel, after its borrowed abilities (in em: drawn among the card's boxes)
   const renderSubControls = () => {
     const c = subActions?.controls;
     if (!c || (!c.label && !c.onDone && !c.onCancel)) return null;
     return (
-      <div className="flex items-center gap-1.5 flex-wrap">
-        {c.label && <span className="text-[10px] font-mono text-amber-200 mr-auto">{c.label}</span>}
+      <div className="flex items-center gap-[0.3em] flex-wrap text-[0.6em]">
+        {c.label && <span className="font-mono text-amber-200 mr-auto">{c.label}</span>}
         {c.onDone && (
           <button
             type="button"
             onClick={c.onDone}
-            className="px-2 py-0.5 rounded bg-amber-500 hover:bg-amber-400 text-stone-950 font-bold text-[10px] uppercase tracking-wider cursor-pointer transition-colors"
+            className="px-[0.5em] py-[0.15em] rounded bg-amber-500 hover:bg-amber-400 text-stone-950 font-bold uppercase tracking-wider cursor-pointer transition-colors"
             title="Stop choosing and use the chosen abilities"
           >
             Done
@@ -311,8 +361,8 @@ export const FocusCardPanel: React.FC<Props> = ({
           <button
             type="button"
             onClick={c.onCancel}
-            className="px-2 py-0.5 rounded bg-stone-800 hover:bg-stone-700 text-stone-300 font-bold text-[10px] uppercase tracking-wider cursor-pointer border border-stone-600 transition-colors"
-            title="Cancel (the AP is already spent; any remaining uses are lost)"
+            className="px-[0.5em] py-[0.15em] rounded bg-stone-800 hover:bg-stone-700 text-stone-300 font-bold uppercase tracking-wider cursor-pointer border border-stone-600 transition-colors"
+            title="Cancel"
           >
             Cancel
           </button>
@@ -321,8 +371,8 @@ export const FocusCardPanel: React.FC<Props> = ({
     );
   };
 
-  // How far a borrowed ability's box is set in from the one borrowing it
-  const indent = Math.round(48 * scale);
+  // How far (card pixels) a borrowed ability's box is set in from the one borrowing it
+  const indent = 48;
   // The printed ability doing the borrowing (if that's one of the card's own): its borrowed abilities go just under its box
   const borrowerIndex = subActions ? abilities.findIndex((ab) => ab.id === subActions.parentKey) : -1;
   const borrowerRect = borrowerIndex >= 0 ? rects[passiveCount + borrowerIndex] : undefined;
@@ -335,9 +385,15 @@ export const FocusCardPanel: React.FC<Props> = ({
             <div
               ref={cardRef}
               className="absolute top-0 left-0 pointer-events-none"
-              style={{ transform: `scale(${scale})`, transformOrigin: 'top left', width: '750px', height: '1050px' }}
+              style={{ transform: `scale(${scale})`, transformOrigin: 'top left', width: `${CARD_FACE_WIDTH}px`, height: '1050px' }}
             >
-              <CardView card={card} customArtUrl={customArtUrl} scale={1} id={`focus-card-${card.id}`} />
+              <CardView
+                card={card}
+                customArtUrl={customArtUrl}
+                scale={1}
+                id={`focus-card-${card.id}`}
+                fillEdges={actions.length > 0 ? { top: true, sides: true } : undefined}
+              />
             </div>
           </div>
           {tag && (
@@ -348,24 +404,27 @@ export const FocusCardPanel: React.FC<Props> = ({
             </span>
           )}
 
-          {/* Abilities a printed ability is borrowing, while it's selected: just under its box, set in, on black so they
-              read over the card's text beneath */}
+          {/* Abilities a printed ability is borrowing, while it's selected: just under its box, set in, on the card's
+              border colour (as the rest of the card), raised by a shadow over the card's text beneath */}
           {subActions && borrowerRect && (subActions.items.length > 0 || subActions.controls) && (
-            <div
-              className="absolute z-20 bg-black/95 rounded-lg flex flex-col shadow-[0_8px_24px_rgba(0,0,0,0.8)]"
+            <ScaledCardText
+              scale={scale}
+              width={Math.max(0, (borrowerRect.width - indent * scale) / scale)}
+              fit={fit}
+              className="z-20 rounded-lg shadow-[0_8px_24px_rgba(0,0,0,0.8)]"
               style={{
+                ...overlayBorder,
+                position: 'absolute',
                 top: borrowerRect.top + borrowerRect.height + Math.round(4 * scale),
-                left: borrowerRect.left + indent,
-                width: borrowerRect.width - indent,
-                padding: `${overhang + Math.round(6 * scale)}px ${Math.round(10 * scale)}px ${Math.round(12 * scale)}px`,
-                gap: overhang + Math.round(14 * scale)
+                left: borrowerRect.left + indent * scale,
+                width: borrowerRect.width - indent * scale
               }}
             >
               {subActions.items.map((sub) => (
                 <React.Fragment key={sub.key}>{renderBox(sub)}</React.Fragment>
               ))}
               {renderSubControls()}
-            </div>
+            </ScaledCardText>
           )}
 
           {/* The printed abilities: clickable layers over their boxes (the light is drawn on the box itself) */}
@@ -400,15 +459,15 @@ export const FocusCardPanel: React.FC<Props> = ({
             })}
         </div>
 
-        {/* The other actions: the card's text area carried on below it, one box each, its name hanging over the top of
-            the box as on the card */}
+        {/* The other actions: the card's text area carried on below it, as the card draws it (its own boxes, its colour,
+            its text size), lined up with the card's text */}
         {actions.length > 0 && (
-          <div
-            className="w-full bg-black rounded-b-xl flex flex-col"
-            style={{
-              padding: `${overhang + Math.round(6 * scale)}px ${Math.round(24 * scale)}px ${Math.round(24 * scale)}px`,
-              gap: overhang + Math.round(14 * scale)
-            }}
+          <ScaledCardText
+            scale={scale}
+            width={CARD_FACE_WIDTH}
+            fit={fit}
+            border={continuedBorder}
+            className="w-full rounded-b-xl"
           >
             {actions.map((a) => (
               <React.Fragment key={a.key}>
@@ -416,7 +475,7 @@ export const FocusCardPanel: React.FC<Props> = ({
                 {/* Abilities it's borrowing, while it's selected (e.g. an Inspiring ability granted to it that uses a
                     promoted card's ability): under it, set in */}
                 {subActions && subActions.parentKey === a.key && (
-                  <div className="flex flex-col" style={{ marginLeft: indent, gap: overhang + Math.round(14 * scale), marginTop: overhang }}>
+                  <div className="flex flex-col gap-[var(--card-gap)]" style={{ marginLeft: indent }}>
                     {subActions.items.map((sub) => (
                       <React.Fragment key={sub.key}>{renderBox(sub)}</React.Fragment>
                     ))}
@@ -425,7 +484,7 @@ export const FocusCardPanel: React.FC<Props> = ({
                 )}
               </React.Fragment>
             ))}
-          </div>
+          </ScaledCardText>
         )}
       </div>
       {children}

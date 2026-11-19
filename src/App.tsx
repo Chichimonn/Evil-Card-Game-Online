@@ -28,7 +28,7 @@ import {
 import { isCpuUsableAbility, chooseCpuAction, chooseCpuTarget, chooseCpuUnit, distanceToNearestEnemy } from './game/cpuPlayer';
 import { GraveyardZone } from './components/GraveyardZone';
 import { CoinFlipModal } from './components/CoinFlipModal';
-import { TurnActionPanel } from './components/TurnActionPanel';
+import { PlayerTurnPanel } from './components/PlayerTurnPanel';
 import { FocusCardPanel, FocusAction, FocusSubActions } from './components/FocusCardPanel';
 import { VictoryModal } from './components/VictoryModal';
 import { TurnTransitionOverlay } from './components/TurnTransitionOverlay';
@@ -207,9 +207,12 @@ import {
   Settings,
   BookOpen,
   HelpCircle,
+  Newspaper,
   Globe
 } from 'lucide-react';
 import { FaqModal } from './components/FaqModal';
+import { NewsModal } from './components/NewsModal';
+import { CURRENT_NEWS } from './data/news';
 import { isAreaAttack, isSelfCentredArea, resolveAreaAttack } from './utils/areaAttacks';
 import { withAttackStatuses, resolveSlowVenom, clearDamageMarks } from './utils/statusEffects';
 import { applyDestroyBlast } from './utils/destroyPassives';
@@ -448,6 +451,12 @@ export default function App() {
   const [activeAbility, setActiveAbility] = useState<CardAbility | null>(null);
   const [multiStageState, setMultiStageState] = useState<MultiStageState | null>(null);
   const [isMovingMode, setIsMovingMode] = useState<boolean>(false);
+  // An ability with a choice of cost (e.g. cost [1, 2]) clicked on the big card: its costs are offered under it there
+  const [costChoice, setCostChoice] = useState<CardAbility | null>(null);
+  // (gone once an ability is being used, or another unit takes the turn)
+  useEffect(() => {
+    setCostChoice(null);
+  }, [activeTurnUnitHex, activeAbility]);
   const [pendingMomentumCharge, setPendingMomentumCharge] = useState<{
     unitHex: string;
     nextHex: string;
@@ -687,6 +696,9 @@ export default function App() {
   // The top bar's menu (gear) and the FAQ window it opens
   const [isGameMenuOpen, setIsGameMenuOpen] = useState(false);
   const [isFaqOpen, setIsFaqOpen] = useState(false);
+  // The news pop-up (see data/news.ts): open on the main screen every time the app starts, until it's closed; the top
+  // bar's menu opens it again
+  const [isNewsOpen, setIsNewsOpen] = useState(true);
   const [scryPending, setScryPending] = useState<{
     card: CardItem;
     player: PlayerId;
@@ -1595,13 +1607,24 @@ export default function App() {
   ): Record<string, BattlefieldUnit> => {
     if (!activeTurnUnit) return board;
     const dealerHex = Object.keys(board).find((h) => board[h].instanceId === activeTurnUnit.instanceId);
-    const hitHexes = events
-      .filter((ev) => (ev.damageAmount === undefined || ev.damageAmount > 0) && ev.hexId !== dealerHex)
-      .map((ev) => ev.hexId);
+    const hitEvents = events.filter(
+      (ev) =>
+        (ev.damageAmount === undefined || ev.damageAmount > 0) &&
+        ev.hexId !== dealerHex &&
+        ev.instanceId !== activeTurnUnit.instanceId
+    );
+    const hitHexes = hitEvents.map((ev) => ev.hexId);
     if (hitHexes.length === 0) return board;
     let next = board;
-    if (dealerHex && !next[dealerHex].dealtDamageThisTurn) {
-      next = { ...next, [dealerHex]: { ...next[dealerHex], dealtDamageThisTurn: true } };
+    if (dealerHex) {
+      // ...and which units it damaged (e.g. Deep Freeze: "only against a target that this unit has dealt damage to"),
+      // by the event's unit when it says (a knockback may have moved it off its tile), else whoever is on the tile
+      const ids = new Set(next[dealerHex].damagedIdsThisTurn || []);
+      hitEvents.forEach((ev) => {
+        const id = ev.instanceId || next[ev.hexId]?.instanceId;
+        if (id) ids.add(id);
+      });
+      next = { ...next, [dealerHex]: { ...next[dealerHex], dealtDamageThisTurn: true, damagedIdsThisTurn: Array.from(ids) } };
     }
     const dealer = dealerHex ? next[dealerHex] : activeTurnUnit;
     const drawTax = getUnitPassives(dealer).some(
@@ -1937,8 +1960,8 @@ export default function App() {
         }
         // "If this unit has dealt damage this turn" (e.g. Combat Roll) and "until the end of the turn" marks on a target
         // (e.g. Parasitic Enzyme) are over
-        if (unitToUpdate.dealtDamageThisTurn || unitToUpdate.attackerMark) {
-          unitToUpdate = { ...unitToUpdate, dealtDamageThisTurn: undefined, attackerMark: undefined };
+        if (unitToUpdate.dealtDamageThisTurn || unitToUpdate.damagedIdsThisTurn || unitToUpdate.attackerMark) {
+          unitToUpdate = { ...unitToUpdate, dealtDamageThisTurn: undefined, damagedIdsThisTurn: undefined, attackerMark: undefined };
         }
         // "...until the end of your opponent's next turn" (e.g. Ethereal Guard): lapses when that opponent's turn ends
         if (unitToUpdate.attackDamageReduction && unitToUpdate.attackDamageReduction.setOnTurnOf !== activePlayer) {
@@ -2322,7 +2345,7 @@ export default function App() {
             effects: [{ ...use, free: true }]
           } as CardAbility;
           patch.grantedAbilities = [...(patch.grantedAbilities || u.grantedAbilities || []), provider];
-          notes.push(`${p.name}: you may use a ${use.filter?.cost ?? 1}AP promoted ability for free (in the action menu)`);
+          notes.push(`${p.name}: you may use a ${use.filter?.cost ?? 1}AP promoted ability for free (under its card)`);
         }
       }
     });
@@ -2340,14 +2363,14 @@ export default function App() {
           limits: { oncePerTurn: true }
         };
         patch.grantedAbilities = [...(patch.grantedAbilities || u.grantedAbilities || []), copy];
-        notes.push(`Critical Forecast: use ${original.name} an additional time for free (in the action menu)`);
+        notes.push(`Critical Forecast: use ${original.name} an additional time for free (under its card)`);
       }
     }
     // Bonuses from cards attached to it (e.g. the fairies' Harmony passives), once during each of its turns:
     //   place: it may place itself on an empty surrounding tile for free (Agile Harmony)
     //   repeatAttack: after it uses a 1AP attack, it may use that attack again for free, dealing 2 less on the first hit
     //   (to a minimum of 1) (Echoing Harmony)
-    // Both are granted as free abilities in the action menu for the rest of the turn.
+    // Both are granted as free abilities (boxes under its card) for the rest of the turn.
     getAttachBonuses(u).forEach((b) => {
       const markKey = `attach_${b.key}`;
       if ((patch.passiveTurnMarks || marks)[markKey] === turnCount) return;
@@ -2366,7 +2389,7 @@ export default function App() {
           effects: [{ type: 'place', target: 'self', tile: 'target' }]
         } as CardAbility;
         patch.grantedAbilities = [...(patch.grantedAbilities || u.grantedAbilities || []), place];
-        notes.push(`${b.passive.name} (${b.card.name}): you may place it on an empty surrounding tile for free (in the action menu)`);
+        notes.push(`${b.passive.name} (${b.card.name}): you may place it on an empty surrounding tile for free (under its card)`);
       }
       if (b.effect.type === 'repeatAttack') {
         const cost = b.effect.appliesTo?.attackCost ?? 1;
@@ -2387,7 +2410,7 @@ export default function App() {
             : {})
         } as CardAbility;
         patch.grantedAbilities = [...(patch.grantedAbilities || u.grantedAbilities || []), copy];
-        notes.push(`${b.passive.name} (${b.card.name}): use ${used.name} again for free${mod ? `, dealing ${-mod.addAmount} less on the first hit` : ''} (in the action menu)`);
+        notes.push(`${b.passive.name} (${b.card.name}): use ${used.name} again for free${mod ? `, dealing ${-mod.addAmount} less on the first hit` : ''} (under its card)`);
       }
     });
     lastArmourRef.current = { id: u.instanceId, armour: patch.armour ?? u.armour };
@@ -2676,7 +2699,7 @@ export default function App() {
     return getAbilityRangeHexesFrom(activeAbility, sourceHex, attackerUnit);
   }, [activeAbility, activeTurnUnitHex, lockedAssist, unitsOnBoard]);
 
-  // Hovering an ability in the action menu previews its range (only abilities that have one; nothing otherwise).
+  // Hovering an ability on the big card previews its range (only abilities that have one; nothing otherwise).
   // Only drawn on the board: targeting always uses abilityRangeHexes.
   const [hoveredActionAbility, setHoveredActionAbility] = useState<CardAbility | null>(null);
   // The menu can go away under the mouse (e.g. the turn ends), so a new acting unit starts with no preview
@@ -2865,6 +2888,10 @@ export default function App() {
       // "Use only against targets that this unit has already attacked this turn" (e.g. Chew Up)
       if (!multiStageTargetInfo && activeAbility?.requires === 'target.attackedBySelfThisTurn') {
         return Boolean(unitsOnBoard[h] && hasAttackedUnitThisTurn(attacker, unitsOnBoard[h].instanceId));
+      }
+      // "Use this ability only against a target that this unit has dealt damage to this turn" (e.g. Deep Freeze)
+      if (!multiStageTargetInfo && activeAbility?.requires === 'target.damagedBySelfThisTurn') {
+        return Boolean(unitsOnBoard[h] && (attacker?.damagedIdsThisTurn || []).includes(unitsOnBoard[h].instanceId));
       }
       // "Use only if this attack is (not) made from the tile behind the target" (e.g. Gleeful Execution, Carve a Smile)
       if (!multiStageTargetInfo && attacker && unitsOnBoard[h] && (activeAbility?.requires === 'selfOnTileBehindTarget' || activeAbility?.requires === '!selfOnTileBehindTarget')) {
@@ -6636,6 +6663,8 @@ export default function App() {
         showNotification(`You must click a highlighted empty tile in range of ${activeAbility.name}.`);
       } else if (activeAbility.target === 'obstructingWall') {
         showNotification("You must click an adjacent Obstructing Wall token.");
+      } else if (activeAbility.requires === 'target.damagedBySelfThisTurn' && unitsOnBoard[hexId]) {
+        showNotification(`${activeAbility.name} can only target a unit that ${activeTurnUnit?.card.name || 'this unit'} has dealt damage to this turn.`);
       } else {
         showNotification("Target is out of range for this ability.");
       }
@@ -6650,7 +6679,7 @@ export default function App() {
     ) {
       if (isPromotedAbilityProvider(activeAbility) && !activeAbility.id.includes('__') && !activeAbility.id.startsWith('anchor_smash')) {
         showNotification(
-          `Please select a qualifying ability from among the promoted cards in the action menu to use with ${activeAbility.name} first!`
+          `Please select a qualifying ability from among the promoted cards (under it on the card) to use with ${activeAbility.name} first!`
         );
         return;
       }
@@ -9211,7 +9240,8 @@ export default function App() {
             stdDamageEvents.push({
               hexId,
               damagedUnitOwner: targetUnit.owner,
-              damageAmount: totalDmgDealt + extraBlockedDamage
+              damageAmount: totalDmgDealt + extraBlockedDamage,
+              instanceId: targetUnit.instanceId
             });
           }
           const unitPassives = getUnitPassives(activeTurnUnit);
@@ -9283,6 +9313,9 @@ export default function App() {
           // Attacks that ignore passives don't trigger other units' damage passives either (e.g. Embedded Press)
           if (stdDamageEvents.length > 0 && !skipsPassives) {
             finalNext = applyDamageEventsAndPassives(stdDamageEvents, next);
+          } else if (stdDamageEvents.length > 0) {
+            // It still dealt the damage (e.g. for Combat Roll or Deep Freeze), even with no passives set off
+            finalNext = markDamageDealtByActiveUnit(stdDamageEvents, next);
           }
 
           checkVictory(finalNext);
@@ -15492,6 +15525,17 @@ export default function App() {
 
   // The unit taking the turn's other actions, as boxes under its card's abilities (see FocusCardPanel): Move, Draw,
   // Assist and abilities granted to it, each in the colour its button always had
+  // The big card's ability click: one with a choice of cost opens that choice under it (click it again to close), any
+  // other is used as usual
+  const handleCardAbilityClick = (ability: CardAbility) => {
+    if (Array.isArray(ability.cost) && ability.cost.length > 1) {
+      setCostChoice((prev) => (prev?.id === ability.id ? null : ability));
+      return;
+    }
+    setCostChoice(null);
+    handleAbilityClick(ability);
+  };
+
   const focusActions: FocusAction[] = (() => {
     const u = activeTurnUnit;
     if (!u || !focusIsTurnUnit) return [];
@@ -15510,11 +15554,6 @@ export default function App() {
       text: omni
         ? 'Place this unit on any empty tile within range 2. Once per turn.'
         : `Move to an empty surrounding tile.${taxed ? ' (Cold Feet: this first move costs 1 more.)' : ''}`,
-      tone: taxed
-        ? { border: 'border-red-700', name: 'text-red-400' }
-        : omni
-          ? { border: 'border-purple-500', name: 'text-purple-300' }
-          : { border: 'border-emerald-600', name: 'text-emerald-300' },
       usable: !locked && !moveBlocked && u.currentAp >= moveCost,
       active: isMovingMode,
       why: omniUsed ? 'already moved this turn' : moveBlocked ? getMoveBlockedMessage(u) : `needs ${moveCost} AP`,
@@ -15528,7 +15567,6 @@ export default function App() {
       name: rapid ? 'Rapid Catalogue' : 'Draw',
       cost: '1 AP',
       text: rapid ? 'Look at the top 2 cards of your deck: put 1 in your hand, 1 on the bottom. Once per turn.' : 'Draw 1 card. Once per turn.',
-      tone: rapid ? { border: 'border-amber-500', name: 'text-amber-300' } : { border: 'border-red-700', name: 'text-red-400' },
       usable: !locked && canDraw && u.currentAp >= 1,
       why: isUnitMindless(u)
         ? "Mindless: it can't draw"
@@ -15539,13 +15577,13 @@ export default function App() {
             : 'needs 1 AP',
       onClick: handleUniversalDraw
     });
-    // Assist (while one is under way, its banner and Cancel are in the action menu)
+    // Assist (while one is under way, its banner and Cancel are in the player's turn panel)
     if (!pendingAssistDeployment && !lockedAssist) {
       out.push({
         key: 'assist',
         name: 'Assist / Inspiring',
         text: "Use an Assist or Inspiring ability from your hand or an ally.",
-        tone: { border: 'border-yellow-400', name: 'text-yellow-300' },
+        tags: ['assist'],
         usable: true,
         onClick: handleAssistButtonClick
       });
@@ -15559,11 +15597,11 @@ export default function App() {
         name: a.name,
         cost: `${cost} AP`,
         text: a.text,
-        tone: { border: 'border-fuchsia-500', name: 'text-fuchsia-300' },
+        ability: a,
         usable: !locked && check.allowed && u.currentAp >= cost,
         active: activeAbility?.id === a.id,
         why: !check.allowed ? check.reason || 'not now' : `needs ${cost} AP`,
-        onClick: () => handleAbilityClick(a),
+        onClick: () => handleCardAbilityClick(a),
         onHover: (on) => setHoveredActionAbility(on ? a : null)
       });
     });
@@ -15614,7 +15652,33 @@ export default function App() {
   // can still take
   const focusSubActions: FocusSubActions | null = (() => {
     const u = activeTurnUnit;
-    if (!u || !focusIsTurnUnit || !activeAbility) return null;
+    if (!u || !focusIsTurnUnit) return null;
+    // A choice of cost: one box per cost, under the ability (each is that ability at that cost, e.g. id "x__cost_2")
+    if (costChoice) {
+      const isGrantedChoice = (u.grantedAbilities || []).some((a) => a.id === costChoice.id);
+      return {
+        parentKey: isGrantedChoice ? `granted-${costChoice.id}` : String(costChoice.id),
+        items: expandVariableCostAbilities([costChoice]).map((v) => {
+          const n = getAbilityApCost(v);
+          const check = canUseAbilityThisTurn(u, v);
+          return {
+            key: `cost-${v.id}`,
+            name: `Spend ${n} AP`,
+            cost: `${n} AP`,
+            ability: v,
+            usable: !lockedAssist && check.allowed && u.currentAp >= n,
+            why: !check.allowed ? check.reason || 'not now' : `needs ${n} AP`,
+            onClick: () => {
+              setCostChoice(null);
+              handleAbilityClick(v);
+            },
+            onHover: (on: boolean) => setHoveredActionAbility(on ? v : null)
+          };
+        }),
+        controls: { label: 'Choose how much AP to spend', onCancel: () => setCostChoice(null) }
+      };
+    }
+    if (!activeAbility) return null;
     const allAbs = [...(u.card.abilities || []), ...(u.grantedAbilities || [])];
     // (the borrowing ability itself, or one cost of it, e.g. gemstone_hammer__cost_2; not a borrowed ability, whose id
     // joins its parent's and its own with "__")
@@ -15640,7 +15704,7 @@ export default function App() {
         name: promAb.name,
         cost: 'Free',
         text: `${promAb.text} (from ${cardName})`,
-        tone: { border: 'border-purple-500', name: 'text-purple-300' },
+        ability: { ...promAb, text: `${promAb.text} (from ${cardName})` },
         usable: !usedUp && !lockedAssist,
         active: activeAbility?.id === `${parent.id}__${promAb.id}`,
         why: usedUp ? 'already used this turn' : 'not now',
@@ -15979,6 +16043,17 @@ export default function App() {
                   role="menuitem"
                   onClick={() => {
                     setIsGameMenuOpen(false);
+                    setIsNewsOpen(true);
+                  }}
+                  className="flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-sm text-left text-stone-200 hover:bg-[#3d3334] hover:text-stone-50 transition-colors cursor-pointer"
+                >
+                  <Newspaper className="w-4 h-4 text-amber-400 shrink-0" />
+                  <span>News</span>
+                </button>
+                <button
+                  role="menuitem"
+                  onClick={() => {
+                    setIsGameMenuOpen(false);
                     setIsFaqOpen(true);
                   }}
                   className="flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-sm text-left text-stone-200 hover:bg-[#3d3334] hover:text-stone-50 transition-colors cursor-pointer"
@@ -16048,6 +16123,8 @@ export default function App() {
       </div>
 
       {isFaqOpen && <FaqModal onClose={() => setIsFaqOpen(false)} />}
+      {/* (not over a match: it waits for the main screen) */}
+      {isNewsOpen && activeTab !== 'play' && <NewsModal news={CURRENT_NEWS} onClose={() => setIsNewsOpen(false)} />}
 
       {/* Online: the link to the other player dropped; reconnecting, or a way out */}
       {reconnect && (
@@ -16852,7 +16929,7 @@ export default function App() {
                       customArtUrl={customArtMap[shownFocus.card.id]}
                       turnUnit={focusIsTurnUnit ? activeTurnUnit : null}
                       activeAbility={activeAbility}
-                      onAbilityClick={handleAbilityClick}
+                      onAbilityClick={handleCardAbilityClick}
                       onHoverAbility={setHoveredActionAbility}
                       locked={Boolean(lockedAssist)}
                       tag={
@@ -16929,28 +17006,18 @@ export default function App() {
               )}
 
 
-              {/* The action menu: the battlefield's bottom right (the big card's column ends above it), the camera
-                  controls out of its left side, as tall. While the big card shows the unit taking the turn, what's on the
-                  card (its abilities, Move, Draw, Assist, granted abilities) isn't repeated here. */}
+              {/* The player's turn panel: the battlefield's bottom right (the big card's column ends above it), the camera
+                  controls out of its left side, as tall. Only what the player does (Pass, Finish/Cancel, Cancel Assist) and
+                  a little information: everything the unit does is on the big card (see FocusCardPanel). */}
               {gamePhase === 'playing' && (
                 <div ref={actionMenuRef} className="absolute right-6 bottom-2.5 z-40 w-[340px] pointer-events-auto">
                   <div className="relative flex flex-col" style={{ minHeight: cameraHeight }}>
-                  <TurnActionPanel
-                    abilitiesOnCard={Boolean(focusIsTurnUnit)}
+                  <PlayerTurnPanel
                     widthClass="w-full flex-1"
-                    onHoverAbility={setHoveredActionAbility}
                     activePlayer={activePlayer}
                     activeTurnUnit={activeTurnUnit}
-                    onUniversalMoveClick={handleUniversalMoveClick}
-                    isMovingMode={isMovingMode}
-                    onUniversalDrawClick={handleUniversalDraw}
-                    canUniversalDraw={!isUnitMindless(activeTurnUnit) && !activeTurnUnit?.usedUniversalDrawThisTurn && activeDeck.length > 0}
-                    onAbilityClick={handleAbilityClick}
-                    activeAbility={activeAbility}
-                    onPromotedAbilitySelect={handlePromotedAbilitySelect}
                     onPassTurn={() => switchTurn(true)}
                     passCount={consecutivePasses}
-                    onAssistClick={handleAssistButtonClick}
                     isAssistLocked={!!lockedAssist}
                     pendingAssistDeployment={pendingAssistDeployment}
                     lockedAssistCard={lockedAssist?.card}
@@ -16961,9 +17028,7 @@ export default function App() {
                     onCancelMultiStage={handleCancelMultiStage}
                     onHoverCard={setHoveredCard}
                     unitsOnBoard={unitsOnBoard}
-                    onCancelPrepaidAbility={cancelPrepaidAbility}
-                    providerChainInfo={providerChainInfo}
-                    onFinishChainChoosing={handleFinishChainChoosing}
+                    onShowTurnUnit={activeTurnUnit && !focusIsTurnUnit ? () => setFocusCard(null) : null}
                   />
                   {renderCameraFlyout()}
                   </div>

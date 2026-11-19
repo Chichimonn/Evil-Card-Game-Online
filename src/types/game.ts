@@ -87,6 +87,9 @@ export interface BattlefieldUnit {
   // e.g. Ethereal Guard: takes this much less from each attack; cleared when a turn of its opponent ends
   attackDamageReduction?: { amount: number; sourceName: string; setOnTurnOf?: PlayerId; minDamage?: number };
   lockStepBy?: string; // e.g. Lock-Step: the unit that follows this one's moves; cleared when its owner's turn ends
+  // the units it dealt damage to this turn, by instanceId (e.g. Deep Freeze: "only against a target that this unit has
+  // dealt damage to this turn"); cleared with dealtDamageThisTurn
+  damagedIdsThisTurn?: string[];
   dealtDamageThisTurn?: boolean; // this unit dealt damage this turn (e.g. Combat Roll); cleared at the end of every turn // e.g. Critical Forecast: the 1AP ability chosen this turn, whose first use repeats for free
   cannotInflictKnockbackNextOwnTurn?: boolean; // e.g. Hold the Gate drawback: cleared when the owner's next turn ends
 }

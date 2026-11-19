@@ -901,54 +901,8 @@ export function getAbilityHitStructure(
     };
   }
 
-  // Script for Overload Gemstone (Catalyst Curator):
-  // "Use a 1AP attack on the promoted card twice for free as this ability, both against the same target.
-  // Use only once per turn. During your next turn, this unit can't use this ability."
-  if (
-    ability.parentAbilityId === 'overload_gemstone' ||
-    ability.id?.startsWith('overload_gemstone__')
-  ) {
-    const actualAttacker = attacker || options?.attacker;
-    const basePromotedId = ability.id?.startsWith('overload_gemstone__')
-      ? ability.id.slice('overload_gemstone__'.length)
-      : ability.id;
-
-    const baseAbility: CardAbility = {
-      ...ability,
-      id: basePromotedId,
-      parentAbilityId: undefined,
-      name: ability.name.replace(/^Overload Gemstone \((.*)\)$/, '$1')
-    };
-
-    const baseStruct = getAbilityHitStructure(baseAbility, actualAttacker, target, options);
-    const baseHits = baseStruct.hits && baseStruct.hits.length > 0 ? baseStruct.hits : [{ hitIndex: 1, damage: 5 }];
-
-    // Two sequential attacks against the same target
-    const hits: AttackHit[] = [
-      ...baseHits.map((h, i) => ({
-        ...h,
-        hitIndex: i + 1,
-        conditionalNote: h.conditionalNote ? `${h.conditionalNote} (1st attack)` : '1st attack'
-      })),
-      ...baseHits.map((h, i) => ({
-        ...h,
-        hitIndex: baseHits.length + i + 1,
-        conditionalNote: h.conditionalNote ? `${h.conditionalNote} (2nd attack)` : '2nd attack'
-      }))
-    ];
-
-    applyAttackerBonusPassives(hits, ability, actualAttacker, target, options);
-    const totalDmg = hits.reduce((s, h) => s + h.damage, 0);
-    const promoName = baseAbility.name || 'promoted attack';
-
-    return {
-      isBladefury: false,
-      isMultiHit: true,
-      hits,
-      summaryText: `Overload Gemstone: Uses ${promoName} twice against target (${hits.map((h) => `${h.damage}`).join(' + ')} = ${totalDmg} total dmg)`,
-      badgeText: `${hits.map((h) => h.damage).join('+')} Dmg`
-    };
-  }
+  // Overload Gemstone's uses of the promoted attack ("twice ... both against the same target") are two separate
+  // uses, run by the provider chain (see providerChain.ts: times 2, repeatAsSeparateUses): each is the attack itself, once
 
   if (ability.id === 'overload_gemstone' || ability.name === 'Overload Gemstone') {
     const actualAttacker = attacker || options?.attacker;

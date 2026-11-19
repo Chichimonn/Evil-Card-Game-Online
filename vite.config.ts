@@ -6,6 +6,16 @@ import path from 'path';
 import {defineConfig, type Plugin} from 'vite';
 
 const ART_DIR = path.resolve(import.meta.dirname, 'public/assets/art');
+const SRC_DIR = path.resolve(import.meta.dirname, 'src');
+
+/**
+ * Whether file is inside dir. By path.relative, not by comparing the text: on Windows the watcher may name the same
+ * folder with a different drive letter case or slashes (c:/users/... vs C:\Users\...), which a text comparison misses.
+ */
+const isInside = (file: string, dir: string): boolean => {
+  const rel = path.relative(dir, path.resolve(file));
+  return rel !== '' && !rel.startsWith('..') && !path.isAbsolute(rel);
+};
 
 /**
  * A fingerprint of the card art and set backgrounds (every file under public/assets/art: its path, size and time
@@ -101,14 +111,14 @@ function restartOnArtChange(): Plugin {
       let timer: NodeJS.Timeout | null = null;
       let faceCodeId = computeFaceCodeId();
       const isFaceCodeChange = (file: string) => {
-        if (!/\.(tsx?|css)$/.test(file) || !path.resolve(file).startsWith(path.resolve(import.meta.dirname, 'src'))) return false;
+        if (!/\.(tsx?|css)$/.test(file) || !isInside(file, SRC_DIR)) return false;
         const id = computeFaceCodeId();
         if (id === faceCodeId) return false;
         faceCodeId = id;
         return true;
       };
       const onChange = (file: string) => {
-        if (!path.resolve(file).startsWith(ART_DIR) && !isFaceCodeChange(file)) return;
+        if (!isInside(file, ART_DIR) && !isFaceCodeChange(file)) return;
         // (a copy of several files at once restarts once)
         if (timer) clearTimeout(timer);
         timer = setTimeout(() => server.restart(), 500);
