@@ -20,6 +20,22 @@ const KIND_STYLE: Record<LogKind, string> = {
   note: 'text-stone-400 italic'
 };
 
+/**
+ * A slow, slight swell (no flashing): the turn banner, and Endless's wave line in the log, in step. SLOW_PULSE_CSS
+ * defines it (put it on the page once, in a <style>); give each element the "slow-pulse" class and pulseInStep()'s
+ * style, which starts it as far into a beat as the clock is (rather than from when it appeared), so they all swell
+ * together however long each has been showing.
+ */
+export const SLOW_PULSE_MS = 3200;
+export const SLOW_PULSE_CSS = `
+@keyframes slow-pulse {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.06); }
+}
+.slow-pulse { animation: slow-pulse ${SLOW_PULSE_MS}ms ease-in-out infinite; }
+`;
+export const pulseInStep = (): React.CSSProperties => ({ animationDelay: `-${Date.now() % SLOW_PULSE_MS}ms` });
+
 // How long a new entry stands out
 const FLASH_MS = 5000;
 // Three quick flashes, then a slow fade
@@ -33,11 +49,6 @@ const FLASH_CSS = `
   100% { background-color: rgba(251, 191, 36, 0); }
 }
 .log-flash { animation: log-flash ${FLASH_MS}ms ease-out forwards; }
-@keyframes log-pinned-pulse {
-  0%, 100% { background-color: rgba(251, 191, 36, 0.06); }
-  50% { background-color: rgba(251, 191, 36, 0.24); }
-}
-.log-pinned { animation: log-pinned-pulse 3.5s ease-in-out infinite; }
 `;
 
 interface Props {
@@ -115,7 +126,7 @@ export default function GameLogPanel({ entries, handoffStatus, viewer, open, onT
   return (
     // (scrolling over the log scrolls the log only, not the battlefield's zoom)
     <div ref={wrapRef} data-input-always className="relative pointer-events-auto" onWheel={(e) => e.stopPropagation()}>
-      <style>{FLASH_CSS}</style>
+      <style>{FLASH_CSS + SLOW_PULSE_CSS}</style>
       {!inline && (
       <button
         onClick={onToggle}
@@ -135,7 +146,7 @@ export default function GameLogPanel({ entries, handoffStatus, viewer, open, onT
           className="w-full flex items-center justify-between px-3 py-1.5 rounded-xl bg-stone-900/95 border border-stone-700/80 shadow-2xl backdrop-blur-md text-xs font-mono text-stone-300 hover:text-amber-300 cursor-pointer"
           title="Show the match log"
         >
-          <span className="flex items-center gap-2 font-bold">
+          <span className="flex items-center gap-2 font-title text-sm">
             <ScrollText className="w-4 h-4 text-amber-400" /> Match log
           </span>
           <ChevronUp className="w-4 h-4" />
@@ -149,7 +160,7 @@ export default function GameLogPanel({ entries, handoffStatus, viewer, open, onT
           style={expanded ? { height: maxHeight } : undefined}
         >
           <div className="flex items-center justify-between px-3 py-1.5 border-b border-stone-800">
-            <span className="flex items-center gap-2 text-stone-200 font-bold">
+            <span className="flex items-center gap-2 text-stone-200 font-title text-sm">
               <ScrollText className="w-4 h-4 text-amber-400" /> Match log
             </span>
             <span className="flex items-center gap-2">
@@ -197,7 +208,10 @@ export default function GameLogPanel({ entries, handoffStatus, viewer, open, onT
             })}
           </div>
           {pinned && (
-            <div className="log-pinned px-3 py-1.5 border-t border-stone-800 text-amber-200 font-bold">{pinned}</div>
+            // (the same slow swell as the turn banner, in step with it: see pulseInStep)
+            <div className="slow-pulse px-3 py-1.5 border-t border-stone-800 bg-amber-400/10 text-amber-200 font-bold" style={pulseInStep()}>
+              {pinned}
+            </div>
           )}
           {/* (the turn handoff's details, fingerprints and all, are for the console: the log says only that something
               went wrong, in plain words) */}

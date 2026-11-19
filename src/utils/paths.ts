@@ -154,11 +154,14 @@ export function getNextPathHexes(casterHex: string, path: string[], spec: PathSp
 /**
  * Returns the new path after a click.
  * Straight paths: the clicked tile is the end, the whole line is filled in.
- * Other paths: the click adds a tile; clicking the last tile again removes it.
+ * Other paths: the click adds a tile; clicking the last tile again removes it, and clicking an earlier one takes the path
+ * back to it (everything after it is unselected), as Charge and Flight paths do.
  */
 export function extendPath(casterHex: string, path: string[], clicked: string, spec: PathSpec): string[] {
   if (spec.straight) return getStraightLines(casterHex, spec.maxLength).get(clicked) ?? path;
   if (path.length > 0 && path[path.length - 1] === clicked) return path.slice(0, -1);
+  const earlier = path.indexOf(clicked);
+  if (earlier >= 0) return path.slice(0, earlier + 1);
   return [...path, clicked];
 }
 

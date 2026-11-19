@@ -48,8 +48,8 @@ interface TurnActionPanelProps {
   // Active multi-use provider chain (e.g. Dual Casting): progress label and which promoted abilities may still be chosen
   providerChainInfo?: { label: string; candidateIds: string[]; canFinishChoosing: boolean } | null;
   onFinishChainChoosing?: () => void;
-  // Shown under the unit's card, whose printed abilities are its buttons (see FocusCardPanel): leave out what's printed
-  // on it (its own abilities, except one with a choice of cost, and its own passives)
+  // The unit's card is showing with its abilities as buttons, and Move, Draw, Assist and granted abilities as boxes under
+  // them (see FocusCardPanel): leave all those out here (except a printed ability's choice of cost), and its own passives
   abilitiesOnCard?: boolean;
   // The panel's width classes (default: its own fixed widths)
   widthClass?: string;
@@ -129,7 +129,7 @@ export const TurnActionPanel: React.FC<TurnActionPanelProps> = ({
       {/* Header Bar: Active Player Badge & Pass Turn */}
       <div className="flex items-center justify-between gap-2 pb-1 border-b border-stone-800">
         <div
-          className={`px-3 py-1 rounded-full text-xs font-mono font-black uppercase tracking-wider border shadow-md ${
+          className={`px-3 py-1 rounded-full text-sm font-title tracking-wider border shadow-md ${
             isPlayer1
               ? 'bg-sky-950 border-sky-400 text-sky-200'
               : 'bg-rose-950 border-rose-500 text-rose-200'
@@ -156,33 +156,6 @@ export const TurnActionPanel: React.FC<TurnActionPanelProps> = ({
       {/* Taking turn info or prompt */}
       {activeTurnUnit ? (
         <div className="flex flex-col gap-1.5">
-          <div
-            className="flex items-center justify-between bg-stone-950/80 px-2.5 py-1 rounded-lg border border-stone-800/80 hover:border-amber-400/60 transition-colors text-xs cursor-pointer"
-            onMouseEnter={() => onHoverCard?.(activeTurnUnit.card)}
-            onMouseLeave={() => onHoverCard?.(null)}
-            title={`Preview card: ${activeTurnUnit.card.name}`}
-          >
-            <div className="flex items-center gap-1.5 min-w-0">
-              <span className="text-[10px] font-mono text-stone-400 uppercase">Unit:</span>
-              <strong className="text-amber-300 font-serif font-bold text-xs truncate">
-                {activeTurnUnit.card.name}
-              </strong>
-            </div>
-            <div className="flex items-center gap-1.5 shrink-0">
-              {activeTurnUnit.turnStartingAp !== undefined && activeTurnUnit.turnStartingAp < activeTurnUnit.card.ap && (
-                <span
-                  className="px-1.5 py-0.5 rounded-md bg-purple-950/95 border border-purple-400 text-purple-200 font-black text-[9px] font-mono shadow-xs animate-pulse"
-                  title={`Noxious Burst: Started turn with 1 less AP (${activeTurnUnit.turnStartingAp} AP)`}
-                >
-                  ☠️-1AP
-                </span>
-              )}
-              <span className="px-2 py-0.5 rounded-full bg-amber-950/90 border border-amber-500/80 text-amber-300 font-black text-[10px] shrink-0 font-mono">
-                {activeTurnUnit.currentAp} AP
-              </span>
-            </div>
-          </div>
-
           {/* Multi-Stage Targeting Indicator Banner */}
           {multiStageState && multiStageTargetInfo && (
             <div className="bg-amber-950/80 border-2 border-amber-400 rounded-lg p-2.5 flex flex-col gap-1.5 shadow-lg">
@@ -256,7 +229,7 @@ export const TurnActionPanel: React.FC<TurnActionPanelProps> = ({
                 )}
               </div>
             </div>
-          ) : (
+          ) : abilitiesOnCard ? null : (
             <button
               onClick={onAssistClick}
               className="w-full flex items-center justify-center gap-2 px-3 py-1.5 rounded-lg border text-xs font-serif font-bold transition-all shadow-md select-none group bg-yellow-950/60 hover:bg-yellow-900/80 border-yellow-400 text-yellow-300 cursor-pointer"
@@ -271,8 +244,8 @@ export const TurnActionPanel: React.FC<TurnActionPanelProps> = ({
             </button>
           )}
 
-          {/* Universal Actions (Move & Draw) */}
-          {(() => {
+          {/* Universal Actions (Move & Draw): on the card instead, when it's showing them */}
+          {!abilitiesOnCard && (() => {
             const moveCost = activeTurnUnit ? getUniversalMoveCost(activeTurnUnit, unitsOnBoard) : 1;
             const isMoveTaxed = activeTurnUnit ? hasColdFeetEffect(activeTurnUnit, unitsOnBoard) && !activeTurnUnit.movedThisTurn : false;
             const hasEsoteric = activeTurnUnit ? hasEsotericPathways(activeTurnUnit) : false;
@@ -365,9 +338,9 @@ export const TurnActionPanel: React.FC<TurnActionPanelProps> = ({
           {(() => {
             const printed = activeTurnUnit.card.abilities || [];
             const granted = activeTurnUnit.grantedAbilities || [];
-            // (on the card: only what isn't a button on it, i.e. granted abilities and a printed one's cost choices)
+            // (on the card, granted abilities are boxes there too: only a printed one's cost choices are left here)
             const allAbilities = expandVariableCostAbilities(
-              abilitiesOnCard ? [...printed.filter((a) => Array.isArray(a.cost)), ...granted] : [...printed, ...granted]
+              abilitiesOnCard ? printed.filter((a) => Array.isArray(a.cost)) : [...printed, ...granted]
             );
             const bonusRange = activeTurnUnit.bonusRangeThisTurn || 0;
 
@@ -543,8 +516,9 @@ export const TurnActionPanel: React.FC<TurnActionPanelProps> = ({
             );
           })()}
 
-          {/* Qualifying Abilities from Promoted Cards (Only allowed once the parent ability is selected with its AP cost) */}
-          {parentProviderAbility && (
+          {/* Qualifying Abilities from Promoted Cards (Only allowed once the parent ability is selected with its AP cost).
+              When the card is showing them, they and their Done and Cancel are under the borrowing ability there. */}
+          {parentProviderAbility && !abilitiesOnCard && (
             <div className="flex flex-col gap-1.5 pt-2 border-t border-purple-900/60 animate-in fade-in duration-150">
               <div className="flex items-center justify-between">
                 <span className="text-[10px] font-mono text-purple-300 font-bold uppercase tracking-wider truncate">
@@ -582,7 +556,8 @@ export const TurnActionPanel: React.FC<TurnActionPanelProps> = ({
                 </div>
               )}
 
-              {qualifyingAbilities.length === 0 ? (
+              {/* (the abilities themselves are under the borrowing ability on the card, when it's showing them) */}
+              {abilitiesOnCard ? null : qualifyingAbilities.length === 0 ? (
                 <div className="text-[10px] font-mono text-amber-300/80 p-2 bg-stone-950/80 rounded border border-amber-900/40 text-center">
                   No matching qualifying abilities among promoted cards for {parentProviderAbility.name}.
                 </div>

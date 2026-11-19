@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useLayoutEffect, useMemo, useRef } from 'react';
 import { flushSync } from 'react-dom';
 import { initialCardsData } from './data/cardsData';
 import { CardItem, CardAbility, CardPassive } from './types/card';
@@ -29,7 +29,7 @@ import { isCpuUsableAbility, chooseCpuAction, chooseCpuTarget, chooseCpuUnit, di
 import { GraveyardZone } from './components/GraveyardZone';
 import { CoinFlipModal } from './components/CoinFlipModal';
 import { TurnActionPanel } from './components/TurnActionPanel';
-import { FocusCardPanel } from './components/FocusCardPanel';
+import { FocusCardPanel, FocusAction, FocusSubActions } from './components/FocusCardPanel';
 import { VictoryModal } from './components/VictoryModal';
 import { TurnTransitionOverlay } from './components/TurnTransitionOverlay';
 import { CycleModal } from './components/CycleModal';
@@ -229,7 +229,7 @@ import {
   describeCardChanges,
   boardLogSnapshot
 } from './game/turnHandoff';
-import GameLogPanel from './components/GameLogPanel';
+import GameLogPanel, { pulseInStep } from './components/GameLogPanel';
 import OnlineLobbyModal from './components/OnlineLobbyModal';
 import { RoomConnection, RoomRole, RoomStatus, normalizeRoomCode } from './net/connection';
 import { makeSecret, commitTo, checkReveal, combineSeed, seatsFromSeed } from './net/lobby';
@@ -260,6 +260,7 @@ import {
   cannotUseExactCostStatus,
 
   getMoveBlockedMessage,
+  hasColdFeetEffect,
   applyRemovePassives,
   ignoresReactEffects,
   ignoresPassives,
@@ -376,6 +377,31 @@ export default function App() {
   // The match's big card (see FocusCardPanel): the hand card last hovered, or a unit hovered on the board while no unit
   // is taking the turn. Null: the unit taking the turn, if any.
   const [focusCard, setFocusCard] = useState<{ card: CardItem; owner?: PlayerId } | null>(null);
+  // How tall the camera controls' contents are (0 while they're hidden): the panel they come out of is never shorter, so
+  // neither gets squashed
+  const cameraContentRef = useRef<HTMLDivElement>(null);
+  const [cameraHeight, setCameraHeight] = useState(0);
+  useLayoutEffect(() => {
+    // (+ the box's padding and border)
+    const h = cameraContentRef.current ? cameraContentRef.current.offsetHeight + 16 + 2 : 0;
+    if (h !== cameraHeight) setCameraHeight(h);
+  });
+  // The height of the action menu (or, in setup, the setup controls) at the bottom right: the big card's column ends just
+  // above it
+  const actionMenuRef = useRef<HTMLDivElement>(null);
+  const [actionMenuHeight, setActionMenuHeight] = useState(0);
+  useLayoutEffect(() => {
+    const el = actionMenuRef.current;
+    if (!el) {
+      setActionMenuHeight(0);
+      return;
+    }
+    const update = () => setActionMenuHeight(el.offsetHeight);
+    update();
+    const ro = new ResizeObserver(update);
+    ro.observe(el);
+    return () => ro.disconnect();
+  });
   // The version and set next to the title, behind a small arrow on their left (hidden at first, like the gallery bar)
   const [isVersionOpen, setIsVersionOpen] = useState(false);
   const [customArtMap, setCustomArtMap] = useState<Record<string, string>>({});
@@ -450,8 +476,8 @@ export default function App() {
     manualCameraChangeRef.current = true;
   };
   // The camera controls can be tucked away behind a small arrow, like the gallery bar and the version
-  // (hidden at first)
-  const [isCameraOpen, setIsCameraOpen] = useState(false);
+  // (shown at first)
+  const [isCameraOpen, setIsCameraOpen] = useState(true);
   // (open from the start: the game's notices are written there, see showNotification)
   const [isLogOpen, setIsLogOpen] = useState(true);
   const MAX_CAMERA_PAN = 900;
@@ -475,6 +501,16 @@ export default function App() {
     if (localPlayer) setBoardYawState(localPlayer === 'player1' ? 0 : 180);
   }, [localPlayer]);
   const currentDefaultYaw = homeSide === 'player1' ? 0 : 180;
+  // The angle the board is drawn at: boardYaw, but reached the shortest way round from where it was (the turn animates, and
+  // 300° to 0° would otherwise spin back through 240°, 180°...: it goes on to 360° instead). Only how it's drawn;
+  // boardYaw stays 0-359 everywhere else.
+  const shownYawRef = useRef(boardYaw);
+  const shownYaw = useMemo(() => {
+    const prev = shownYawRef.current;
+    const next = prev + ((((boardYaw - prev) % 360) + 540) % 360) - 180;
+    shownYawRef.current = next;
+    return next;
+  }, [boardYaw]);
   useEffect(() => {
     if (!manualCameraChangeRef.current) return;
     manualCameraChangeRef.current = false;
@@ -6387,6 +6423,14 @@ export default function App() {
           });
           return;
         }
+        // (an earlier tile of the path: back to it, the rest unselected)
+        if (targets.includes(hexId)) {
+          setMultiStageState({
+            ...multiStageState,
+            targets: targets.slice(0, targets.indexOf(hexId) + 1)
+          });
+          return;
+        }
 
         if (targets.length === 0) {
           const dist = getHexDistance(activeTurnUnitHex, hexId);
@@ -6564,6 +6608,13 @@ export default function App() {
 
     // Case 3: Executing Ability on target (Unit or Tile)
     // Using abilities on a target in range places damage counters, creates tokens, moves units, and spends AP
+    // A straight-line ability's paths are set (its six lines): clicking anywhere along one of them is clicking that
+    // line's target (the nearest unit it can hit there), when it has one, without having to click the unit itself
+    if (activeAbility && activeTurnUnitHex && !multiStageState && isStraightLineAbility(activeAbility) && !validAttackHexes.includes(hexId)) {
+      const line = getAllStraightLinesFromHex(activeTurnUnitHex).find((l) => l.includes(hexId));
+      const lineTarget = line?.find((h) => validAttackHexes.includes(h));
+      if (lineTarget) hexId = lineTarget;
+    }
     const isTargetLegal = isStraightLineAbility(activeAbility)
       ? validAttackHexes.includes(hexId)
       : (validAttackHexes.includes(hexId) || (abilityRangeHexes.includes(hexId) && isAbilityTargetingAnyTile(activeAbility)));
@@ -15439,6 +15490,279 @@ export default function App() {
     handleAbilityClick(action.ability);
   };
 
+  // The unit taking the turn's other actions, as boxes under its card's abilities (see FocusCardPanel): Move, Draw,
+  // Assist and abilities granted to it, each in the colour its button always had
+  const focusActions: FocusAction[] = (() => {
+    const u = activeTurnUnit;
+    if (!u || !focusIsTurnUnit) return [];
+    const out: FocusAction[] = [];
+    const locked = Boolean(lockedAssist);
+    // Move (Cold Feet / Gravity: dearer, in red; Magical Omnipresence: placed within range 2, once a turn, in purple)
+    const moveCost = getUniversalMoveCost(u, unitsOnBoard);
+    const taxed = hasColdFeetEffect(u, unitsOnBoard) && !u.movedThisTurn;
+    const omni = hasMagicalOmnipresence(u);
+    const omniUsed = omni && Boolean(u.movedThisTurn);
+    const moveBlocked = isUnitMovementDisabled(u) || omniUsed;
+    out.push({
+      key: 'move',
+      name: 'Move',
+      cost: `${moveCost} AP`,
+      text: omni
+        ? 'Place this unit on any empty tile within range 2. Once per turn.'
+        : `Move to an empty surrounding tile.${taxed ? ' (Cold Feet: this first move costs 1 more.)' : ''}`,
+      tone: taxed
+        ? { border: 'border-red-700', name: 'text-red-400' }
+        : omni
+          ? { border: 'border-purple-500', name: 'text-purple-300' }
+          : { border: 'border-emerald-600', name: 'text-emerald-300' },
+      usable: !locked && !moveBlocked && u.currentAp >= moveCost,
+      active: isMovingMode,
+      why: omniUsed ? 'already moved this turn' : moveBlocked ? getMoveBlockedMessage(u) : `needs ${moveCost} AP`,
+      onClick: handleUniversalMoveClick
+    });
+    // Draw (or Rapid Catalogue, which replaces it, in amber)
+    const rapid = getUnitPassives(u).some((p) => p.id === 'rapid_catalog' || p.id === 'rapid_catalogue' || /^Rapid Catalog(ue)?$/.test(p.name));
+    const canDraw = !isUnitMindless(u) && !u.usedUniversalDrawThisTurn && activeDeck.length > 0;
+    out.push({
+      key: 'draw',
+      name: rapid ? 'Rapid Catalogue' : 'Draw',
+      cost: '1 AP',
+      text: rapid ? 'Look at the top 2 cards of your deck: put 1 in your hand, 1 on the bottom. Once per turn.' : 'Draw 1 card. Once per turn.',
+      tone: rapid ? { border: 'border-amber-500', name: 'text-amber-300' } : { border: 'border-red-700', name: 'text-red-400' },
+      usable: !locked && canDraw && u.currentAp >= 1,
+      why: isUnitMindless(u)
+        ? "Mindless: it can't draw"
+        : u.usedUniversalDrawThisTurn
+          ? 'already drawn this turn'
+          : activeDeck.length === 0
+            ? 'your deck is empty'
+            : 'needs 1 AP',
+      onClick: handleUniversalDraw
+    });
+    // Assist (while one is under way, its banner and Cancel are in the action menu)
+    if (!pendingAssistDeployment && !lockedAssist) {
+      out.push({
+        key: 'assist',
+        name: 'Assist / Inspiring',
+        text: "Use an Assist or Inspiring ability from your hand or an ally.",
+        tone: { border: 'border-yellow-400', name: 'text-yellow-300' },
+        usable: true,
+        onClick: handleAssistButtonClick
+      });
+    }
+    // Abilities granted to it this turn (e.g. Inspiring)
+    (u.grantedAbilities || []).forEach((a, i) => {
+      const cost = getAbilityApCost(a);
+      const check = canUseAbilityThisTurn(u, a);
+      out.push({
+        key: `granted-${a.id || i}`,
+        name: a.name,
+        cost: `${cost} AP`,
+        text: a.text,
+        tone: { border: 'border-fuchsia-500', name: 'text-fuchsia-300' },
+        usable: !locked && check.allowed && u.currentAp >= cost,
+        active: activeAbility?.id === a.id,
+        why: !check.allowed ? check.reason || 'not now' : `needs ${cost} AP`,
+        onClick: () => handleAbilityClick(a),
+        onHover: (on) => setHoveredActionAbility(on ? a : null)
+      });
+    });
+    return out;
+  })();
+
+  // Cancelling an ability already paid for (a chain of borrowed abilities, or a free one its provider paid for): the AP
+  // stays spent (the action menu's Cancel, and the card's under borrowed abilities)
+  const cancelPrepaidAbility = () => {
+    if (providerChain) {
+      endProviderChain(`Cancelled ${providerChain.parent.name}: remaining uses are lost (its AP was already spent).`, false);
+      return;
+    }
+    showNotification(`Cancelled ${activeAbility?.name || 'ability'} (its AP was already spent).`);
+    setActiveAbility(null);
+    if (activeTurnUnit && activeTurnUnit.currentAp <= 0) switchTurn(false);
+  };
+  // A chain of borrowed abilities' progress (e.g. "Chosen 1/3"), which abilities it can still take, and whether it can
+  // be finished now (Done)
+  const providerChainInfo: { label: string; candidateIds: string[]; canFinishChoosing: boolean } | null =
+    providerChain
+    ? {
+        label:
+          providerChain.phase === 'choosing'
+            ? `Chosen ${providerChain.queue.length}/${providerChain.spec.uses}${
+                providerChain.queue.length > 0 ? `: ${providerChain.queue.map((a) => a.name).join(', ')}` : ''
+              }${providerChain.spec.upTo ? ' (choose up to, then Done)' : ''}`
+            : `Using ${providerChain.used.length}/${
+                providerChain.spec.chooseFirst
+                  ? providerChain.used.length + providerChain.queue.length
+                  : providerChain.spec.uses
+              }${providerChain.targetName ? ` vs ${providerChain.targetName}` : ''}${
+                providerChain.spec.distinct ? ' (different abilities)' : ''
+              }`,
+        candidateIds: getChainCandidates(providerChain, getChainQualifying(providerChain.parent)).map(
+          (c) => c.ability.id
+        ),
+        canFinishChoosing:
+          providerChain.spec.upTo &&
+          (providerChain.phase === 'choosing'
+            ? providerChain.queue.length > 0
+            : providerChain.used.length > 0 && !activeAbility?.inProviderChain)
+      }
+    : null;
+
+  // Abilities the selected ability is borrowing (a promoted card's abilities, used for free: e.g. Overload Gemstone, Grand
+  // Metamorphosis), shown under it on the card while it's selected (see FocusCardPanel); in a chain, only the ones it
+  // can still take
+  const focusSubActions: FocusSubActions | null = (() => {
+    const u = activeTurnUnit;
+    if (!u || !focusIsTurnUnit || !activeAbility) return null;
+    const allAbs = [...(u.card.abilities || []), ...(u.grantedAbilities || [])];
+    // (the borrowing ability itself, or one cost of it, e.g. gemstone_hammer__cost_2; not a borrowed ability, whose id
+    // joins its parent's and its own with "__")
+    const isBorrower = isPromotedAbilityProvider(activeAbility) && (!activeAbility.id.includes('__') || activeAbility.id.includes('__cost_'));
+    const parent = isBorrower
+      ? activeAbility
+      : activeAbility.parentAbilityId
+        ? allAbs.find((a) => a.id === activeAbility.parentAbilityId) || null
+        : null;
+    if (!parent) return null;
+    let qualifying = getQualifyingPromotedAbilities(parent, u.promotedCards, u);
+    if (providerChain) {
+      const ids = getChainCandidates(providerChain, getChainQualifying(providerChain.parent)).map((c) => c.ability.id);
+      qualifying = qualifying.filter((q) => ids.includes(q.ability.id));
+    }
+    // (a printed ability is found by its id on the card; a granted one by its box's key underneath)
+    const isGranted = (u.grantedAbilities || []).some((a) => a.id === parent.id);
+    const parentKey = isGranted ? `granted-${parent.id}` : String(parent.baseAbilityId || parent.id);
+    const items: FocusAction[] = qualifying.map(({ cardName, ability: promAb }, i) => {
+      const usedUp = isOncePerTurn(promAb) && (u.usedTurnCounts?.[promAb.id || promAb.name] || 0) >= 1;
+      return {
+        key: `borrowed-${promAb.id}-${i}`,
+        name: promAb.name,
+        cost: 'Free',
+        text: `${promAb.text} (from ${cardName})`,
+        tone: { border: 'border-purple-500', name: 'text-purple-300' },
+        usable: !usedUp && !lockedAssist,
+        active: activeAbility?.id === `${parent.id}__${promAb.id}`,
+        why: usedUp ? 'already used this turn' : 'not now',
+        onClick: () => handlePromotedAbilitySelect(promAb, parent),
+        onHover: (on) => setHoveredActionAbility(on ? promAb : null)
+      };
+    });
+    return {
+      parentKey,
+      items,
+      controls: {
+        label: providerChainInfo?.label,
+        onDone: providerChainInfo?.canFinishChoosing ? handleFinishChainChoosing : undefined,
+        onCancel: activeAbility?.prepaidByParent || providerChain ? cancelPrepaidAbility : undefined
+      }
+    };
+  })();
+
+  // The camera controls (pan, rotate, zoom, background, Reset): one box out of the left side of the panel they sit by
+  // (the turn's actions in play, the setup controls in setup), as tall as it. The small tab on its left edge hides it
+  // toward that panel, the tab staying, with no label, to bring it back. (w-max: as wide as its contents, not squeezed to
+  // the width of the panel it hangs off)
+  const renderCameraFlyout = () => (
+    <div data-input-always className="absolute right-full top-0 bottom-0 w-max flex items-stretch drop-shadow-xl">
+      <button
+        onClick={() => setIsCameraOpen((open) => !open)}
+        title={isCameraOpen ? 'Hide the camera controls' : 'Show the camera controls'}
+        className="self-center -mr-px px-0.5 py-3 rounded-l-md bg-stone-950/95 border border-r-0 border-stone-800 text-stone-400 hover:text-stone-100 transition-colors cursor-pointer"
+      >
+        {isCameraOpen ? <ChevronRight className="w-4 h-4" /> : <ChevronLeft className="w-4 h-4" />}
+      </button>
+      {isCameraOpen && (
+        <div className="mr-2 flex items-center px-3 py-2 rounded-xl bg-stone-900/90 border border-stone-800 backdrop-blur-md whitespace-nowrap">
+          <div ref={cameraContentRef} className="flex items-center gap-3">
+          {/* Pan: hold an arrow */}
+          <CameraPanPad onPan={panCamera} />
+          <div className="flex flex-col justify-center gap-1.5">
+            {/* Rotate */}
+            <div className="flex items-center bg-stone-950/80 border border-stone-800 rounded-lg p-0.5">
+              <button
+                onClick={() => {
+                  markCameraChange();
+                  setBoardYawState((prev) => rotateYawToNextEdge(prev, -1));
+                }}
+                className="p-1.5 hover:bg-stone-800 rounded-md text-stone-300 hover:text-amber-400 transition-colors cursor-pointer"
+                title="Rotate Board Left (to the next stop: a hex edge flat to the screen, or side-on)"
+              >
+                <RotateCcw className="w-4 h-4" />
+              </button>
+              <span className="flex-1 text-xs font-mono text-stone-300 px-1.5 font-bold select-none min-w-[40px] text-center">{boardYaw}°</span>
+              <button
+                onClick={() => {
+                  markCameraChange();
+                  setBoardYawState((prev) => rotateYawToNextEdge(prev, 1));
+                }}
+                className="p-1.5 hover:bg-stone-800 rounded-md text-stone-300 hover:text-amber-400 transition-colors cursor-pointer"
+                title="Rotate Board Right (to the next stop: a hex edge flat to the screen, or side-on)"
+              >
+                <RotateCw className="w-4 h-4" />
+              </button>
+            </div>
+            {/* Zoom */}
+            <div className="flex items-center bg-stone-950/80 border border-stone-800 rounded-lg p-0.5">
+              <button
+                onClick={() => {
+                  markCameraChange();
+                  setBoardZoom((prev) => Math.max(20, Math.round(prev - 10)));
+                }}
+                className="p-1.5 hover:bg-stone-800 rounded-md text-stone-300 hover:text-red-400 transition-colors cursor-pointer"
+                title="Zoom Out Board"
+              >
+                <ZoomOut className="w-4 h-4" />
+              </button>
+              <span className="flex-1 text-xs font-mono text-stone-300 px-1.5 font-bold select-none min-w-[40px] text-center">{boardZoom}%</span>
+              <button
+                onClick={() => {
+                  markCameraChange();
+                  setBoardZoom((prev) => Math.min(200, Math.round(prev + 10)));
+                }}
+                className="p-1.5 hover:bg-stone-800 rounded-md text-stone-300 hover:text-red-400 transition-colors cursor-pointer"
+                title="Zoom In Board"
+              >
+                <ZoomIn className="w-4 h-4" />
+              </button>
+            </div>
+            {/* The battlefield background (default, each set's, none), and Reset (it keeps its place, hidden until the
+                camera has moved, so nothing shifts under the cursor) */}
+            <div className="flex items-center gap-1">
+              <button
+                onClick={() => cycleBoardBackground(-1)}
+                title={`Previous background (now: ${boardBackgroundName})`}
+                className="p-1.5 rounded-lg bg-stone-950/80 border border-stone-800 text-emerald-400 hover:text-emerald-200 transition-colors cursor-pointer"
+              >
+                <ChevronLeft className="w-3.5 h-3.5" />
+              </button>
+              <button
+                onClick={() => cycleBoardBackground(1)}
+                title={`Next background (now: ${boardBackgroundName})`}
+                className="p-1.5 rounded-lg bg-stone-950/80 border border-stone-800 text-emerald-400 hover:text-emerald-200 transition-colors cursor-pointer"
+              >
+                <ChevronRight className="w-3.5 h-3.5" />
+              </button>
+              <button
+                onClick={resetToOriginalPerspective}
+                disabled={!isRotated}
+                aria-hidden={!isRotated}
+                className={`ml-auto flex items-center gap-1 px-2 py-1 bg-red-950 border border-red-700/80 hover:bg-red-900 text-red-400 text-xs font-mono font-bold rounded-lg cursor-pointer ${
+                  isRotated ? '' : 'invisible'
+                }`}
+                title="Reset board to default perspective and zoom"
+              >
+                <Compass className="w-3.5 h-3.5 text-sky-400" />
+                <span>Reset</span>
+              </button>
+            </div>
+          </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+
   // (while reconnecting, nobody plays on: the two games would drift apart)
   const isWaitingForOpponent = activeTab === 'play' && localPlayer !== null && (localPlayer !== inputOwner || Boolean(reconnect));
 
@@ -15488,22 +15812,28 @@ export default function App() {
           borderColor: '#433738'
         }}
       >
-        <div className="flex items-center gap-3 h-full py-1.5">
-          {/* The game's name, filling the bar's height */}
-          <div className="flex flex-col justify-center h-full">
-            <span className="font-serif font-black text-stone-100 text-[28px] leading-none tracking-wider">
-              EVIL
-            </span>
-            <span className="text-[13px] font-mono text-stone-400 uppercase tracking-widest leading-none mt-1">
-              Card Game
-            </span>
+        <div className="flex items-center gap-3 h-full py-0.5">
+          {/* The game's logo: the card back, turned on its side as on the loading screen, filling the bar's height and
+              zoomed in on its middle, where "EVIL Card Game" is (the words take the middle third of its width, so drawn at
+              176 x 247 they fill the bar's 60px; the window shows them and the marks either side). No frame: the card back's
+              colour is the bar's (#2f2829), so it runs straight into it. */}
+          <div
+            className="relative h-[60px] w-[160px] shrink-0 overflow-hidden flex items-center justify-center bg-[#2f2829]"
+            title="EVIL Card Game"
+          >
+            <img
+              src="/assets/frames/cardback.png"
+              alt="EVIL Card Game"
+              className="w-[176px] h-[247px] max-w-none shrink-0 select-none pointer-events-none"
+              style={{ transform: 'rotate(90deg)' }}
+            />
           </div>
           {/* Game version and build fingerprint (online players must match, see src/version.ts), and under it the newest
               set (the last one in the card list), which names the update */}
           <button
             onClick={() => setIsVersionOpen((open) => !open)}
             title={isVersionOpen ? 'Hide the version' : 'Show the version'}
-            className="self-start mt-1.5 px-0.5 py-1.5 rounded-md bg-[#231e1f] border border-[#433738] text-stone-400 hover:text-stone-100 transition-colors cursor-pointer"
+            className="self-center px-0.5 py-1.5 rounded-md bg-[#231e1f] border border-[#433738] text-stone-400 hover:text-stone-100 transition-colors cursor-pointer"
           >
             {isVersionOpen ? <ChevronLeft className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
           </button>
@@ -15561,29 +15891,6 @@ export default function App() {
         </nav>
 
         <div className="flex items-center gap-3">
-          {/* Testing aid until the online lobby assigns seats: which player this screen is (dev server only) */}
-          {import.meta.env.DEV && activeTab === 'play' && (
-            <select
-              value={localPlayer ?? ''}
-              onChange={(e) => setLocalPlayer((e.target.value || null) as PlayerId | null)}
-              className="bg-[#1c1819] border border-[#382d2e] rounded-xl px-2 py-2 text-xs text-stone-300 cursor-pointer"
-              title="Which player this screen is (testing online control)"
-            >
-              <option value="">Seat: Both (hot seat)</option>
-              <option value="player1">Seat: Player 1</option>
-              <option value="player2">Seat: Player 2</option>
-            </select>
-          )}
-          {/* Testing aid for the turn handoff: load each handed-over state back and check it re-captures the same */}
-          {import.meta.env.DEV && activeTab === 'play' && (
-            <label
-              className="flex items-center gap-1.5 bg-[#1c1819] border border-[#382d2e] rounded-xl px-2 py-2 text-xs text-stone-300 cursor-pointer"
-              title="At every turn end, reload the handed-over state and check that it re-captures to the same fingerprint"
-            >
-              <input type="checkbox" checked={reloadEachTurn} onChange={(e) => setReloadEachTurn(e.target.checked)} />
-              Reload each turn
-            </label>
-          )}
           <div className="relative" ref={volumeDropdownRef}>
             <button
               onClick={handleVolumeButtonClick}
@@ -15691,6 +15998,21 @@ export default function App() {
                     Coming 2027
                   </span>
                 </div>
+                {/* Testing aid for the turn handoff (dev server only): at every turn end, load the handed-over state back
+                    and check that it re-captures to the same fingerprint */}
+                {import.meta.env.DEV && (
+                  <button
+                    role="menuitemcheckbox"
+                    aria-checked={reloadEachTurn}
+                    onClick={() => setReloadEachTurn((on) => !on)}
+                    className="flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-sm text-left text-stone-200 hover:bg-[#3d3334] hover:text-stone-50 transition-colors cursor-pointer border-t border-[#433738]/70 mt-1"
+                    title="At every turn end, reload the handed-over state and check that it re-captures to the same fingerprint"
+                  >
+                    <RefreshCw className={`w-4 h-4 shrink-0 ${reloadEachTurn ? 'text-emerald-400' : 'text-stone-500'}`} />
+                    <span>Reload each turn</span>
+                    <span className="ml-auto text-[10px] font-mono uppercase tracking-wider text-stone-400">{reloadEachTurn ? 'On' : 'Off'}</span>
+                  </button>
+                )}
               </div>
             )}
           </div>
@@ -16236,21 +16558,29 @@ export default function App() {
           {/* (floats over the battlefield's top left corner, right under the top bar, so the board is centred on the
               screen whatever its width). Online, whose turn it is shows above it, the same width. */}
           <div className="absolute left-6 top-3 z-30 w-80 flex flex-col gap-2 pointer-events-none">
-            {/* Online: whose input the game is waiting on (clicks are blocked meanwhile on the other screen) */}
-            {isWaitingForOpponent && (
-              <div className="w-full text-center px-4 py-3 rounded-xl bg-stone-900/95 border-2 border-red-800/80 text-red-100 text-xl font-bold shadow-xl animate-pulse">
+            {/* Online: whose input the game is waiting on (clicks are blocked meanwhile on the other screen). Not in
+                Endless, where the banner below gives the wave throughout. */}
+            {isWaitingForOpponent && !endlessMode && (
+              <div className="w-full text-center px-4 py-3 rounded-xl bg-stone-900/95 border-2 border-red-800/80 text-red-100 text-2xl font-title shadow-xl slow-pulse" style={pulseInStep()}>
                 Waiting for opponent…
               </div>
             )}
-            {localPlayer !== null &&
+            {/* Endless (single player): the banner gives the wave instead, for the whole match */}
+            {endlessMode && (gamePhase === 'setup' || gamePhase === 'playing') && !winner ? (
+              <div className="w-full text-center px-4 py-3 rounded-xl bg-stone-900/95 border-2 border-amber-500/80 text-amber-200 text-xl font-title shadow-xl slow-pulse" style={pulseInStep()}>
+                {endlessWave === 0 ? 'Wave 1 arrives when the game starts' : `Wave ${endlessWave} · Threat Level ${waveBudget(endlessWave)}`}
+              </div>
+            ) : (
+              localPlayer !== null &&
               !isWaitingForOpponent &&
               (gamePhase === 'setup' || gamePhase === 'playing') &&
               !winner &&
               !isTurnTransitioning && (
-                <div className="w-full text-center px-4 py-3 rounded-xl bg-stone-900/95 border-2 border-emerald-600/80 text-emerald-200 text-xl font-bold shadow-xl animate-pulse">
+                <div className="w-full text-center px-4 py-3 rounded-xl bg-stone-900/95 border-2 border-emerald-600/80 text-emerald-200 text-2xl font-title shadow-xl slow-pulse" style={pulseInStep()}>
                   Your turn!
                 </div>
-              )}
+              )
+            )}
             <div className="w-full pointer-events-auto flex rounded-xl overflow-hidden border border-stone-700 shadow-xl backdrop-blur-md bg-stone-950/95">
               {(['player1', 'player2'] as PlayerId[]).map((p) => {
                 const isP1 = p === 'player1';
@@ -16263,10 +16593,11 @@ export default function App() {
                       isP1 ? 'bg-sky-600/20 border-r border-stone-700' : 'bg-red-600/20'
                     }`}
                   >
-                    <span className={`text-sm font-serif font-bold ${isP1 ? 'text-sky-300' : 'text-red-300'}`}>{name}</span>
+                    <span className={`text-lg font-title leading-none ${isP1 ? 'text-sky-300' : 'text-red-300'}`}>{name}</span>
                     <div className="text-[11px] font-mono text-stone-300 leading-tight self-stretch">
                       <div>Deck: {(isP1 ? player1Deck : player2Deck).length}</div>
                       <div>Hand: {(isP1 ? player1Hand : player2Hand).length}</div>
+                      <div>Graveyard: {grave.length}</div>
                     </div>
                     <GraveyardZone
                       title={`${name} Graveyard`}
@@ -16282,6 +16613,17 @@ export default function App() {
                 );
               })}
             </div>
+                <div className="w-full pointer-events-auto">
+                  {/* The match log, under the players' box and as wide */}
+                  <GameLogPanel
+                    entries={gameLog}
+                    handoffStatus={handoffStatus}
+                    viewer={isOnline() ? localPlayer : null}
+                    open={isLogOpen}
+                    onToggle={() => setIsLogOpen((o) => !o)}
+                    inline
+                  />
+                </div>
           </div>
 
           {/* Top Header inside Arena */}
@@ -16444,7 +16786,7 @@ export default function App() {
                   className="w-full flex items-start justify-start transition-transform duration-700 ease-in-out -mt-16 pointer-events-none"
                   style={{
                     transformStyle: 'preserve-3d',
-                    transform: `rotateX(${boardPitch}deg) rotateZ(${boardYaw}deg) scale(${((boardZoom / 100)* 0.6).toFixed(2)})`
+                    transform: `rotateX(${boardPitch}deg) rotateZ(${shownYaw}deg) scale(${((boardZoom / 100)* 0.6).toFixed(2)})`
                   }}
                 >
                   <HexGridArena
@@ -16473,7 +16815,7 @@ export default function App() {
                     validTributeHexes={validTributeHexes}
                     tributeSacrificeHexes={tributeSacrificeHexes}
                     boardPitch={boardPitch}
-                    boardYaw={boardYaw}
+                    boardYaw={shownYaw}
                     gamePhase={gamePhase}
                     isMovingMode={isMovingMode}
                     onHoverUnitCard={(card, owner) => {
@@ -16496,9 +16838,16 @@ export default function App() {
                   printed abilities its buttons and everything else it can do underneath. Once that unit has acted, the
                   focus stays on it. The match log is under it. */}
               {(gamePhase === 'setup' || gamePhase === 'playing') && (
-                <div className="absolute right-6 top-2 z-40 w-[340px] flex flex-col gap-1.5 pointer-events-auto">
+                <div
+                  className="absolute right-6 top-2 z-40 w-[340px] flex flex-col gap-1.5 pointer-events-auto overflow-y-auto hide-scrollbar rounded-xl"
+                  // (it ends just above the action menu: scroll it to see what doesn't fit; scrolling it doesn't zoom)
+                  style={{ bottom: actionMenuHeight > 0 ? actionMenuHeight + 10 + 8 : 10 }}
+                  onWheel={(e) => e.stopPropagation()}
+                >
                   {shownFocus && (
                     <FocusCardPanel
+                      actions={focusIsTurnUnit && gamePhase === 'playing' ? focusActions : []}
+                      subActions={gamePhase === 'playing' ? focusSubActions : null}
                       card={shownFocus.card}
                       customArtUrl={customArtMap[shownFocus.card.id]}
                       turnUnit={focusIsTurnUnit ? activeTurnUnit : null}
@@ -16513,212 +16862,6 @@ export default function App() {
                       }
                     />
                   )}
-                  {/* The turn's actions and the match log, with the camera controls out of their left side, as tall */}
-                  <div className="relative flex flex-col gap-1.5">
-                  {/* The turn's actions: under the unit taking the turn, or (no unit chosen yet) Pass and the prompt */}
-                  {gamePhase === 'playing' && (focusIsTurnUnit || !activeTurnUnit) && (
-                  <TurnActionPanel
-                    abilitiesOnCard={Boolean(focusIsTurnUnit)}
-                    widthClass="w-full"
-                    onHoverAbility={setHoveredActionAbility}
-                    activePlayer={activePlayer}
-                    activeTurnUnit={activeTurnUnit}
-                    onUniversalMoveClick={handleUniversalMoveClick}
-                    isMovingMode={isMovingMode}
-                    onUniversalDrawClick={handleUniversalDraw}
-                    canUniversalDraw={!isUnitMindless(activeTurnUnit) && !activeTurnUnit?.usedUniversalDrawThisTurn && activeDeck.length > 0}
-                    onAbilityClick={handleAbilityClick}
-                    activeAbility={activeAbility}
-                    onPromotedAbilitySelect={handlePromotedAbilitySelect}
-                    onPassTurn={() => switchTurn(true)}
-                    passCount={consecutivePasses}
-                    onAssistClick={handleAssistButtonClick}
-                    isAssistLocked={!!lockedAssist}
-                    pendingAssistDeployment={pendingAssistDeployment}
-                    lockedAssistCard={lockedAssist?.card}
-                    onCancelAssist={handleCancelAssist}
-                    multiStageState={multiStageState}
-                    multiStageTargetInfo={multiStageTargetInfo}
-                    onFinishMultiStage={handleFinishMultiStage}
-                    onCancelMultiStage={handleCancelMultiStage}
-                    onHoverCard={setHoveredCard}
-                    unitsOnBoard={unitsOnBoard}
-                    onCancelPrepaidAbility={() => {
-                      if (providerChain) {
-                        endProviderChain(`Cancelled ${providerChain.parent.name}: remaining uses are lost (its AP was already spent).`, false);
-                        return;
-                      }
-                      showNotification(`Cancelled ${activeAbility?.name || 'ability'} (its AP was already spent).`);
-                      setActiveAbility(null);
-                      if (activeTurnUnit && activeTurnUnit.currentAp <= 0) switchTurn(false);
-                    }}
-                    providerChainInfo={
-                      providerChain
-                        ? {
-                            label:
-                              providerChain.phase === 'choosing'
-                                ? `Chosen ${providerChain.queue.length}/${providerChain.spec.uses}${
-                                    providerChain.queue.length > 0 ? `: ${providerChain.queue.map((a) => a.name).join(', ')}` : ''
-                                  }${providerChain.spec.upTo ? ' (choose up to, then Done)' : ''}`
-                                : `Using ${providerChain.used.length}/${
-                                    providerChain.spec.chooseFirst
-                                      ? providerChain.used.length + providerChain.queue.length
-                                      : providerChain.spec.uses
-                                  }${providerChain.targetName ? ` vs ${providerChain.targetName}` : ''}${
-                                    providerChain.spec.distinct ? ' (different abilities)' : ''
-                                  }`,
-                            candidateIds: getChainCandidates(providerChain, getChainQualifying(providerChain.parent)).map(
-                              (c) => c.ability.id
-                            ),
-                            canFinishChoosing:
-                              providerChain.spec.upTo &&
-                              (providerChain.phase === 'choosing'
-                                ? providerChain.queue.length > 0
-                                : providerChain.used.length > 0 && !activeAbility?.inProviderChain)
-                          }
-                        : null
-                    }
-                    onFinishChainChoosing={handleFinishChainChoosing}
-                  />
-                  )}
-                  {/* The match log, under the action menu and as wide */}
-                  <GameLogPanel
-                    entries={gameLog}
-                    handoffStatus={handoffStatus}
-                    viewer={isOnline() ? localPlayer : null}
-                    open={isLogOpen}
-                    onToggle={() => setIsLogOpen((o) => !o)}
-                    inline
-                    pinned={
-                      endlessMode
-                        ? endlessWave === 0
-                          ? 'Endless: wave 1 arrives when the game starts'
-                          : `Endless · Wave ${endlessWave} · Threat Level ${waveBudget(endlessWave)}`
-                        : null
-                    }
-                  />
-                  {/* Board Zoom & Rotate Controls: out of the left side of the panel beside them, as tall */}
-                  {/* Two joined boxes, as tall as that panel: the d-pad box, and beside it the label over the other controls.
-                      They hide and show together (only the label and its arrow stay). */}
-                                    <div className="absolute right-full top-0 bottom-0 mr-2 flex items-stretch">
-                  <div data-input-always className="flex items-stretch drop-shadow-xl">
-                  {isCameraOpen && (
-                    <div className="bg-stone-900/90 border border-stone-800 rounded-l-xl rounded-tr-xl p-1 backdrop-blur-md">
-                      {/* Camera pan d-pad (hold an arrow) */}
-                      <CameraPanPad onPan={panCamera} />
-                    </div>
-                  )}
-                  <div
-                    className={`flex-1 min-w-0 flex flex-col items-start gap-1 bg-stone-900/90 border border-stone-800 p-1 backdrop-blur-md ${
-                      isCameraOpen ? '-ml-px rounded-r-xl' : 'rounded-xl'
-                    }`}
-                  >
-                  {/* "Camera Controls:" and the arrow that hides or shows them (at the bar's right end) */}
-                  <div className="self-stretch flex items-center gap-1.5 pl-1 pr-1 pt-0.5">
-                    <span className="text-[11px] font-mono font-bold text-stone-300 drop-shadow">Camera Controls{isCameraOpen ? ':' : ''}</span>
-                    {isCameraOpen && (
-                    <>
-                    {/* Cycle the battlefield background (default, each set's, none) */}
-                    <button
-                      onClick={() => cycleBoardBackground(-1)}
-                      title={`Previous background (now: ${boardBackgroundName})`}
-                      className="px-1.5 py-0.5 rounded-md bg-stone-900/90 border border-stone-800 text-emerald-400 hover:text-emerald-200 transition-colors cursor-pointer"
-                    >
-                      <ChevronLeft className="w-3.5 h-3.5" />
-                    </button>
-                    <button
-                      onClick={() => cycleBoardBackground(1)}
-                      title={`Next background (now: ${boardBackgroundName})`}
-                      className="px-1.5 py-0.5 rounded-md bg-stone-900/90 border border-stone-800 text-emerald-400 hover:text-emerald-200 transition-colors cursor-pointer"
-                    >
-                      <ChevronRight className="w-3.5 h-3.5" />
-                    </button>
-                    </>
-                    )}
-                    <button
-                      onClick={() => setIsCameraOpen((open) => !open)}
-                      title={isCameraOpen ? 'Hide the camera controls' : 'Show the camera controls'}
-                      className="ml-auto px-1.5 py-0.5 rounded-md bg-stone-900/90 border border-stone-800 text-stone-400 hover:text-stone-100 transition-colors cursor-pointer"
-                    >
-                      {isCameraOpen ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronUp className="w-3.5 h-3.5" />}
-                    </button>
-                  </div>
-                  {isCameraOpen && (
-                  <div className="flex items-end gap-1.5">
-                    {/* Rotation Controls */}
-                    <div className="flex items-center bg-stone-950/80 border border-stone-800 rounded-lg p-0.5 shadow-xs">
-                      <button
-                        onClick={() => {
-                          markCameraChange();
-                          setBoardYawState((prev) => rotateYawToNextEdge(prev, -1));
-                        }}
-                        className="p-1.5 hover:bg-stone-800 rounded-md text-stone-300 hover:text-amber-400 transition-colors cursor-pointer"
-                        title="Rotate Board Left (to the next stop: a hex edge flat to the screen, or side-on)"
-                      >
-                        <RotateCcw className="w-4 h-4" />
-                      </button>
-                      <span className="text-xs font-mono text-stone-300 px-1.5 font-bold select-none min-w-[36px] text-center">
-                        {boardYaw}°
-                      </span>
-                      <button
-                        onClick={() => {
-                          markCameraChange();
-                          setBoardYawState((prev) => rotateYawToNextEdge(prev, 1));
-                        }}
-                        className="p-1.5 hover:bg-stone-800 rounded-md text-stone-300 hover:text-amber-400 transition-colors cursor-pointer"
-                        title="Rotate Board Right (to the next stop: a hex edge flat to the screen, or side-on)"
-                      >
-                        <RotateCw className="w-4 h-4" />
-                      </button>
-                    </div>
-
-                    {/* Zoom Controls */}
-                    <div className="flex items-center bg-stone-950/80 border border-stone-800 rounded-lg p-0.5 shadow-xs">
-                      <button
-                        onClick={() => {
-                          markCameraChange();
-                          setBoardZoom((prev) => Math.min(200, Math.round(prev + 10)));
-                        }}
-                        className="p-1.5 hover:bg-stone-800 rounded-md text-stone-300 hover:text-red-400 transition-colors cursor-pointer"
-                        title="Zoom In Board"
-                      >
-                        <ZoomIn className="w-4 h-4" />
-                      </button>
-                      <span className="text-xs font-mono text-stone-300 px-1.5 font-bold select-none min-w-[40px] text-center">
-                        {boardZoom}%
-                      </span>
-                      <button
-                        onClick={() => {
-                          markCameraChange();
-                          setBoardZoom((prev) => Math.max(20, Math.round(prev - 10)));
-                        }}
-                        className="p-1.5 hover:bg-stone-800 rounded-md text-stone-300 hover:text-red-400 transition-colors cursor-pointer"
-                        title="Zoom Out Board"
-                      >
-                        <ZoomOut className="w-4 h-4" />
-                      </button>
-                    </div>
-
-                    {/* Reset to Original Perspective & Zoom button */}
-                    {/* Always takes its space (hidden until the camera has moved), so the controls never shift under the cursor */}
-                    <button
-                      onClick={resetToOriginalPerspective}
-                      disabled={!isRotated}
-                      aria-hidden={!isRotated}
-                      className={`flex items-center gap-1 px-2.5 py-1 bg-red-950 border border-red-700/80 hover:bg-red-900 text-red-400 text-xs font-mono font-bold rounded-lg shadow-xs cursor-pointer ${
-                        isRotated ? '' : 'invisible'
-                      }`}
-                      title="Reset board to default perspective and zoom"
-                    >
-                      <Compass className="w-3.5 h-3.5 text-sky-400" />
-                      <span>Reset</span>
-                    </button>
-                  </div>
-                  )}
-                  </div>
-                  </div>
-                  </div>
-                  </div>
                 </div>
               )}
             </div>
@@ -16727,131 +16870,11 @@ export default function App() {
             <div className="absolute bottom-0 left-0 right-0 z-30 px-6 flex flex-col items-start justify-end pointer-events-none pb-2 overflow-visible">
               {/* Pregame Reinforcement Phase Controls directly above the hand */}
               {gamePhase === 'setup' && (
-                <div className="absolute right-6 bottom-2.5 z-40 w-[340px] flex flex-col items-stretch gap-1.5 pointer-events-auto">
-                  <div className="relative">
-                  {/* Board Zoom & Rotate Controls: out of the left side of the panel beside them, as tall */}
-                  {/* Two joined boxes, as tall as that panel: the d-pad box, and beside it the label over the other controls.
-                      They hide and show together (only the label and its arrow stay). */}
-                                    <div className="absolute right-full top-0 bottom-0 mr-2 flex items-stretch">
-                  <div data-input-always className="flex items-stretch drop-shadow-xl">
-                  {isCameraOpen && (
-                    <div className="bg-stone-900/90 border border-stone-800 rounded-l-xl rounded-tr-xl p-1 backdrop-blur-md">
-                      {/* Camera pan d-pad (hold an arrow) */}
-                      <CameraPanPad onPan={panCamera} />
-                    </div>
-                  )}
-                  <div
-                    className={`flex-1 min-w-0 flex flex-col items-start gap-1 bg-stone-900/90 border border-stone-800 p-1 backdrop-blur-md ${
-                      isCameraOpen ? '-ml-px rounded-r-xl' : 'rounded-xl'
-                    }`}
-                  >
-                  {/* "Camera Controls:" and the arrow that hides or shows them (at the bar's right end) */}
-                  <div className="self-stretch flex items-center gap-1.5 pl-1 pr-1 pt-0.5">
-                    <span className="text-[11px] font-mono font-bold text-stone-300 drop-shadow">Camera Controls{isCameraOpen ? ':' : ''}</span>
-                    {isCameraOpen && (
-                    <>
-                    {/* Cycle the battlefield background (default, each set's, none) */}
-                    <button
-                      onClick={() => cycleBoardBackground(-1)}
-                      title={`Previous background (now: ${boardBackgroundName})`}
-                      className="px-1.5 py-0.5 rounded-md bg-stone-900/90 border border-stone-800 text-emerald-400 hover:text-emerald-200 transition-colors cursor-pointer"
-                    >
-                      <ChevronLeft className="w-3.5 h-3.5" />
-                    </button>
-                    <button
-                      onClick={() => cycleBoardBackground(1)}
-                      title={`Next background (now: ${boardBackgroundName})`}
-                      className="px-1.5 py-0.5 rounded-md bg-stone-900/90 border border-stone-800 text-emerald-400 hover:text-emerald-200 transition-colors cursor-pointer"
-                    >
-                      <ChevronRight className="w-3.5 h-3.5" />
-                    </button>
-                    </>
-                    )}
-                    <button
-                      onClick={() => setIsCameraOpen((open) => !open)}
-                      title={isCameraOpen ? 'Hide the camera controls' : 'Show the camera controls'}
-                      className="ml-auto px-1.5 py-0.5 rounded-md bg-stone-900/90 border border-stone-800 text-stone-400 hover:text-stone-100 transition-colors cursor-pointer"
-                    >
-                      {isCameraOpen ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronUp className="w-3.5 h-3.5" />}
-                    </button>
-                  </div>
-                  {isCameraOpen && (
-                  <div className="flex items-end gap-1.5">
-                    {/* Rotation Controls */}
-                    <div className="flex items-center bg-stone-950/80 border border-stone-800 rounded-lg p-0.5 shadow-xs">
-                      <button
-                        onClick={() => {
-                          markCameraChange();
-                          setBoardYawState((prev) => rotateYawToNextEdge(prev, -1));
-                        }}
-                        className="p-1.5 hover:bg-stone-800 rounded-md text-stone-300 hover:text-amber-400 transition-colors cursor-pointer"
-                        title="Rotate Board Left (to the next stop: a hex edge flat to the screen, or side-on)"
-                      >
-                        <RotateCcw className="w-4 h-4" />
-                      </button>
-                      <span className="text-xs font-mono text-stone-300 px-1.5 font-bold select-none min-w-[36px] text-center">
-                        {boardYaw}°
-                      </span>
-                      <button
-                        onClick={() => {
-                          markCameraChange();
-                          setBoardYawState((prev) => rotateYawToNextEdge(prev, 1));
-                        }}
-                        className="p-1.5 hover:bg-stone-800 rounded-md text-stone-300 hover:text-amber-400 transition-colors cursor-pointer"
-                        title="Rotate Board Right (to the next stop: a hex edge flat to the screen, or side-on)"
-                      >
-                        <RotateCw className="w-4 h-4" />
-                      </button>
-                    </div>
+                <div ref={actionMenuRef} className="absolute right-6 bottom-2.5 z-40 w-[340px] flex flex-col items-stretch gap-1.5 pointer-events-auto">
+                  <div className="relative flex flex-col" style={{ minHeight: cameraHeight }}>
+                  {renderCameraFlyout()}
 
-                    {/* Zoom Controls */}
-                    <div className="flex items-center bg-stone-950/80 border border-stone-800 rounded-lg p-0.5 shadow-xs">
-                      <button
-                        onClick={() => {
-                          markCameraChange();
-                          setBoardZoom((prev) => Math.min(200, Math.round(prev + 10)));
-                        }}
-                        className="p-1.5 hover:bg-stone-800 rounded-md text-stone-300 hover:text-red-400 transition-colors cursor-pointer"
-                        title="Zoom In Board"
-                      >
-                        <ZoomIn className="w-4 h-4" />
-                      </button>
-                      <span className="text-xs font-mono text-stone-300 px-1.5 font-bold select-none min-w-[40px] text-center">
-                        {boardZoom}%
-                      </span>
-                      <button
-                        onClick={() => {
-                          markCameraChange();
-                          setBoardZoom((prev) => Math.max(20, Math.round(prev - 10)));
-                        }}
-                        className="p-1.5 hover:bg-stone-800 rounded-md text-stone-300 hover:text-red-400 transition-colors cursor-pointer"
-                        title="Zoom Out Board"
-                      >
-                        <ZoomOut className="w-4 h-4" />
-                      </button>
-                    </div>
-
-                    {/* Reset to Original Perspective & Zoom button */}
-                    {/* Always takes its space (hidden until the camera has moved), so the controls never shift under the cursor */}
-                    <button
-                      onClick={resetToOriginalPerspective}
-                      disabled={!isRotated}
-                      aria-hidden={!isRotated}
-                      className={`flex items-center gap-1 px-2.5 py-1 bg-red-950 border border-red-700/80 hover:bg-red-900 text-red-400 text-xs font-mono font-bold rounded-lg shadow-xs cursor-pointer ${
-                        isRotated ? '' : 'invisible'
-                      }`}
-                      title="Reset board to default perspective and zoom"
-                    >
-                      <Compass className="w-3.5 h-3.5 text-sky-400" />
-                      <span>Reset</span>
-                    </button>
-                  </div>
-                  )}
-                  </div>
-                  </div>
-                  </div>
-
-                  <div className="w-full bg-stone-900/95 border border-stone-700/80 rounded-xl shadow-xl p-3 backdrop-blur-md flex flex-col gap-2 select-none animate-in fade-in">
+                  <div className="w-full flex-1 bg-stone-900/95 border border-stone-700/80 rounded-xl shadow-xl p-3 backdrop-blur-md flex flex-col gap-2 select-none animate-in fade-in">
                     <div className="flex items-center justify-between gap-1">
                       <div
                         className={`self-start px-3 py-1 rounded-full text-[11px] font-mono font-black uppercase tracking-wider border shadow-md ${
@@ -16865,7 +16888,7 @@ export default function App() {
                       {/* Indicator throughout reinforcement phase */}
                       <div className="flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-emerald-950/80 border border-emerald-500/50 text-emerald-300 text-[10px] font-mono font-bold shadow-xs">
                         <span className="w-2 h-2 rounded-full bg-emerald-400 inline-block" />
-                        <span>Reinforce Phase</span>
+                        <span className="font-title text-xs tracking-wider">Reinforce Phase</span>
                       </div>
                     </div>
                     <span className="text-[11px] font-mono text-stone-400 leading-snug">
@@ -16905,6 +16928,47 @@ export default function App() {
                 </div>
               )}
 
+
+              {/* The action menu: the battlefield's bottom right (the big card's column ends above it), the camera
+                  controls out of its left side, as tall. While the big card shows the unit taking the turn, what's on the
+                  card (its abilities, Move, Draw, Assist, granted abilities) isn't repeated here. */}
+              {gamePhase === 'playing' && (
+                <div ref={actionMenuRef} className="absolute right-6 bottom-2.5 z-40 w-[340px] pointer-events-auto">
+                  <div className="relative flex flex-col" style={{ minHeight: cameraHeight }}>
+                  <TurnActionPanel
+                    abilitiesOnCard={Boolean(focusIsTurnUnit)}
+                    widthClass="w-full flex-1"
+                    onHoverAbility={setHoveredActionAbility}
+                    activePlayer={activePlayer}
+                    activeTurnUnit={activeTurnUnit}
+                    onUniversalMoveClick={handleUniversalMoveClick}
+                    isMovingMode={isMovingMode}
+                    onUniversalDrawClick={handleUniversalDraw}
+                    canUniversalDraw={!isUnitMindless(activeTurnUnit) && !activeTurnUnit?.usedUniversalDrawThisTurn && activeDeck.length > 0}
+                    onAbilityClick={handleAbilityClick}
+                    activeAbility={activeAbility}
+                    onPromotedAbilitySelect={handlePromotedAbilitySelect}
+                    onPassTurn={() => switchTurn(true)}
+                    passCount={consecutivePasses}
+                    onAssistClick={handleAssistButtonClick}
+                    isAssistLocked={!!lockedAssist}
+                    pendingAssistDeployment={pendingAssistDeployment}
+                    lockedAssistCard={lockedAssist?.card}
+                    onCancelAssist={handleCancelAssist}
+                    multiStageState={multiStageState}
+                    multiStageTargetInfo={multiStageTargetInfo}
+                    onFinishMultiStage={handleFinishMultiStage}
+                    onCancelMultiStage={handleCancelMultiStage}
+                    onHoverCard={setHoveredCard}
+                    unitsOnBoard={unitsOnBoard}
+                    onCancelPrepaidAbility={cancelPrepaidAbility}
+                    providerChainInfo={providerChainInfo}
+                    onFinishChainChoosing={handleFinishChainChoosing}
+                  />
+                  {renderCameraFlyout()}
+                  </div>
+                </div>
+              )}
 
               {/* Overlapping interactive cards scaled larger and spilling over the top of the dock container */}
               <div className="flex items-end justify-start -space-x-8 sm:-space-x-10 md:-space-x-12 lg:-space-x-14 max-w-[calc(100%-19.5rem)] w-full pl-1 sm:pl-2 overflow-visible pb-1 relative z-20 pointer-events-none">

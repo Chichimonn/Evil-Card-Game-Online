@@ -350,7 +350,7 @@ export function getMultiStageTargetInfo(
     if (targets.length === 0) {
       promptMessage = `${ability.name}: Click an adjacent tile to start drawing path (${lengthsStr} tiles, ${turnRule}).`;
     } else if (check.valid) {
-      promptMessage = `${ability.name}: Legal path (${targets.length} tiles)!${damageText} Click Confirm to carry it out, or keep drawing (click the last tile to take it back).`;
+      promptMessage = `${ability.name}: Legal path (${targets.length} tiles)!${damageText} Click Confirm to carry it out, or keep drawing (click a tile of the path to take it back there).`;
     } else {
       promptMessage = `${ability.name}: Path: ${targets.join(' → ')} (${targets.length}/${lengthsStr} tiles${turnCountText}). Click next tile, or click a path tile to undo.`;
     }
@@ -383,7 +383,7 @@ export function getMultiStageTargetInfo(
           : "Click 'Confirm path' to fire, or click the last tile to undo."
       }`;
     } else {
-      promptMessage = `${ability.name}: Path: ${formatPath(targets)} (${targets.length}/${pathSpec.maxLength} tiles). Click next connected tile, or click the last tile to undo.`;
+      promptMessage = `${ability.name}: Path: ${formatPath(targets)} (${targets.length}/${pathSpec.maxLength} tiles). Click the next connected tile, or click a tile of the path to take it back there.`;
     }
 
     // A move-then-strike may skip the move (e.g. Pouncing Ambush: "moves up to 2 tiles")
@@ -394,7 +394,8 @@ export function getMultiStageTargetInfo(
       (ability.effects || []).some((e: any) => e.type === 'move' && typeof e.distance === 'object') &&
       (ability.effects || []).some((e: any) => e.type === 'damage' && e.target === 'chosenEnemyInMeleeRange');
     return {
-      validHexes: !pathSpec.straight && last ? [...next, last] : next,
+      // (the path's own tiles too: clicking one takes the path back to it, the last one removed)
+      validHexes: !pathSpec.straight && last ? [...next, ...targets] : next,
       promptMessage: canStayPut ? `${promptMessage} Or strike from here without moving.` : promptMessage,
       isOptional: canStayPut || targets.length >= pathSpec.minLength,
       finishButtonLabel: canStayPut ? 'Strike from here' : `Confirm path (${targets.length})`,
@@ -730,7 +731,8 @@ export function getMultiStageTargetInfo(
           const nextSteps = getSurroundingHexes(step1).filter((h) => h !== casterHex && !unitsOnBoard[h]);
           validHexes = [step1, ...nextSteps];
         } else {
-          validHexes = [targets[targets.length - 1]];
+          // (its 2 tiles: clicking the first takes the path back to it, the last one removed)
+          validHexes = [...targets];
         }
 
         return {
@@ -738,7 +740,7 @@ export function getMultiStageTargetInfo(
           promptMessage:
             targets.length === 0
               ? 'Lead the Charge (Stage 1/2): Click a tile to charge up to 2 tiles (ignoring units), or click \'Attack from Here\'.'
-              : `Lead the Charge (Stage 1/2): Path: ${targets.join(' → ')}. Click next empty tile, click last to undo, or confirm.`,
+              : `Lead the Charge (Stage 1/2): Path: ${targets.join(' → ')}. Click the next empty tile, click a tile of the path to take it back there, or confirm.`,
           isOptional: true,
           finishButtonLabel: targets.length === 0 ? 'Attack from Here' : `Confirm Charge (${targets.length}) & Attack`,
           isTileTarget: true

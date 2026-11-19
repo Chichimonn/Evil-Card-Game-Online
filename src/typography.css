@@ -1,0 +1,54 @@
+/*
+ * The app's two typefaces, everywhere outside the cards:
+ *   - text: Cambria (or the closest serif the computer has), for all body text, labels, numbers, the log, inputs and
+ *     the board's tile labels;
+ *   - titles: the cards' gothic face (Pirata One), for headings and anything marked font-title.
+ *
+ * Card faces set their own fonts and are left exactly as they are (nothing inside [data-card-face] is touched).
+ *
+ * This file is kept apart from index.css on purpose: index.css is part of the card faces' signature, so changing it
+ * would make every player draw their card faces again.
+ *
+ * (Unlayered, so these win over Tailwind's font-sans / font-serif / font-mono utilities, which are in a layer.)
+ */
+/*
+ * The titles' face: Pirata One, except its numerals, which read poorly: the digits 0-9 come from bold Arial (or the
+ * nearest bold sans the computer has) instead, as the cards set theirs. One family made of two faces: the browser takes
+ * each character from the face whose unicode-range covers it.
+ */
+@font-face {
+  font-family: 'App Title';
+  src: url('/assets/fonts/pirata-one-latin-400-normal.woff2') format('woff2');
+  font-weight: 400;
+  font-style: normal;
+  font-display: block;
+}
+@font-face {
+  font-family: 'App Title';
+  src: local('Arial Bold'), local('Arial-BoldMT'), local('Helvetica Neue Bold'), local('HelveticaNeue-Bold'),
+    local('Liberation Sans Bold'), local('LiberationSans-Bold'), local('Arimo Bold'), local('Arial');
+  font-weight: 400;
+  font-style: normal;
+  unicode-range: U+0030-0039;
+}
+
+:root {
+  --app-font: Cambria, 'Hoefler Text', Utopia, 'Liberation Serif', 'Nimbus Roman', Georgia, serif;
+  --app-title-font: 'App Title', 'Card Pirata One', 'Pirata One', Georgia, serif;
+}
+
+html,
+body {
+  font-family: var(--app-font);
+}
+
+:is(.font-sans, .font-serif, .font-mono, input, textarea, select, button, option, svg text):not([data-card-face] *) {
+  font-family: var(--app-font);
+}
+
+/* Titles: the gothic face has one weight, so it isn't thickened artificially when a title is set bold */
+:is(h1, h2, h3, h4, .font-title):not([data-card-face] *) {
+  font-family: var(--app-title-font);
+  font-weight: 400;
+  letter-spacing: 0.02em;
+}
