@@ -27,9 +27,9 @@ import {
 } from './game/endless';
 import { isCpuUsableAbility, chooseCpuAction, chooseCpuTarget, chooseCpuUnit, distanceToNearestEnemy } from './game/cpuPlayer';
 import { GraveyardZone } from './components/GraveyardZone';
-import { DeckPile } from './components/DeckPile';
 import { CoinFlipModal } from './components/CoinFlipModal';
 import { TurnActionPanel } from './components/TurnActionPanel';
+import { FocusCardPanel } from './components/FocusCardPanel';
 import { VictoryModal } from './components/VictoryModal';
 import { TurnTransitionOverlay } from './components/TurnTransitionOverlay';
 import { CycleModal } from './components/CycleModal';
@@ -317,6 +317,7 @@ import { getAbilityRangePassiveBonus } from './utils/flowingStance';
 import { getGrantedAllyAttack, getAllyAttackChoices } from './utils/multiStageAbilities';
 import { STARTING_SCALE } from './utils/device';
 import { compareCards } from './utils/cardSort';
+import { COPYRIGHT_NOTICE } from './data/copyrightNotice';
 import {
   hasFlowingStancePassive,
   isFlowingStanceActive,
@@ -372,6 +373,9 @@ export default function App() {
   const [isGalleryBarOpen, setIsGalleryBarOpen] = useState(false);
   // The top bar hidden in a match (its tab brings it back; it's always shown outside matches)
   const [isTopBarHidden, setIsTopBarHidden] = useState(false);
+  // The match's big card (see FocusCardPanel): the hand card last hovered, or a unit hovered on the board while no unit
+  // is taking the turn. Null: the unit taking the turn, if any.
+  const [focusCard, setFocusCard] = useState<{ card: CardItem; owner?: PlayerId } | null>(null);
   // The version and set next to the title, behind a small arrow on their left (hidden at first, like the gallery bar)
   const [isVersionOpen, setIsVersionOpen] = useState(false);
   const [customArtMap, setCustomArtMap] = useState<Record<string, string>>({});
@@ -448,7 +452,8 @@ export default function App() {
   // The camera controls can be tucked away behind a small arrow, like the gallery bar and the version
   // (hidden at first)
   const [isCameraOpen, setIsCameraOpen] = useState(false);
-  const [isLogOpen, setIsLogOpen] = useState(false);
+  // (open from the start: the game's notices are written there, see showNotification)
+  const [isLogOpen, setIsLogOpen] = useState(true);
   const MAX_CAMERA_PAN = 900;
   const panCamera = (dx: number, dy: number) => {
     markCameraChange();
@@ -624,10 +629,15 @@ export default function App() {
   };
 
   // (hidden: online, a message naming cards only one player may see shows its public wording on the other screen)
+  // In a match (setup or play) a notice goes in the match log only, which flashes it (see GameLogPanel); before one
+  // starts, there's no log yet, so it shows over the battlefield for a few seconds
   const showNotification = (msg: string, hidden?: HiddenText) => {
+    if (gamePhase === 'setup' || gamePhase === 'playing') {
+      appendLog('note', msg, activePlayer, turnCount, hidden);
+      return;
+    }
     setFeedbackMessage(hidden && localPlayer && hidden.privateTo !== localPlayer ? hidden.publicText : msg);
     setTimeout(() => setFeedbackMessage(null), 3000);
-    if (gamePhase === 'setup' || gamePhase === 'playing') appendLog('note', msg, activePlayer, turnCount, hidden);
   };
 
   // Who decides a scry: its deck's owner, except Field Notes (whoever uses it, on either player's deck: player is then
@@ -977,6 +987,18 @@ export default function App() {
   const shownHand = shownHandPlayer === 'player1' ? player1Hand : player2Hand;
   const hiddenHandPlayer: PlayerId = shownHandPlayer === 'player1' ? 'player2' : 'player1';
   const hiddenHandCount = (hiddenHandPlayer === 'player1' ? player1Hand : player2Hand).length;
+  // Whether the unit taking the turn has done anything yet (until then the player may still switch to another unit, or
+  // to placing a card from hand)
+  const unitHasActed = (u: BattlefieldUnit | null | undefined): boolean =>
+    Boolean(
+      u &&
+        (u.currentAp < (u.turnStartingAp ?? u.card.ap) ||
+          u.usedUniversalDrawThisTurn ||
+          u.lockedIn ||
+          getAttacksUsedThisTurn(u) > 0 ||
+          u.movedThisTurn ||
+          Object.values(u.usedTurnCounts || {}).some((n) => n > 0))
+    );
   const activeDeck = activePlayer === 'player1' ? player1Deck : player2Deck;
 
   // Filtered cards for Gallery
@@ -1989,6 +2011,16 @@ export default function App() {
 
   // Active unit taking a turn (Rule 6.2)
   const activeTurnUnit = activeTurnUnitHex ? unitsOnBoard[activeTurnUnitHex] || null : null;
+  const turnUnitHasActed = unitHasActed(activeTurnUnit);
+  // What the big card shows: the unit taking the turn (always, once it has acted), else the card in focus
+  const focusIsTurnUnit = Boolean(activeTurnUnit && (!focusCard || turnUnitHasActed));
+  const shownFocus: { card: CardItem; owner?: PlayerId } | null = focusIsTurnUnit
+    ? { card: activeTurnUnit!.card, owner: activeTurnUnit!.owner }
+    : focusCard;
+  // (a new player's turn starts with nothing in focus: in hot seat, the last player's hand card isn't left showing)
+  useEffect(() => {
+    setFocusCard(null);
+  }, [activePlayer]);
 
   // Board-wide state the damage rules read (scorched tiles, this turn's number)
   setBoardContext({
@@ -9723,13 +9755,7 @@ export default function App() {
         // Allow switching units during turn, but only if no AP has been spent (no indicator, just allow it)
         if (activeTurnUnitHex) {
           if (activeTurnUnitHex !== hexId) {
-            const hasSpentAp =
-              activeTurnUnit &&
-              (activeTurnUnit.currentAp < (activeTurnUnit.turnStartingAp ?? activeTurnUnit.card.ap) ||
-                activeTurnUnit.usedUniversalDrawThisTurn ||
-                activeTurnUnit.lockedIn ||
-                getAttacksUsedThisTurn(activeTurnUnit) > 0 ||
-                activeTurnUnit.movedThisTurn);
+            const hasSpentAp = unitHasActed(activeTurnUnit);
             if (hasSpentAp) {
               showNotification(
                 `Cannot switch units during a turn. You must complete your turn with ${activeTurnUnit?.card.name || 'your chosen unit'}.`
@@ -9738,13 +9764,15 @@ export default function App() {
             }
             // No AP has been spent on the previous unit, allow smooth switch to hexId!
           } else {
-            // Same unit already taking the turn
+            // Same unit already taking the turn (its card and actions come back into focus)
             setSelectedHex(hexId);
+            setFocusCard(null);
             return;
           }
         }
 
         setActiveTurnUnitHex(hexId);
+        setFocusCard(null);
         setActiveAbility(null);
         setSelectedHandIndex(null);
         setIsMovingMode(false);
@@ -13057,6 +13085,10 @@ export default function App() {
   const lastAckedSeqRef = useRef(0);
   const lastHandoffTurnRef = useRef<number | null>(null);
   const [handoffStatus, setHandoffStatus] = useState<{ text: string; ok: boolean } | null>(null);
+  // (the details are for whoever is debugging online play: in the console, not the log)
+  useEffect(() => {
+    if (handoffStatus) (handoffStatus.ok ? console.info : console.warn)(`[turn handoff] ${handoffStatus.text}`);
+  }, [handoffStatus]);
   const [reloadEachTurn, setReloadEachTurn] = useState(false);
   const reloadCheckRef = useRef<{ fingerprint: string; turn: number; to: PlayerId; state: GameState } | null>(null);
   const [reloadCheckTick, setReloadCheckTick] = useState(0);
@@ -14785,10 +14817,10 @@ export default function App() {
       setPopupOrderChoice(null);
       return;
     }
-    if (popupOrderChoice) appendLog('choice', `Popup order: ${value}`, popupOrderChoice.decider);
     const choice = popupOrderChoice;
-    setPopupOrderChoice(null);
     const entry = choice?.options.find((p) => String(p.key) === value);
+    if (choice) appendLog('choice', `Resolved first: ${entry?.label ?? 'the chosen effect'}`, choice.decider);
+    setPopupOrderChoice(null);
     if (entry) openQueuedPopup(entry);
   };
 
@@ -15107,16 +15139,6 @@ export default function App() {
     researchPending?.player ??
     deckArrangePending?.player ??
     (isTurnTransitioning ? transitionPlayer : activePlayer);
-  // The shared match log, as a button that sits with the camera controls (see below)
-  const logControl = (
-    <GameLogPanel
-      entries={gameLog}
-      handoffStatus={handoffStatus}
-      viewer={isOnline() ? localPlayer : null}
-      open={isLogOpen}
-      onToggle={() => setIsLogOpen((o) => !o)}
-    />
-  );
   // ---- Endless: waves ----
   // When the computer has no non-token units left (and nothing is being decided or resolved), the next wave comes. Every
   // 10 waves the player's board, hand and graveyard go back into their deck for a new starting phase first.
@@ -15739,23 +15761,6 @@ export default function App() {
         </div>
       )}
 
-      {/* Online: shown while the game is waiting on the other player's input (clicks are blocked meanwhile) */}
-      {isWaitingForOpponent && (
-        <div className="fixed top-20 left-1/2 -translate-x-1/2 z-[70] pointer-events-none px-5 py-2 rounded-xl bg-stone-900/95 border border-red-800/80 text-red-100 font-bold shadow-xl animate-pulse">
-          Waiting for opponent…
-        </div>
-      )}
-      {/* ...and its counterpart when the game is waiting on this screen's player */}
-      {activeTab === 'play' &&
-        localPlayer !== null &&
-        !isWaitingForOpponent &&
-        (gamePhase === 'setup' || gamePhase === 'playing') &&
-        !winner &&
-        !isTurnTransitioning && (
-          <div className="fixed top-20 left-1/2 -translate-x-1/2 z-[70] pointer-events-none px-5 py-2 rounded-xl bg-stone-900/95 border border-emerald-600/80 text-emerald-200 font-bold shadow-xl animate-pulse">
-            Your turn!
-          </div>
-        )}
 
       {/* Play Mode Menu: Hot Seat (this screen, the current game) or Online (not available yet) */}
       <div data-input-always>
@@ -16184,11 +16189,11 @@ export default function App() {
               ))}
             </div>
 {/* ================= STANDARD BOTTOM NOTICE ================= */}
-        {/* (the notice's text is the paragraph just below: edit it there) */}
+        {/* (the notice's text is in src/data/copyrightNotice.ts, shared with the deck editor) */}
         <footer className="w-full mt-10 rounded-2xl border border-stone-800/80 bg-stone-900/90 py-3 px-6 text-center text-stone-400 leading-relaxed">
           <div className="max-w-4xl mx-auto">
             <p className="font-serif text-stone-400" style={{ fontSize: '8pt', lineHeight: '1.45' }}>
-              EVIL Card Game © 2026. All rights reserved. EVIL Card Game was made by 1 person across hundreds (if not thousands) of hours, through persistence and the generous help of many others. Anyone attempting to steal my game having read this notice openly admits that they are a cod fish, a scallywag, and a devious villain. Please enjoy.
+              {COPYRIGHT_NOTICE}
             </p>
           </div>
         </footer>
@@ -16225,6 +16230,60 @@ export default function App() {
 
           <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_center,rgba(50,40,30,0.25)_0%,transparent_80%)] pointer-events-none" />
 
+          {/* Left Flank: both players in one box, split down the middle in their colours (Player 1 blue, Player 2
+              red, as their pedestals): how many cards are in each deck and hand, and each graveyard to click and
+              look through */}
+          {/* (floats over the battlefield's top left corner, right under the top bar, so the board is centred on the
+              screen whatever its width). Online, whose turn it is shows above it, the same width. */}
+          <div className="absolute left-6 top-3 z-30 w-80 flex flex-col gap-2 pointer-events-none">
+            {/* Online: whose input the game is waiting on (clicks are blocked meanwhile on the other screen) */}
+            {isWaitingForOpponent && (
+              <div className="w-full text-center px-4 py-3 rounded-xl bg-stone-900/95 border-2 border-red-800/80 text-red-100 text-xl font-bold shadow-xl animate-pulse">
+                Waiting for opponent…
+              </div>
+            )}
+            {localPlayer !== null &&
+              !isWaitingForOpponent &&
+              (gamePhase === 'setup' || gamePhase === 'playing') &&
+              !winner &&
+              !isTurnTransitioning && (
+                <div className="w-full text-center px-4 py-3 rounded-xl bg-stone-900/95 border-2 border-emerald-600/80 text-emerald-200 text-xl font-bold shadow-xl animate-pulse">
+                  Your turn!
+                </div>
+              )}
+            <div className="w-full pointer-events-auto flex rounded-xl overflow-hidden border border-stone-700 shadow-xl backdrop-blur-md bg-stone-950/95">
+              {(['player1', 'player2'] as PlayerId[]).map((p) => {
+                const isP1 = p === 'player1';
+                const name = endlessMode && p === ENDLESS_CPU ? 'Computer' : isP1 ? 'Player 1' : 'Player 2';
+                const grave = isP1 ? player1Graveyard : player2Graveyard;
+                return (
+                  <div
+                    key={p}
+                    className={`flex-1 flex flex-col items-center gap-1.5 px-3 py-2 ${
+                      isP1 ? 'bg-sky-600/20 border-r border-stone-700' : 'bg-red-600/20'
+                    }`}
+                  >
+                    <span className={`text-sm font-serif font-bold ${isP1 ? 'text-sky-300' : 'text-red-300'}`}>{name}</span>
+                    <div className="text-[11px] font-mono text-stone-300 leading-tight self-stretch">
+                      <div>Deck: {(isP1 ? player1Deck : player2Deck).length}</div>
+                      <div>Hand: {(isP1 ? player1Hand : player2Hand).length}</div>
+                    </div>
+                    <GraveyardZone
+                      title={`${name} Graveyard`}
+                      owner={p === shownHandPlayer ? 'player' : 'opponent'}
+                      cards={grave}
+                      customArtMap={customArtMap}
+                      onHoverCard={setHoveredCard}
+                      hideLabel
+                      // (big enough that the top card can be made out, short of filling its half)
+                      slotWidthClass="w-24"
+                    />
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
           {/* Top Header inside Arena */}
           {/* Notices and Leave Match over the top of the battlefield: only the button takes clicks, so the hexes under
               this row stay clickable */}
@@ -16241,13 +16300,6 @@ export default function App() {
 
             {/* Leave Match and Concede, together on the right (clear of the turn banner in the middle) */}
             <div className="flex items-center">
-            {endlessMode && (
-              <div className="mr-3 px-4 py-2 rounded-xl bg-stone-900/95 border border-amber-500/80 text-amber-200 text-sm font-mono font-bold shadow-2xl pointer-events-none">
-                {endlessWave === 0
-                  ? 'Endless: wave 1 arrives when the game starts'
-                  : `Endless · Wave ${endlessWave} · Threat Level ${waveBudget(endlessWave)}`}
-              </div>
-            )}
             <button
               data-input-always
               onClick={() => {
@@ -16284,75 +16336,15 @@ export default function App() {
           >
             {/* Battlefield Arena Main Viewport with Flanking Graveyards AND Visual Deck Piles */}
            <div className="w-full h-full flex items-start justify-between px-6 pt-2 z-10 relative">
-              {/* Left Flank: the other player's Deck & Graveyard on top, this view's own (the player whose hand is shown) just
-                  above the hand, far enough up to stay clear of it */}
-              <div className="z-20 self-stretch flex flex-col items-start justify-between py-1 pl-1 pointer-events-none shrink-0">
-                {/* The other player's Deck & Graveyard (Top Left) */}
-                <div className="flex flex-row items-start gap-3 pointer-events-auto">
-                  <DeckPile
-                    title={`${hiddenHandPlayer === 'player1' ? 'Player 1' : 'Player 2'} Deck`}
-                    count={(hiddenHandPlayer === 'player1' ? player1Deck : player2Deck).length}
-                    owner="opponent"
-                  />
-
-                  <GraveyardZone
-                    title={`${hiddenHandPlayer === 'player1' ? 'Player 1' : 'Player 2'} Graveyard`}
-                    owner="opponent"
-                    cards={hiddenHandPlayer === 'player1' ? player1Graveyard : player2Graveyard}
-                    customArtMap={customArtMap}
-                    onHoverCard={setHoveredCard}
-                  />
-                </div>
-
-                {/* This view's own Deck & Graveyard (Bottom Left, above the hand dock) */}
-                <div className="flex flex-row items-start gap-3 mb-64 pointer-events-auto">
-                  <DeckPile
-                    title={`${shownHandPlayer === 'player1' ? 'Player 1' : 'Player 2'} Deck`}
-                    count={(shownHandPlayer === 'player1' ? player1Deck : player2Deck).length}
-                    owner="player"
-                  />
-
-                  <GraveyardZone
-                    title={`${shownHandPlayer === 'player1' ? 'Player 1' : 'Player 2'} Graveyard`}
-                    owner="player"
-                    cards={shownHandPlayer === 'player1' ? player1Graveyard : player2Graveyard}
-                    customArtMap={customArtMap}
-                    onHoverCard={setHoveredCard}
-                  />
-                </div>
-              </div>
-
-              {/* Center: 8x6 Hexagonal Grid Arena justified to left under the top bar with padding space */}
+              {/* Center: 8x6 Hexagonal Grid Arena, centred in the battlefield's full width (the panels on either side
+                  float over its corners), seen from straight in front of its middle */}
               <div 
-                className="flex-1 flex flex-col items-start justify-start overflow-visible pl-4 sm:pl-8 relative"
+                className="flex-1 flex flex-col items-center justify-start overflow-visible relative"
                 style={{
                   perspective: '1400px',
-                  perspectiveOrigin: '40% 30%'
+                  perspectiveOrigin: '50% 30%'
                 }}
               >
-                {/* The other player's hand: how many cards, as card backs (their cards stay hidden) */}
-                <div className="absolute top-0 left-4 flex items-center gap-2 select-none pointer-events-none z-30">
-                  <span
-                    className={`text-[10px] font-mono font-bold uppercase tracking-widest px-2 py-0.5 rounded-full shadow-xs border ${
-                      hiddenHandPlayer === 'player2'
-                        ? 'text-rose-300 bg-rose-950/80 border-rose-500/40'
-                        : 'text-sky-300 bg-sky-950/80 border-sky-500/40'
-                    }`}
-                  >
-                    {hiddenHandPlayer === 'player1' ? 'P1' : 'P2'} Hand ({hiddenHandCount})
-                  </span>
-                  <div className="flex -space-x-3" aria-hidden>
-                    {Array.from({ length: Math.min(hiddenHandCount, 10) }, (_, i) => (
-                      <div
-                        key={i}
-                        className="w-5 h-7 rounded-[3px] border border-stone-500/70 bg-gradient-to-br from-stone-800 to-stone-950 shadow flex items-center justify-center"
-                      >
-                        <span className="text-[5px] font-black text-stone-400 [writing-mode:vertical-rl]">EVIL</span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-
                 {/* Floating Multi-Stage Targeting Banner Above Arena */}
                 {multiStageState && multiStageTargetInfo && (
                   <div className="absolute top-2 left-1/2 -translate-x-1/2 z-40 bg-amber-950/95 border-2 border-amber-400 text-amber-200 px-4 py-2.5 rounded-xl shadow-2xl backdrop-blur-md flex items-center gap-3 max-w-xl select-none animate-in fade-in slide-in-from-top-2">
@@ -16487,6 +16479,8 @@ export default function App() {
                     onHoverUnitCard={(card, owner) => {
                       setHoveredStandeeCard(card);
                       setHoveredBoardUnit(card && owner ? { card, owner } : null);
+                      // (into focus while no unit is taking the turn, and it stays there)
+                      if (card && !activeTurnUnit) setFocusCard({ card, owner });
                     }}
                     momentumChargeHex={pendingMomentumCharge?.nextHex || pendingRabbleMove?.throughHex}
                     assistDeployHexes={assistDeployHexes}
@@ -16497,341 +16491,35 @@ export default function App() {
                 </div>
               </div>
 
-              {/* Right Flank: Standee & Hand hover card preview */}
-              <div className="z-20 flex flex-col items-center justify-start self-start pt-1 pr-2 pointer-events-none w-64 sm:w-72 md:w-80 h-[340px] sm:h-[380px] bg-transparent border-0 shadow-none outline-none">
-                {previewStandee ? (
-                  <StandeePreview
-                    card={previewStandee.card}
-                    owner={previewStandee.owner}
-                    customArtUrl={customArtMap[previewStandee.card.id]}
-                  />
-                ) : (
-                  hoveredCard &&
-                  (hoveredBoardUnit && hoveredBoardUnit.card === hoveredCard && hoveredBoardUnit.owner !== (localPlayer ?? activePlayer) ? (
-                    // An enemy unit: the same preview, outlined in red
-                    <div className="relative inline-flex rounded-2xl ring-[3px] ring-red-600 shadow-[0_0_28px_rgba(220,38,38,0.55)]">
-                      <CardPreview card={hoveredCard} customArtUrl={customArtMap[hoveredCard.id]} />
-                      <span className="absolute -top-3 left-1/2 -translate-x-1/2 px-2 py-0.5 rounded-full bg-red-700 text-red-50 text-[10px] font-mono font-bold uppercase tracking-widest shadow">
-                        Enemy
-                      </span>
-                    </div>
-                  ) : (
-                    <CardPreview card={hoveredCard} customArtUrl={customArtMap[hoveredCard.id]} />
-                  ))
-                )}
-              </div>
-            </div>
-
-            {/* Bottom: Active Player's Hand dock bar with action menu on right; cards spill over the top */}
-            <div className="absolute bottom-0 left-0 right-0 z-30 px-6 flex flex-col items-start justify-end pointer-events-none pb-2 overflow-visible">
-              {/* Pregame Reinforcement Phase Controls directly above the hand */}
-              {gamePhase === 'setup' && (
-                <div className="absolute right-4 bottom-2.5 z-40 flex flex-col items-end gap-1.5 pointer-events-auto">
-                  {/* Board Zoom & Rotate Controls above setup panel */}
-                  {/* Two joined boxes, shrink-wrapped: the taller d-pad box, and beside it the label over the other controls.
-                      They hide and show together (only the label and its arrow stay). */}
-                  {/* The match log's button: left of the camera arrow while the controls are hidden, above them when shown */}
-                  <div className={isCameraOpen ? 'flex flex-col items-end gap-1.5' : 'flex items-end gap-1.5'}>
-                  {logControl}
-                  <div data-input-always className="w-fit flex items-end drop-shadow-xl">
-                  {isCameraOpen && (
-                    <div className="bg-stone-900/90 border border-stone-800 rounded-l-xl rounded-tr-xl p-1 backdrop-blur-md">
-                      {/* Camera pan d-pad (hold an arrow) */}
-                      <CameraPanPad onPan={panCamera} />
-                    </div>
-                  )}
-                  <div
-                    className={`flex flex-col items-start gap-1 bg-stone-900/90 border border-stone-800 p-1 backdrop-blur-md ${
-                      isCameraOpen ? '-ml-px rounded-r-xl' : 'rounded-xl'
-                    }`}
-                  >
-                  {/* "Camera Controls:" and the arrow that hides or shows them */}
-                  <div className="flex items-center gap-1.5 pl-1 pr-1 pt-0.5">
-                    {isCameraOpen && (
-                    <>
-                    <span className="text-[11px] font-mono font-bold text-stone-300 drop-shadow">Camera Controls:</span>
-                    {/* Cycle the battlefield background (default, each set's, none) */}
-                    <button
-                      onClick={() => cycleBoardBackground(-1)}
-                      title={`Previous background (now: ${boardBackgroundName})`}
-                      className="px-1.5 py-0.5 rounded-md bg-stone-900/90 border border-stone-800 text-emerald-400 hover:text-emerald-200 transition-colors cursor-pointer"
-                    >
-                      <ChevronLeft className="w-3.5 h-3.5" />
-                    </button>
-                    <button
-                      onClick={() => cycleBoardBackground(1)}
-                      title={`Next background (now: ${boardBackgroundName})`}
-                      className="px-1.5 py-0.5 rounded-md bg-stone-900/90 border border-stone-800 text-emerald-400 hover:text-emerald-200 transition-colors cursor-pointer"
-                    >
-                      <ChevronRight className="w-3.5 h-3.5" />
-                    </button>
-                    </>
-                    )}
-                    <button
-                      onClick={() => setIsCameraOpen((open) => !open)}
-                      title={isCameraOpen ? 'Hide the camera controls' : 'Show the camera controls'}
-                      className="px-1.5 py-0.5 rounded-md bg-stone-900/90 border border-stone-800 text-stone-400 hover:text-stone-100 transition-colors cursor-pointer"
-                    >
-                      {isCameraOpen ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronUp className="w-3.5 h-3.5" />}
-                    </button>
-                  </div>
-                  {isCameraOpen && (
-                  <div className="flex items-end gap-1.5">
-                    {/* Rotation Controls */}
-                    <div className="flex items-center bg-stone-950/80 border border-stone-800 rounded-lg p-0.5 shadow-xs">
-                      <button
-                        onClick={() => {
-                          markCameraChange();
-                          setBoardYawState((prev) => rotateYawToNextEdge(prev, -1));
-                        }}
-                        className="p-1.5 hover:bg-stone-800 rounded-md text-stone-300 hover:text-amber-400 transition-colors cursor-pointer"
-                        title="Rotate Board Left (to the next stop: a hex edge flat to the screen, or side-on)"
-                      >
-                        <RotateCcw className="w-4 h-4" />
-                      </button>
-                      <span className="text-xs font-mono text-stone-300 px-1.5 font-bold select-none min-w-[36px] text-center">
-                        {boardYaw}°
-                      </span>
-                      <button
-                        onClick={() => {
-                          markCameraChange();
-                          setBoardYawState((prev) => rotateYawToNextEdge(prev, 1));
-                        }}
-                        className="p-1.5 hover:bg-stone-800 rounded-md text-stone-300 hover:text-amber-400 transition-colors cursor-pointer"
-                        title="Rotate Board Right (to the next stop: a hex edge flat to the screen, or side-on)"
-                      >
-                        <RotateCw className="w-4 h-4" />
-                      </button>
-                    </div>
-
-                    {/* Zoom Controls */}
-                    <div className="flex items-center bg-stone-950/80 border border-stone-800 rounded-lg p-0.5 shadow-xs">
-                      <button
-                        onClick={() => {
-                          markCameraChange();
-                          setBoardZoom((prev) => Math.min(200, Math.round(prev + 10)));
-                        }}
-                        className="p-1.5 hover:bg-stone-800 rounded-md text-stone-300 hover:text-red-400 transition-colors cursor-pointer"
-                        title="Zoom In Board"
-                      >
-                        <ZoomIn className="w-4 h-4" />
-                      </button>
-                      <span className="text-xs font-mono text-stone-300 px-1.5 font-bold select-none min-w-[40px] text-center">
-                        {boardZoom}%
-                      </span>
-                      <button
-                        onClick={() => {
-                          markCameraChange();
-                          setBoardZoom((prev) => Math.max(20, Math.round(prev - 10)));
-                        }}
-                        className="p-1.5 hover:bg-stone-800 rounded-md text-stone-300 hover:text-red-400 transition-colors cursor-pointer"
-                        title="Zoom Out Board"
-                      >
-                        <ZoomOut className="w-4 h-4" />
-                      </button>
-                    </div>
-
-                    {/* Reset to Original Perspective & Zoom button */}
-                    {/* Always takes its space (hidden until the camera has moved), so the controls never shift under the cursor */}
-                    <button
-                      onClick={resetToOriginalPerspective}
-                      disabled={!isRotated}
-                      aria-hidden={!isRotated}
-                      className={`flex items-center gap-1 px-2.5 py-1 bg-red-950 border border-red-700/80 hover:bg-red-900 text-red-400 text-xs font-mono font-bold rounded-lg shadow-xs cursor-pointer ${
-                        isRotated ? '' : 'invisible'
-                      }`}
-                      title="Reset board to default perspective and zoom"
-                    >
-                      <Compass className="w-3.5 h-3.5 text-sky-400" />
-                      <span>Reset</span>
-                    </button>
-                  </div>
-                  )}
-                  </div>
-                  </div>
-                  </div>
-
-                  <div className="w-80 sm:w-96 md:w-[420px] bg-stone-900/95 border border-stone-700/80 rounded-xl shadow-xl p-3 backdrop-blur-md flex flex-col gap-2 select-none animate-in fade-in">
-                    <div className="flex items-center justify-between gap-1">
-                      <div
-                        className={`self-start px-3 py-1 rounded-full text-[11px] font-mono font-black uppercase tracking-wider border shadow-md ${
-                          activePlayer === 'player1'
-                            ? 'bg-sky-950 border-sky-400 text-sky-200'
-                            : 'bg-rose-950 border-rose-500 text-rose-200'
-                        }`}
-                      >
-                        {activePlayer === 'player1' ? "Player 1's Setup Turn" : "Player 2's Setup Turn"}
-                      </div>
-                      {/* Indicator throughout reinforcement phase */}
-                      <div className="flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-emerald-950/80 border border-emerald-500/50 text-emerald-300 text-[10px] font-mono font-bold shadow-xs">
-                        <span className="w-2 h-2 rounded-full bg-emerald-400 inline-block" />
-                        <span>Reinforce Phase</span>
-                      </div>
-                    </div>
-                    <span className="text-[11px] font-mono text-stone-400 leading-snug">
-                      Reinforce 1 unit to {activePlayer === 'player1' ? 'Row 1' : 'Row 6'}, Cycle, or Start Game
-                    </span>
-                    <button
-                      onClick={() => setIsCycleModalOpen(true)}
-                      disabled={activePlayer === 'player1' ? p1HasCycled : p2HasCycled}
-                      className={`w-full flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-mono font-bold border transition-all cursor-pointer ${
-                        !(activePlayer === 'player1' ? p1HasCycled : p2HasCycled)
-                          ? 'bg-stone-800 hover:bg-sky-950 text-sky-300 border-sky-600/60 hover:border-sky-400 shadow-sm'
-                          : 'opacity-40 cursor-not-allowed bg-stone-900 border-stone-800 text-stone-500'
-                      }`}
-                      title="Put chosen cards on bottom of deck, draw that many (Rule 5.2, once per game)"
-                    >
-                      <RefreshCw className="w-3.5 h-3.5" />
-                      <span>Cycle Cards {(activePlayer === 'player1' ? p1HasCycled : p2HasCycled) ? '(Used)' : ''}</span>
-                    </button>
-                    <button
-                      onClick={handleSetupStartClick}
-                      className={`w-full flex items-center justify-center gap-2 px-3 py-1.5 rounded-lg font-serif font-black text-xs uppercase tracking-wider transition-all cursor-pointer shadow-md ${
-                        setupConsecutiveStarts === 1
-                          ? 'bg-emerald-500 hover:bg-emerald-400 text-stone-950 ring-2 ring-emerald-300 animate-pulse'
-                          : 'bg-amber-500 hover:bg-amber-400 text-stone-950 ring-1 ring-amber-300'
-                      }`}
-                      title={
-                        setupConsecutiveStarts === 1
-                          ? "Agree to start! (Both players chose Start in a row -> Game Begins!)"
-                          : "Choose to Start the game"
+              {/* The battlefield's top right, under Leave Match: one big card. It's the card in focus: the hand card last
+                  hovered, a unit hovered on the board while no unit is taking the turn, or the unit taking the turn, its
+                  printed abilities its buttons and everything else it can do underneath. Once that unit has acted, the
+                  focus stays on it. The match log is under it. */}
+              {(gamePhase === 'setup' || gamePhase === 'playing') && (
+                <div className="absolute right-6 top-2 z-40 w-[340px] flex flex-col gap-1.5 pointer-events-auto">
+                  {shownFocus && (
+                    <FocusCardPanel
+                      card={shownFocus.card}
+                      customArtUrl={customArtMap[shownFocus.card.id]}
+                      turnUnit={focusIsTurnUnit ? activeTurnUnit : null}
+                      activeAbility={activeAbility}
+                      onAbilityClick={handleAbilityClick}
+                      onHoverAbility={setHoveredActionAbility}
+                      locked={Boolean(lockedAssist)}
+                      tag={
+                        shownFocus.owner && shownFocus.owner !== (localPlayer ?? activePlayer)
+                          ? { text: 'Enemy', className: 'bg-red-700 text-red-50' }
+                          : null
                       }
-                    >
-                      <Play className="w-3.5 h-3.5 fill-current" />
-                      <span>{setupConsecutiveStarts === 1 ? "Agree to Start" : "Start Game"}</span>
-                    </button>
-                  </div>
-                </div>
-              )}
-
-              {/* Action Menu (after reinforcement phase) placed in bottom right */}
-              {gamePhase === 'playing' && (
-                <div className="absolute right-4 bottom-2.5 z-40 flex flex-col items-end gap-1.5 pointer-events-auto">
-                  {/* Board Zoom & Rotate Controls directly above the action panel */}
-                  {/* Two joined boxes, shrink-wrapped: the taller d-pad box, and beside it the label over the other controls.
-                      They hide and show together (only the label and its arrow stay). */}
-                  {/* The match log's button: left of the camera arrow while the controls are hidden, above them when shown */}
-                  <div className={isCameraOpen ? 'flex flex-col items-end gap-1.5' : 'flex items-end gap-1.5'}>
-                  {logControl}
-                  <div data-input-always className="w-fit flex items-end drop-shadow-xl">
-                  {isCameraOpen && (
-                    <div className="bg-stone-900/90 border border-stone-800 rounded-l-xl rounded-tr-xl p-1 backdrop-blur-md">
-                      {/* Camera pan d-pad (hold an arrow) */}
-                      <CameraPanPad onPan={panCamera} />
-                    </div>
+                    />
                   )}
-                  <div
-                    className={`flex flex-col items-start gap-1 bg-stone-900/90 border border-stone-800 p-1 backdrop-blur-md ${
-                      isCameraOpen ? '-ml-px rounded-r-xl' : 'rounded-xl'
-                    }`}
-                  >
-                  {/* "Camera Controls:" and the arrow that hides or shows them */}
-                  <div className="flex items-center gap-1.5 pl-1 pr-1 pt-0.5">
-                    {isCameraOpen && (
-                    <>
-                    <span className="text-[11px] font-mono font-bold text-stone-300 drop-shadow">Camera Controls:</span>
-                    {/* Cycle the battlefield background (default, each set's, none) */}
-                    <button
-                      onClick={() => cycleBoardBackground(-1)}
-                      title={`Previous background (now: ${boardBackgroundName})`}
-                      className="px-1.5 py-0.5 rounded-md bg-stone-900/90 border border-stone-800 text-emerald-400 hover:text-emerald-200 transition-colors cursor-pointer"
-                    >
-                      <ChevronLeft className="w-3.5 h-3.5" />
-                    </button>
-                    <button
-                      onClick={() => cycleBoardBackground(1)}
-                      title={`Next background (now: ${boardBackgroundName})`}
-                      className="px-1.5 py-0.5 rounded-md bg-stone-900/90 border border-stone-800 text-emerald-400 hover:text-emerald-200 transition-colors cursor-pointer"
-                    >
-                      <ChevronRight className="w-3.5 h-3.5" />
-                    </button>
-                    </>
-                    )}
-                    <button
-                      onClick={() => setIsCameraOpen((open) => !open)}
-                      title={isCameraOpen ? 'Hide the camera controls' : 'Show the camera controls'}
-                      className="px-1.5 py-0.5 rounded-md bg-stone-900/90 border border-stone-800 text-stone-400 hover:text-stone-100 transition-colors cursor-pointer"
-                    >
-                      {isCameraOpen ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronUp className="w-3.5 h-3.5" />}
-                    </button>
-                  </div>
-                  {isCameraOpen && (
-                  <div className="flex items-end gap-1.5">
-                    {/* Rotation Controls */}
-                    <div className="flex items-center bg-stone-950/80 border border-stone-800 rounded-lg p-0.5 shadow-xs">
-                      <button
-                        onClick={() => {
-                          markCameraChange();
-                          setBoardYawState((prev) => rotateYawToNextEdge(prev, -1));
-                        }}
-                        className="p-1.5 hover:bg-stone-800 rounded-md text-stone-300 hover:text-amber-400 transition-colors cursor-pointer"
-                        title="Rotate Board Left (to the next stop: a hex edge flat to the screen, or side-on)"
-                      >
-                        <RotateCcw className="w-4 h-4" />
-                      </button>
-                      <span className="text-xs font-mono text-stone-300 px-1.5 font-bold select-none min-w-[36px] text-center">
-                        {boardYaw}°
-                      </span>
-                      <button
-                        onClick={() => {
-                          markCameraChange();
-                          setBoardYawState((prev) => rotateYawToNextEdge(prev, 1));
-                        }}
-                        className="p-1.5 hover:bg-stone-800 rounded-md text-stone-300 hover:text-amber-400 transition-colors cursor-pointer"
-                        title="Rotate Board Right (to the next stop: a hex edge flat to the screen, or side-on)"
-                      >
-                        <RotateCw className="w-4 h-4" />
-                      </button>
-                    </div>
-
-                    {/* Zoom Controls */}
-                    <div className="flex items-center bg-stone-950/80 border border-stone-800 rounded-lg p-0.5 shadow-xs">
-                      <button
-                        onClick={() => {
-                          markCameraChange();
-                          setBoardZoom((prev) => Math.min(200, Math.round(prev + 10)));
-                        }}
-                        className="p-1.5 hover:bg-stone-800 rounded-md text-stone-300 hover:text-red-400 transition-colors cursor-pointer"
-                        title="Zoom In Board"
-                      >
-                        <ZoomIn className="w-4 h-4" />
-                      </button>
-                      <span className="text-xs font-mono text-stone-300 px-1.5 font-bold select-none min-w-[40px] text-center">
-                        {boardZoom}%
-                      </span>
-                      <button
-                        onClick={() => {
-                          markCameraChange();
-                          setBoardZoom((prev) => Math.max(20, Math.round(prev - 10)));
-                        }}
-                        className="p-1.5 hover:bg-stone-800 rounded-md text-stone-300 hover:text-red-400 transition-colors cursor-pointer"
-                        title="Zoom Out Board"
-                      >
-                        <ZoomOut className="w-4 h-4" />
-                      </button>
-                    </div>
-
-                    {/* Reset to Original Perspective & Zoom button */}
-                    {/* Always takes its space (hidden until the camera has moved), so the controls never shift under the cursor */}
-                    <button
-                      onClick={resetToOriginalPerspective}
-                      disabled={!isRotated}
-                      aria-hidden={!isRotated}
-                      className={`flex items-center gap-1 px-2.5 py-1 bg-red-950 border border-red-700/80 hover:bg-red-900 text-red-400 text-xs font-mono font-bold rounded-lg shadow-xs cursor-pointer ${
-                        isRotated ? '' : 'invisible'
-                      }`}
-                      title="Reset board to default perspective and zoom"
-                    >
-                      <Compass className="w-3.5 h-3.5 text-sky-400" />
-                      <span>Reset</span>
-                    </button>
-                  </div>
-                  )}
-                  </div>
-                  </div>
-                  </div>
-
+                  {/* The turn's actions and the match log, with the camera controls out of their left side, as tall */}
+                  <div className="relative flex flex-col gap-1.5">
+                  {/* The turn's actions: under the unit taking the turn, or (no unit chosen yet) Pass and the prompt */}
+                  {gamePhase === 'playing' && (focusIsTurnUnit || !activeTurnUnit) && (
                   <TurnActionPanel
+                    abilitiesOnCard={Boolean(focusIsTurnUnit)}
+                    widthClass="w-full"
                     onHoverAbility={setHoveredActionAbility}
                     activePlayer={activePlayer}
                     activeTurnUnit={activeTurnUnit}
@@ -16892,8 +16580,331 @@ export default function App() {
                     }
                     onFinishChainChoosing={handleFinishChainChoosing}
                   />
+                  )}
+                  {/* The match log, under the action menu and as wide */}
+                  <GameLogPanel
+                    entries={gameLog}
+                    handoffStatus={handoffStatus}
+                    viewer={isOnline() ? localPlayer : null}
+                    open={isLogOpen}
+                    onToggle={() => setIsLogOpen((o) => !o)}
+                    inline
+                    pinned={
+                      endlessMode
+                        ? endlessWave === 0
+                          ? 'Endless: wave 1 arrives when the game starts'
+                          : `Endless · Wave ${endlessWave} · Threat Level ${waveBudget(endlessWave)}`
+                        : null
+                    }
+                  />
+                  {/* Board Zoom & Rotate Controls: out of the left side of the panel beside them, as tall */}
+                  {/* Two joined boxes, as tall as that panel: the d-pad box, and beside it the label over the other controls.
+                      They hide and show together (only the label and its arrow stay). */}
+                                    <div className="absolute right-full top-0 bottom-0 mr-2 flex items-stretch">
+                  <div data-input-always className="flex items-stretch drop-shadow-xl">
+                  {isCameraOpen && (
+                    <div className="bg-stone-900/90 border border-stone-800 rounded-l-xl rounded-tr-xl p-1 backdrop-blur-md">
+                      {/* Camera pan d-pad (hold an arrow) */}
+                      <CameraPanPad onPan={panCamera} />
+                    </div>
+                  )}
+                  <div
+                    className={`flex-1 min-w-0 flex flex-col items-start gap-1 bg-stone-900/90 border border-stone-800 p-1 backdrop-blur-md ${
+                      isCameraOpen ? '-ml-px rounded-r-xl' : 'rounded-xl'
+                    }`}
+                  >
+                  {/* "Camera Controls:" and the arrow that hides or shows them (at the bar's right end) */}
+                  <div className="self-stretch flex items-center gap-1.5 pl-1 pr-1 pt-0.5">
+                    <span className="text-[11px] font-mono font-bold text-stone-300 drop-shadow">Camera Controls{isCameraOpen ? ':' : ''}</span>
+                    {isCameraOpen && (
+                    <>
+                    {/* Cycle the battlefield background (default, each set's, none) */}
+                    <button
+                      onClick={() => cycleBoardBackground(-1)}
+                      title={`Previous background (now: ${boardBackgroundName})`}
+                      className="px-1.5 py-0.5 rounded-md bg-stone-900/90 border border-stone-800 text-emerald-400 hover:text-emerald-200 transition-colors cursor-pointer"
+                    >
+                      <ChevronLeft className="w-3.5 h-3.5" />
+                    </button>
+                    <button
+                      onClick={() => cycleBoardBackground(1)}
+                      title={`Next background (now: ${boardBackgroundName})`}
+                      className="px-1.5 py-0.5 rounded-md bg-stone-900/90 border border-stone-800 text-emerald-400 hover:text-emerald-200 transition-colors cursor-pointer"
+                    >
+                      <ChevronRight className="w-3.5 h-3.5" />
+                    </button>
+                    </>
+                    )}
+                    <button
+                      onClick={() => setIsCameraOpen((open) => !open)}
+                      title={isCameraOpen ? 'Hide the camera controls' : 'Show the camera controls'}
+                      className="ml-auto px-1.5 py-0.5 rounded-md bg-stone-900/90 border border-stone-800 text-stone-400 hover:text-stone-100 transition-colors cursor-pointer"
+                    >
+                      {isCameraOpen ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronUp className="w-3.5 h-3.5" />}
+                    </button>
+                  </div>
+                  {isCameraOpen && (
+                  <div className="flex items-end gap-1.5">
+                    {/* Rotation Controls */}
+                    <div className="flex items-center bg-stone-950/80 border border-stone-800 rounded-lg p-0.5 shadow-xs">
+                      <button
+                        onClick={() => {
+                          markCameraChange();
+                          setBoardYawState((prev) => rotateYawToNextEdge(prev, -1));
+                        }}
+                        className="p-1.5 hover:bg-stone-800 rounded-md text-stone-300 hover:text-amber-400 transition-colors cursor-pointer"
+                        title="Rotate Board Left (to the next stop: a hex edge flat to the screen, or side-on)"
+                      >
+                        <RotateCcw className="w-4 h-4" />
+                      </button>
+                      <span className="text-xs font-mono text-stone-300 px-1.5 font-bold select-none min-w-[36px] text-center">
+                        {boardYaw}°
+                      </span>
+                      <button
+                        onClick={() => {
+                          markCameraChange();
+                          setBoardYawState((prev) => rotateYawToNextEdge(prev, 1));
+                        }}
+                        className="p-1.5 hover:bg-stone-800 rounded-md text-stone-300 hover:text-amber-400 transition-colors cursor-pointer"
+                        title="Rotate Board Right (to the next stop: a hex edge flat to the screen, or side-on)"
+                      >
+                        <RotateCw className="w-4 h-4" />
+                      </button>
+                    </div>
+
+                    {/* Zoom Controls */}
+                    <div className="flex items-center bg-stone-950/80 border border-stone-800 rounded-lg p-0.5 shadow-xs">
+                      <button
+                        onClick={() => {
+                          markCameraChange();
+                          setBoardZoom((prev) => Math.min(200, Math.round(prev + 10)));
+                        }}
+                        className="p-1.5 hover:bg-stone-800 rounded-md text-stone-300 hover:text-red-400 transition-colors cursor-pointer"
+                        title="Zoom In Board"
+                      >
+                        <ZoomIn className="w-4 h-4" />
+                      </button>
+                      <span className="text-xs font-mono text-stone-300 px-1.5 font-bold select-none min-w-[40px] text-center">
+                        {boardZoom}%
+                      </span>
+                      <button
+                        onClick={() => {
+                          markCameraChange();
+                          setBoardZoom((prev) => Math.max(20, Math.round(prev - 10)));
+                        }}
+                        className="p-1.5 hover:bg-stone-800 rounded-md text-stone-300 hover:text-red-400 transition-colors cursor-pointer"
+                        title="Zoom Out Board"
+                      >
+                        <ZoomOut className="w-4 h-4" />
+                      </button>
+                    </div>
+
+                    {/* Reset to Original Perspective & Zoom button */}
+                    {/* Always takes its space (hidden until the camera has moved), so the controls never shift under the cursor */}
+                    <button
+                      onClick={resetToOriginalPerspective}
+                      disabled={!isRotated}
+                      aria-hidden={!isRotated}
+                      className={`flex items-center gap-1 px-2.5 py-1 bg-red-950 border border-red-700/80 hover:bg-red-900 text-red-400 text-xs font-mono font-bold rounded-lg shadow-xs cursor-pointer ${
+                        isRotated ? '' : 'invisible'
+                      }`}
+                      title="Reset board to default perspective and zoom"
+                    >
+                      <Compass className="w-3.5 h-3.5 text-sky-400" />
+                      <span>Reset</span>
+                    </button>
+                  </div>
+                  )}
+                  </div>
+                  </div>
+                  </div>
+                  </div>
                 </div>
               )}
+            </div>
+
+            {/* Bottom: Active Player's Hand dock bar with action menu on right; cards spill over the top */}
+            <div className="absolute bottom-0 left-0 right-0 z-30 px-6 flex flex-col items-start justify-end pointer-events-none pb-2 overflow-visible">
+              {/* Pregame Reinforcement Phase Controls directly above the hand */}
+              {gamePhase === 'setup' && (
+                <div className="absolute right-6 bottom-2.5 z-40 w-[340px] flex flex-col items-stretch gap-1.5 pointer-events-auto">
+                  <div className="relative">
+                  {/* Board Zoom & Rotate Controls: out of the left side of the panel beside them, as tall */}
+                  {/* Two joined boxes, as tall as that panel: the d-pad box, and beside it the label over the other controls.
+                      They hide and show together (only the label and its arrow stay). */}
+                                    <div className="absolute right-full top-0 bottom-0 mr-2 flex items-stretch">
+                  <div data-input-always className="flex items-stretch drop-shadow-xl">
+                  {isCameraOpen && (
+                    <div className="bg-stone-900/90 border border-stone-800 rounded-l-xl rounded-tr-xl p-1 backdrop-blur-md">
+                      {/* Camera pan d-pad (hold an arrow) */}
+                      <CameraPanPad onPan={panCamera} />
+                    </div>
+                  )}
+                  <div
+                    className={`flex-1 min-w-0 flex flex-col items-start gap-1 bg-stone-900/90 border border-stone-800 p-1 backdrop-blur-md ${
+                      isCameraOpen ? '-ml-px rounded-r-xl' : 'rounded-xl'
+                    }`}
+                  >
+                  {/* "Camera Controls:" and the arrow that hides or shows them (at the bar's right end) */}
+                  <div className="self-stretch flex items-center gap-1.5 pl-1 pr-1 pt-0.5">
+                    <span className="text-[11px] font-mono font-bold text-stone-300 drop-shadow">Camera Controls{isCameraOpen ? ':' : ''}</span>
+                    {isCameraOpen && (
+                    <>
+                    {/* Cycle the battlefield background (default, each set's, none) */}
+                    <button
+                      onClick={() => cycleBoardBackground(-1)}
+                      title={`Previous background (now: ${boardBackgroundName})`}
+                      className="px-1.5 py-0.5 rounded-md bg-stone-900/90 border border-stone-800 text-emerald-400 hover:text-emerald-200 transition-colors cursor-pointer"
+                    >
+                      <ChevronLeft className="w-3.5 h-3.5" />
+                    </button>
+                    <button
+                      onClick={() => cycleBoardBackground(1)}
+                      title={`Next background (now: ${boardBackgroundName})`}
+                      className="px-1.5 py-0.5 rounded-md bg-stone-900/90 border border-stone-800 text-emerald-400 hover:text-emerald-200 transition-colors cursor-pointer"
+                    >
+                      <ChevronRight className="w-3.5 h-3.5" />
+                    </button>
+                    </>
+                    )}
+                    <button
+                      onClick={() => setIsCameraOpen((open) => !open)}
+                      title={isCameraOpen ? 'Hide the camera controls' : 'Show the camera controls'}
+                      className="ml-auto px-1.5 py-0.5 rounded-md bg-stone-900/90 border border-stone-800 text-stone-400 hover:text-stone-100 transition-colors cursor-pointer"
+                    >
+                      {isCameraOpen ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronUp className="w-3.5 h-3.5" />}
+                    </button>
+                  </div>
+                  {isCameraOpen && (
+                  <div className="flex items-end gap-1.5">
+                    {/* Rotation Controls */}
+                    <div className="flex items-center bg-stone-950/80 border border-stone-800 rounded-lg p-0.5 shadow-xs">
+                      <button
+                        onClick={() => {
+                          markCameraChange();
+                          setBoardYawState((prev) => rotateYawToNextEdge(prev, -1));
+                        }}
+                        className="p-1.5 hover:bg-stone-800 rounded-md text-stone-300 hover:text-amber-400 transition-colors cursor-pointer"
+                        title="Rotate Board Left (to the next stop: a hex edge flat to the screen, or side-on)"
+                      >
+                        <RotateCcw className="w-4 h-4" />
+                      </button>
+                      <span className="text-xs font-mono text-stone-300 px-1.5 font-bold select-none min-w-[36px] text-center">
+                        {boardYaw}°
+                      </span>
+                      <button
+                        onClick={() => {
+                          markCameraChange();
+                          setBoardYawState((prev) => rotateYawToNextEdge(prev, 1));
+                        }}
+                        className="p-1.5 hover:bg-stone-800 rounded-md text-stone-300 hover:text-amber-400 transition-colors cursor-pointer"
+                        title="Rotate Board Right (to the next stop: a hex edge flat to the screen, or side-on)"
+                      >
+                        <RotateCw className="w-4 h-4" />
+                      </button>
+                    </div>
+
+                    {/* Zoom Controls */}
+                    <div className="flex items-center bg-stone-950/80 border border-stone-800 rounded-lg p-0.5 shadow-xs">
+                      <button
+                        onClick={() => {
+                          markCameraChange();
+                          setBoardZoom((prev) => Math.min(200, Math.round(prev + 10)));
+                        }}
+                        className="p-1.5 hover:bg-stone-800 rounded-md text-stone-300 hover:text-red-400 transition-colors cursor-pointer"
+                        title="Zoom In Board"
+                      >
+                        <ZoomIn className="w-4 h-4" />
+                      </button>
+                      <span className="text-xs font-mono text-stone-300 px-1.5 font-bold select-none min-w-[40px] text-center">
+                        {boardZoom}%
+                      </span>
+                      <button
+                        onClick={() => {
+                          markCameraChange();
+                          setBoardZoom((prev) => Math.max(20, Math.round(prev - 10)));
+                        }}
+                        className="p-1.5 hover:bg-stone-800 rounded-md text-stone-300 hover:text-red-400 transition-colors cursor-pointer"
+                        title="Zoom Out Board"
+                      >
+                        <ZoomOut className="w-4 h-4" />
+                      </button>
+                    </div>
+
+                    {/* Reset to Original Perspective & Zoom button */}
+                    {/* Always takes its space (hidden until the camera has moved), so the controls never shift under the cursor */}
+                    <button
+                      onClick={resetToOriginalPerspective}
+                      disabled={!isRotated}
+                      aria-hidden={!isRotated}
+                      className={`flex items-center gap-1 px-2.5 py-1 bg-red-950 border border-red-700/80 hover:bg-red-900 text-red-400 text-xs font-mono font-bold rounded-lg shadow-xs cursor-pointer ${
+                        isRotated ? '' : 'invisible'
+                      }`}
+                      title="Reset board to default perspective and zoom"
+                    >
+                      <Compass className="w-3.5 h-3.5 text-sky-400" />
+                      <span>Reset</span>
+                    </button>
+                  </div>
+                  )}
+                  </div>
+                  </div>
+                  </div>
+
+                  <div className="w-full bg-stone-900/95 border border-stone-700/80 rounded-xl shadow-xl p-3 backdrop-blur-md flex flex-col gap-2 select-none animate-in fade-in">
+                    <div className="flex items-center justify-between gap-1">
+                      <div
+                        className={`self-start px-3 py-1 rounded-full text-[11px] font-mono font-black uppercase tracking-wider border shadow-md ${
+                          activePlayer === 'player1'
+                            ? 'bg-sky-950 border-sky-400 text-sky-200'
+                            : 'bg-rose-950 border-rose-500 text-rose-200'
+                        }`}
+                      >
+                        {activePlayer === 'player1' ? "Player 1's Setup Turn" : "Player 2's Setup Turn"}
+                      </div>
+                      {/* Indicator throughout reinforcement phase */}
+                      <div className="flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-emerald-950/80 border border-emerald-500/50 text-emerald-300 text-[10px] font-mono font-bold shadow-xs">
+                        <span className="w-2 h-2 rounded-full bg-emerald-400 inline-block" />
+                        <span>Reinforce Phase</span>
+                      </div>
+                    </div>
+                    <span className="text-[11px] font-mono text-stone-400 leading-snug">
+                      Reinforce 1 unit to {activePlayer === 'player1' ? 'Row 1' : 'Row 6'}, Cycle, or Start Game
+                    </span>
+                    <button
+                      onClick={() => setIsCycleModalOpen(true)}
+                      disabled={activePlayer === 'player1' ? p1HasCycled : p2HasCycled}
+                      className={`w-full flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-mono font-bold border transition-all cursor-pointer ${
+                        !(activePlayer === 'player1' ? p1HasCycled : p2HasCycled)
+                          ? 'bg-stone-800 hover:bg-sky-950 text-sky-300 border-sky-600/60 hover:border-sky-400 shadow-sm'
+                          : 'opacity-40 cursor-not-allowed bg-stone-900 border-stone-800 text-stone-500'
+                      }`}
+                      title="Put chosen cards on bottom of deck, draw that many (Rule 5.2, once per game)"
+                    >
+                      <RefreshCw className="w-3.5 h-3.5" />
+                      <span>Cycle Cards {(activePlayer === 'player1' ? p1HasCycled : p2HasCycled) ? '(Used)' : ''}</span>
+                    </button>
+                    <button
+                      onClick={handleSetupStartClick}
+                      className={`w-full flex items-center justify-center gap-2 px-3 py-1.5 rounded-lg font-serif font-black text-xs uppercase tracking-wider transition-all cursor-pointer shadow-md ${
+                        setupConsecutiveStarts === 1
+                          ? 'bg-emerald-500 hover:bg-emerald-400 text-stone-950 ring-2 ring-emerald-300 animate-pulse'
+                          : 'bg-amber-500 hover:bg-amber-400 text-stone-950 ring-1 ring-amber-300'
+                      }`}
+                      title={
+                        setupConsecutiveStarts === 1
+                          ? "Agree to start! (Both players chose Start in a row -> Game Begins!)"
+                          : "Choose to Start the game"
+                      }
+                    >
+                      <Play className="w-3.5 h-3.5 fill-current" />
+                      <span>{setupConsecutiveStarts === 1 ? "Agree to Start" : "Start Game"}</span>
+                    </button>
+                  </div>
+                  </div>
+                </div>
+              )}
+
 
               {/* Overlapping interactive cards scaled larger and spilling over the top of the dock container */}
               <div className="flex items-end justify-start -space-x-8 sm:-space-x-10 md:-space-x-12 lg:-space-x-14 max-w-[calc(100%-19.5rem)] w-full pl-1 sm:pl-2 overflow-visible pb-1 relative z-20 pointer-events-none">
@@ -16905,10 +16916,8 @@ export default function App() {
                     <div
                       key={`hand-card-${card.id}-${idx}`}
                       onMouseEnter={() => {
-                        setPreviewStandee({ card, owner: shownHandPlayer });
-                      }}
-                      onMouseLeave={() => {
-                        setPreviewStandee(null);
+                        // (it stays in focus until something else is; not once the turn's unit has acted)
+                        if (!turnUnitHasActed) setFocusCard({ card, owner: shownHandPlayer });
                       }}
                       onClick={() => {
                         if (lockedAssist || pendingAssistDeployment) {
@@ -16920,8 +16929,14 @@ export default function App() {
                           return;
                         }
                         if (activeTurnUnitHex) {
-                          showNotification("Cannot reinforce while a unit is taking a turn. Finish or pass turn first.");
-                          return;
+                          if (turnUnitHasActed) {
+                            showNotification(`${activeTurnUnit?.card.name || 'Your unit'} has already acted this turn: finish the turn with it, or pass.`);
+                            return;
+                          }
+                          // (nothing done with that unit yet: switch to placing this card instead, as one switches units)
+                          setIsMovingMode(false);
+                          setMultiStageState(null);
+                          setSelectedHex(null);
                         }
                         const isP1 = activePlayer === 'player1';
                         const isBasic = card.basic !== false && (card.basic || card.reinforce?.mode === 'basic' || !card.reinforce);

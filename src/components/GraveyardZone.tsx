@@ -10,6 +10,10 @@ interface GraveyardZoneProps {
   cards: CardItem[];
   customArtMap: Record<string, string>;
   onHoverCard?: (card: CardItem | null) => void;
+  // Leave out the label over the card slot (the title still heads the inspect window)
+  hideLabel?: boolean;
+  // The card slot's width, as a class (its height follows the card's shape); small by default
+  slotWidthClass?: string;
 }
 
 // Scaled up by 50% for gameplay readability
@@ -18,7 +22,9 @@ export const GraveyardZone: React.FC<GraveyardZoneProps> = ({
   owner,
   cards,
   customArtMap,
-  onHoverCard
+  onHoverCard,
+  hideLabel = false,
+  slotWidthClass = 'w-12 sm:w-14'
 }) => {
   const [showModal, setShowModal] = useState(false);
   const [isHovered, setIsHovered] = useState(false);
@@ -42,23 +48,23 @@ export const GraveyardZone: React.FC<GraveyardZoneProps> = ({
   return (
     <>
       <div 
-        className="flex flex-col items-center select-none relative group/gy"
+        className={`flex flex-col items-center select-none relative group/gy ${slotWidthClass === 'w-full' ? 'self-stretch' : ''}`}
         onMouseEnter={() => setIsHovered(true)}
         onMouseLeave={() => setIsHovered(false)}
       >
         {/* Graveyard Label */}
-        <span className="text-[9px] sm:text-[10px] font-mono uppercase tracking-wider text-stone-300 font-bold mb-1 flex items-center gap-1">
+        {!hideLabel && <span className="text-[9px] sm:text-[10px] font-mono uppercase tracking-wider text-stone-300 font-bold mb-1 flex items-center gap-1">
           <Skull className="w-3 h-3 text-stone-400" />
           <span>{title}</span>
           <span className="text-stone-400 font-normal">({cards.length})</span>
-        </span>
+        </span>}
 
         {/* Shrunk compact graveyard card slot: w-12 sm:w-14 */}
         <div
           onClick={() => {
             if (cards.length > 0) setShowModal(true);
           }}
-          className={`w-12 sm:w-14 aspect-[5/7] rounded-lg flex flex-col items-center justify-center p-0.5 transition-all relative overflow-hidden ${
+          className={`${slotWidthClass} aspect-[5/7] rounded-lg flex flex-col items-center justify-center p-0.5 transition-all relative overflow-hidden ${
             topCard
               ? 'border-2 border-stone-700 bg-stone-900 shadow-xl cursor-pointer hover:border-sky-400 group'
               : 'border-2 border-dashed border-stone-800 bg-stone-950/40 text-stone-600'

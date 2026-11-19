@@ -5,6 +5,7 @@ import { useCardImages } from '../context/CardImageContext';
 import { CardThumbnail } from './CardThumbnail';
 import { CardPreview } from './CardPreview';
 import { resolveCardId } from '../data/cardsData';
+import { DECK_SIZE } from '../utils/deckText';
 
 export interface SelectableDeck {
   id: string;
@@ -15,7 +16,7 @@ export interface SelectableDeck {
   isValid: boolean;
 }
 
-/** The decks a player can choose from: the Deckbuilder's active and saved decks (this browser's), then the presets. */
+/** The decks a player can choose from: the Deckbuilder's active and saved decks (this browser's, only those of exactly 40 cards), then the presets. */
 export function buildSelectableDecks(
   allCards: CardItem[],
   cardsById: Map<string, CardItem> = new Map(allCards.map((c) => [c.id, c]))
@@ -38,7 +39,8 @@ export function buildSelectableDecks(
           }
         });
 
-        if (cardList.length > 0) {
+        // (only a full deck can be played: exactly 40 cards, as saving one needs)
+        if (cardList.length === DECK_SIZE) {
           const deck: SelectableDeck = {
             id: 'active_deck',
             name: active.name || 'Current Active Deck',
@@ -71,7 +73,8 @@ export function buildSelectableDecks(
             }
           });
 
-          if (cardList.length > 0) {
+          // (only a full deck can be played: exactly 40 cards; one saved before that rule, with fewer or more, isn't offered)
+          if (cardList.length === DECK_SIZE) {
             const savedDeckItem: SelectableDeck = {
               id: `saved_${deck.id}`,
               name: deck.name,
@@ -124,65 +127,82 @@ interface DeckSelectModalProps {
 }
 
 // Preset decks locked into everyone's list at the bottom (No descriptions)
+// Each: about 24 basic units of its class (the core ones three times, the elemental ones once), 8 promotes, 6 Fusions of
+// two of its class and 2 of its Fusion of three, 40 cards in all. (The ids stay as they were, so a deck chosen before
+// is still found.)
 const PRESET_DECKS = [
   {
     id: 'preset_knights',
-    name: 'Knights of the Bulwark',
+    name: 'Knight Preset',
     cardIds: [
       'sentinel_knight', 'sentinel_knight', 'sentinel_knight',
       'imbued_knight', 'imbued_knight', 'imbued_knight',
-      'polearm_knight', 'polearm_knight', 'polearm_knight',
-      'greatsword_knight', 'greatsword_knight', 'greatsword_knight',
-      'longbow_knight', 'longbow_knight', 'longbow_knight',
-      'bastion_knight', 'bastion_knight', 'bastion_knight',
-      'daring_cavalier', 'daring_cavalier', 'daring_cavalier',
-      'orders_chosen', 'orders_chosen', 'orders_chosen',
-      'ironclad_peacekeeper', 'ironclad_peacekeeper', 'ironclad_peacekeeper',
-      'vanguard_commander', 'vanguard_commander', 'vanguard_commander',
+      'arbalest_knight', 'arbalest_knight', 'arbalest_knight',
+      'javelin_knight', 'javelin_knight', 'javelin_knight',
+      'polearm_knight', 'polearm_knight',
+      'greatsword_knight', 'greatsword_knight',
+      'longbow_knight', 'longbow_knight',
+      'bastion_knight', 'bastion_knight',
+      'frozen_knight',
+      'plant_knight',
+      'solar_knight',
+      'ghost_knight',
+      'daring_cavalier', 'daring_cavalier',
+      'orders_chosen', 'orders_chosen',
+      'ironclad_peacekeeper', 'ironclad_peacekeeper',
+      'vanguard_commander', 'vanguard_commander',
       'gateway_guardians', 'gateway_guardians', 'gateway_guardians',
       'drakerider_paladin', 'drakerider_paladin', 'drakerider_paladin',
-      'duelist_fighter', 'duelist_fighter', 'duelist_fighter',
-      'combat_cook'
+      'cannon_squadron', 'cannon_squadron'
     ]
   },
   {
     id: 'preset_shadows',
-    name: 'Shadow Syndicate',
+    name: 'Fighter Preset',
     cardIds: [
-      'shade_assassin', 'shade_assassin', 'shade_assassin',
-      'cutthroat_assassin', 'cutthroat_assassin', 'cutthroat_assassin',
-      'poisonblade_assassin', 'poisonblade_assassin', 'poisonblade_assassin',
-      'powder_keg_plunderer', 'powder_keg_plunderer', 'powder_keg_plunderer',
-      'swashbuckle_plunderer', 'swashbuckle_plunderer', 'swashbuckle_plunderer',
-      'twinaxe_plunderer', 'twinaxe_plunderer', 'twinaxe_plunderer',
-      'wielder_of_night', 'wielder_of_night', 'wielder_of_night',
-      'blight_phantom', 'blight_phantom', 'blight_phantom',
-      'high_seas_captain', 'high_seas_captain', 'high_seas_captain',
-      'corsair_saboteur', 'corsair_saboteur', 'corsair_saboteur',
-      'elite_sniper', 'elite_sniper', 'elite_sniper',
       'duelist_fighter', 'duelist_fighter', 'duelist_fighter',
+      'spear_fighter', 'spear_fighter', 'spear_fighter',
       'brawl_fighter', 'brawl_fighter', 'brawl_fighter',
-      'combat_cook'
+      'chain_whip_fighter', 'chain_whip_fighter', 'chain_whip_fighter',
+      'tonfa_fighter', 'tonfa_fighter', 'tonfa_fighter',
+      'halberd_fighter', 'halberd_fighter',
+      'crossbow_fighter', 'crossbow_fighter',
+      'dual_sword_fighter', 'dual_sword_fighter',
+      'frozen_fighter',
+      'flaming_fighter',
+      'lightning_fighter',
+      'barbarian_tyrant', 'barbarian_tyrant',
+      'veteran_armsmaster', 'veteran_armsmaster',
+      'defiant_adept', 'defiant_adept',
+      'skirmish_captain', 'skirmish_captain',
+      'dawnglow_archer', 'dawnglow_archer', 'dawnglow_archer',
+      'breaker_swordsman', 'breaker_swordsman', 'breaker_swordsman',
+      'renegade_trio', 'renegade_trio'
     ]
   },
   {
     id: 'preset_arcane',
-    name: 'Arcane Convergence',
+    name: 'Mage Preset',
     cardIds: [
-      'lightning_mage', 'lightning_mage', 'lightning_mage',
-      'euclase_mage', 'euclase_mage', 'euclase_mage',
       'garnet_mage', 'garnet_mage', 'garnet_mage',
-      'opal_mage', 'opal_mage', 'opal_mage',
       'dravite_mage', 'dravite_mage', 'dravite_mage',
-      'amethyst_mage', 'amethyst_mage', 'amethyst_mage',
-      'nexus_sorcerer', 'nexus_sorcerer', 'nexus_sorcerer',
-      'catalyst_curator', 'catalyst_curator', 'catalyst_curator',
-      'archivist_sage', 'archivist_sage', 'archivist_sage',
-      'fateweaver_sage', 'fateweaver_sage', 'fateweaver_sage',
-      'leyline_invoker', 'leyline_invoker', 'leyline_invoker',
-      'frostbinder', 'frostbinder', 'frostbinder',
+      'prismatic_mage', 'prismatic_mage', 'prismatic_mage',
+      'euclase_mage', 'euclase_mage',
+      'opal_mage', 'opal_mage',
+      'amethyst_mage', 'amethyst_mage',
+      'solar_mage', 'solar_mage',
+      'lightning_mage', 'lightning_mage',
+      'nimbus_mage', 'nimbus_mage',
+      'flaming_mage',
+      'plant_mage',
+      'alien_mage',
+      'nexus_sorcerer', 'nexus_sorcerer',
+      'catalyst_curator', 'catalyst_curator',
+      'leyline_invoker', 'leyline_invoker',
+      'frostbinder', 'frostbinder',
+      'animus_twin', 'animus_twin', 'animus_twin',
       'starburst_wizard', 'starburst_wizard', 'starburst_wizard',
-      'combat_cook'
+      'anima_magi', 'anima_magi'
     ]
   }
 ];

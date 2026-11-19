@@ -48,6 +48,11 @@ interface TurnActionPanelProps {
   // Active multi-use provider chain (e.g. Dual Casting): progress label and which promoted abilities may still be chosen
   providerChainInfo?: { label: string; candidateIds: string[]; canFinishChoosing: boolean } | null;
   onFinishChainChoosing?: () => void;
+  // Shown under the unit's card, whose printed abilities are its buttons (see FocusCardPanel): leave out what's printed
+  // on it (its own abilities, except one with a choice of cost, and its own passives)
+  abilitiesOnCard?: boolean;
+  // The panel's width classes (default: its own fixed widths)
+  widthClass?: string;
 }
 
 export const TurnActionPanel: React.FC<TurnActionPanelProps> = ({
@@ -76,7 +81,9 @@ export const TurnActionPanel: React.FC<TurnActionPanelProps> = ({
   unitsOnBoard,
   onCancelPrepaidAbility,
   providerChainInfo,
-  onFinishChainChoosing
+  onFinishChainChoosing,
+  abilitiesOnCard = false,
+  widthClass = 'w-80 sm:w-96 md:w-[420px]'
 }) => {
   const isPlayer1 = activePlayer === 'player1';
 
@@ -118,7 +125,7 @@ export const TurnActionPanel: React.FC<TurnActionPanelProps> = ({
   }, [unitPassives]);
 
   return (
-    <div className="w-80 sm:w-96 md:w-[420px] bg-stone-900/95 border border-stone-700/80 rounded-xl shadow-2xl p-3 backdrop-blur-md flex flex-col gap-2 select-none animate-in fade-in">
+    <div className={`${widthClass} bg-stone-900/95 border border-stone-700/80 rounded-xl shadow-2xl p-3 backdrop-blur-md flex flex-col gap-2 select-none animate-in fade-in`}>
       {/* Header Bar: Active Player Badge & Pass Turn */}
       <div className="flex items-center justify-between gap-2 pb-1 border-b border-stone-800">
         <div
@@ -358,7 +365,10 @@ export const TurnActionPanel: React.FC<TurnActionPanelProps> = ({
           {(() => {
             const printed = activeTurnUnit.card.abilities || [];
             const granted = activeTurnUnit.grantedAbilities || [];
-            const allAbilities = expandVariableCostAbilities([...printed, ...granted]);
+            // (on the card: only what isn't a button on it, i.e. granted abilities and a printed one's cost choices)
+            const allAbilities = expandVariableCostAbilities(
+              abilitiesOnCard ? [...printed.filter((a) => Array.isArray(a.cost)), ...granted] : [...printed, ...granted]
+            );
             const bonusRange = activeTurnUnit.bonusRangeThisTurn || 0;
 
             if (allAbilities.length === 0) return null;
@@ -720,7 +730,9 @@ export const TurnActionPanel: React.FC<TurnActionPanelProps> = ({
           })()}
           {/* Unit Passives (Rule: Passives and 1/Turn status) */}
           {(() => {
-            const passives = getUnitPassives(activeTurnUnit);
+            const printedPassiveIds = new Set((activeTurnUnit.card.passives || []).map((p) => p.id));
+            // (on the card: only passives it has from elsewhere, e.g. one Faceless King copied)
+            const passives = getUnitPassives(activeTurnUnit).filter((p) => !abilitiesOnCard || !printedPassiveIds.has(p.id));
             if (passives.length === 0) return null;
             return (
               <div className="flex flex-col gap-1 pt-1.5 border-t border-stone-800">

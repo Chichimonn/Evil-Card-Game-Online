@@ -4,6 +4,7 @@ import { CardThumbnail } from './CardThumbnail';
 import { resolveCardId } from '../data/cardsData';
 import { useCardImages } from '../context/CardImageContext';
 import { compareCards } from '../utils/cardSort';
+import { COPYRIGHT_NOTICE } from '../data/copyrightNotice';
 import { formatDeckText, parseDeckText, DECK_SIZE } from '../utils/deckText';
 import { playCardDrawSound } from '../utils/audio';
 import { formatFusionRequirements, formatTributeRequirements } from '../utils/reinforceRules';
@@ -1010,8 +1011,9 @@ export const Deckbuilder: React.FC<DeckbuilderProps> = ({
           {/* ================= STANDARD BOTTOM NOTICE ================= */}
           <footer className="col-span-full w-full border-t border-stone-800/80 bg-stone-900/90 py-3 px-6 text-center text-stone-400 leading-relaxed mt-4 rounded-xl">
             <div className="max-w-4xl mx-auto">
-              <p className="font-serif text-stone-400" style={{ fontSize: '7pt', lineHeight: '1.4' }}>
-                EVIL Card Game, 2026, was made by 1 person across hundreds of hours with the help of countless friends, kind strangers, and AI agents. Absolutely no AI artwork was used for the cards in this game. EVIL Card Game is not under official copyright. Please do not steal this game. Anybody who does so having read this notice openly admits that they are a cod fish, a scallywag, and a devious villain. Please enjoy the game.
+              {/* (the text is in src/data/copyrightNotice.ts, shared with the card gallery) */}
+              <p className="font-serif text-stone-400" style={{ fontSize: '8pt', lineHeight: '1.45' }}>
+                {COPYRIGHT_NOTICE}
               </p>
             </div>
           </footer>

@@ -150,14 +150,14 @@ export function describeBoardChanges(
       out.push({ kind: 'unit', text: `${label(a.owner)} ${a.name} entered play on ${a.hex}` });
       continue;
     }
-    if (b.hex !== a.hex) out.push({ kind: 'move', text: `${label(a.owner)} ${a.name} ${b.hex} → ${a.hex}` });
+    if (b.hex !== a.hex) out.push({ kind: 'move', text: `${label(a.owner)} ${a.name} moved from ${b.hex} to ${a.hex}` });
     if (b.damage !== a.damage) {
       out.push({
         kind: 'unit',
         text: a.damage > b.damage ? `${a.name} took ${a.damage - b.damage} damage (${a.damage} total)` : `${a.name} healed ${b.damage - a.damage} (${a.damage} damage left)`
       });
     }
-    if (b.armour !== a.armour) out.push({ kind: 'unit', text: `${a.name} armour ${b.armour} → ${a.armour}` });
+    if (b.armour !== a.armour) out.push({ kind: 'unit', text: a.armour > b.armour ? `${a.name} armoured up to ${a.armour}` : a.armour > 0 ? `${a.name} lost ${b.armour - a.armour} armour (${a.armour} left)` : `${a.name} lost all its armour` });
   }
   for (const [id, b] of Object.entries(before)) {
     if (!after[id]) out.push({ kind: 'unit', text: `${label(b.owner)} ${b.name} left play from ${b.hex}` });
@@ -175,11 +175,13 @@ export function describeCardChanges(
     const b = before[p];
     const a = after[p];
     const parts: string[] = [];
-    const diff = (n: number, word: string) => n !== 0 && parts.push(`${word} ${n > 0 ? '+' : ''}${n}`);
-    diff(a.hand - b.hand, 'hand');
-    diff(a.deck - b.deck, 'deck');
-    diff(a.grave - b.grave, 'graveyard');
-    if (parts.length > 0) out.push(`${label(p)} cards: ${parts.join(', ')} (hand ${a.hand}, deck ${a.deck}, graveyard ${a.grave})`);
+    // e.g. "P1's hand: 5 cards (1 more)"
+    const say = (now: number, was: number, word: string) =>
+      now !== was && parts.push(`${word}: ${now} card${now === 1 ? '' : 's'} (${Math.abs(now - was)} ${now > was ? 'more' : 'fewer'})`);
+    say(a.hand, b.hand, 'hand');
+    say(a.deck, b.deck, 'deck');
+    say(a.grave, b.grave, 'graveyard');
+    if (parts.length > 0) out.push(`${label(p)}'s ${parts.join(', ')}`);
   });
   return out;
 }

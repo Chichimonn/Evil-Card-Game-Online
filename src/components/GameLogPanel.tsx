@@ -33,6 +33,11 @@ const FLASH_CSS = `
   100% { background-color: rgba(251, 191, 36, 0); }
 }
 .log-flash { animation: log-flash ${FLASH_MS}ms ease-out forwards; }
+@keyframes log-pinned-pulse {
+  0%, 100% { background-color: rgba(251, 191, 36, 0.06); }
+  50% { background-color: rgba(251, 191, 36, 0.24); }
+}
+.log-pinned { animation: log-pinned-pulse 3.5s ease-in-out infinite; }
 `;
 
 interface Props {
@@ -43,9 +48,14 @@ interface Props {
   viewer: PlayerId | null;
   open: boolean;
   onToggle: () => void;
+  // In the page's flow as wide as its container (under the action menu), its title bar always showing (it opens and
+  // closes the list), rather than a button that opens the log above it
+  inline?: boolean;
+  // A standing notice kept under the entries for as long as it's given, pulsing slowly (e.g. Endless's wave)
+  pinned?: string | null;
 }
 
-export default function GameLogPanel({ entries, handoffStatus, viewer, open, onToggle }: Props) {
+export default function GameLogPanel({ entries, handoffStatus, viewer, open, onToggle, inline = false, pinned = null }: Props) {
   const listRef = useRef<HTMLDivElement>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
   // Compact (the newest one or two entries) or expanded (as tall as fits)
@@ -70,7 +80,7 @@ export default function GameLogPanel({ entries, handoffStatus, viewer, open, onT
   seededRef.current = true;
 
   useLayoutEffect(() => {
-    if (!open || !wrapRef.current) return;
+    if (!open || !wrapRef.current || inline) return;
     const fit = () => {
       const el = wrapRef.current;
       if (!el) return;
@@ -83,7 +93,7 @@ export default function GameLogPanel({ entries, handoffStatus, viewer, open, onT
     fit();
     window.addEventListener('resize', fit);
     return () => window.removeEventListener('resize', fit);
-  }, [open]);
+  }, [open, inline]);
 
   // Compact: fit the last two entries (and the turn heading between them, if any)
   useLayoutEffect(() => {
@@ -106,6 +116,7 @@ export default function GameLogPanel({ entries, handoffStatus, viewer, open, onT
     // (scrolling over the log scrolls the log only, not the battlefield's zoom)
     <div ref={wrapRef} data-input-always className="relative pointer-events-auto" onWheel={(e) => e.stopPropagation()}>
       <style>{FLASH_CSS}</style>
+      {!inline && (
       <button
         onClick={onToggle}
         className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-stone-900/90 border border-stone-800 text-xs font-mono font-bold backdrop-blur-md drop-shadow-xl cursor-pointer transition-colors ${
@@ -116,9 +127,25 @@ export default function GameLogPanel({ entries, handoffStatus, viewer, open, onT
         <ScrollText className="w-3.5 h-3.5" />
         Log
       </button>
+      )}
+      {/* Inline and closed: just its title bar, which opens it */}
+      {inline && !open && (
+        <button
+          onClick={onToggle}
+          className="w-full flex items-center justify-between px-3 py-1.5 rounded-xl bg-stone-900/95 border border-stone-700/80 shadow-2xl backdrop-blur-md text-xs font-mono text-stone-300 hover:text-amber-300 cursor-pointer"
+          title="Show the match log"
+        >
+          <span className="flex items-center gap-2 font-bold">
+            <ScrollText className="w-4 h-4 text-amber-400" /> Match log
+          </span>
+          <ChevronUp className="w-4 h-4" />
+        </button>
+      )}
       {open && (
         <div
-          className="absolute bottom-full right-0 mb-2 z-[60] w-[min(420px,calc(100vw-32px))] flex flex-col rounded-xl bg-stone-950/95 border border-stone-700 shadow-2xl text-xs font-mono"
+          className={`${
+            inline ? 'w-full' : 'absolute bottom-full right-0 mb-2 z-[60] w-[min(420px,calc(100vw-32px))]'
+          } flex flex-col rounded-xl bg-stone-950/95 border border-stone-700 shadow-2xl text-xs font-mono`}
           style={expanded ? { height: maxHeight } : undefined}
         >
           <div className="flex items-center justify-between px-3 py-1.5 border-b border-stone-800">
@@ -169,9 +196,14 @@ export default function GameLogPanel({ entries, handoffStatus, viewer, open, onT
               );
             })}
           </div>
-          {handoffStatus && (
-            <div className={`px-3 py-1.5 border-t border-stone-800 ${handoffStatus.ok ? 'text-emerald-400' : 'text-red-400'}`}>
-              {handoffStatus.text}
+          {pinned && (
+            <div className="log-pinned px-3 py-1.5 border-t border-stone-800 text-amber-200 font-bold">{pinned}</div>
+          )}
+          {/* (the turn handoff's details, fingerprints and all, are for the console: the log says only that something
+              went wrong, in plain words) */}
+          {handoffStatus && !handoffStatus.ok && (
+            <div className="px-3 py-1.5 border-t border-stone-800 text-red-400">
+              The two games got out of step; they're being matched up again.
             </div>
           )}
         </div>
