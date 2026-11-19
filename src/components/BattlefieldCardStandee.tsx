@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React from 'react';
 import { CardItem, CardAbility } from '../types/card';
 import { PlayerId } from '../types/game';
 import { useProcessedArt } from '../utils/artHalo';
@@ -12,10 +12,9 @@ interface BattlefieldCardStandeeProps {
   isActiveTurnUnit?: boolean;
   isSelected?: boolean;
   isCurrentPlayerTurn?: boolean;
-  onUseAbility?: (ability: CardAbility) => void;
-  onUniversalDrawClick?: () => void;
-  canUniversalDraw?: boolean;
   customArtUrl?: string;
+  // The pointer is over its tile (the board goes by tiles: the figure itself never takes the mouse)
+  isHovered?: boolean;
   boardPitch: number;
   boardYaw: number;
   promotedCardsCount?: number;
@@ -56,10 +55,8 @@ export const BattlefieldCardStandee: React.FC<BattlefieldCardStandeeProps> = ({
   isActiveTurnUnit = false,
   isSelected = false,
   isCurrentPlayerTurn = false,
-  onUseAbility,
-  onUniversalDrawClick,
-  canUniversalDraw = false,
   customArtUrl,
+  isHovered = false,
   boardPitch,
   boardYaw,
   promotedCardsCount = 0,
@@ -89,7 +86,6 @@ export const BattlefieldCardStandee: React.FC<BattlefieldCardStandeeProps> = ({
   hasMagicalOmnipresence = false,
   hasMovedThisTurn = false
 }) => {
-  const [isHovered, setIsHovered] = useState(false);
 
   // Art to try, in order (custom art alone when given), with the white halo drawn around the figure and its feet moved
   // to the bottom edge, so it stands on the middle of its pedestal
@@ -101,22 +97,10 @@ export const BattlefieldCardStandee: React.FC<BattlefieldCardStandeeProps> = ({
   const isPlayer1 = owner === 'player1';
 
   return (
-    <div
-      onMouseEnter={() => setIsHovered(true)}
-      onMouseLeave={() => setIsHovered(false)}
-      className="w-full h-full relative flex flex-col items-center justify-end select-none pointer-events-none"
-    >
+    <div className="w-full h-full relative flex flex-col items-center justify-end select-none pointer-events-none">
       {/* 3D Rotated Standee Body (Crisp native resolution positioned precisely on hex center) */}
       <div
-        onMouseEnter={() => {
-          setIsHovered(true);
-          onHoverUnitCard?.(card, owner);
-        }}
-        onMouseLeave={() => {
-          setIsHovered(false);
-          onHoverUnitCard?.(null);
-        }}
-        className="w-[140px] h-[170px] relative flex flex-col items-center justify-end pointer-events-auto"
+        className="w-[140px] h-[170px] relative flex flex-col items-center justify-end pointer-events-none"
         style={{
           transformOrigin: '50% 100%',
           transform: `rotateZ(${-boardYaw}deg) rotateX(${-(boardPitch - 75)}deg)`,
@@ -146,10 +130,6 @@ export const BattlefieldCardStandee: React.FC<BattlefieldCardStandeeProps> = ({
               ? 'ring-4 ring-purple-400 shadow-purple-500/80 scale-105 animate-pulse'
               : isTributeSelected
               ? 'ring-4 ring-rose-500 shadow-rose-500/80 scale-105 animate-pulse'
-              : isActiveTurnUnit
-              ? 'ring-4 ring-amber-400 shadow-amber-500/50 scale-105'
-              : isSelected
-              ? 'ring-4 ring-sky-400'
               : isHovered
               ? 'brightness-110 scale-105'
               : ''

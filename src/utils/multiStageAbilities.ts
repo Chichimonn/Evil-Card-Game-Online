@@ -350,7 +350,7 @@ export function getMultiStageTargetInfo(
     if (targets.length === 0) {
       promptMessage = `${ability.name}: Click an adjacent tile to start drawing path (${lengthsStr} tiles, ${turnRule}).`;
     } else if (check.valid) {
-      promptMessage = `${ability.name}: Legal path (${targets.length} tiles)!${damageText} Click '${ability.name}' button or final tile to execute, or keep drawing.`;
+      promptMessage = `${ability.name}: Legal path (${targets.length} tiles)!${damageText} Click Confirm to carry it out, or keep drawing (click the last tile to take it back).`;
     } else {
       promptMessage = `${ability.name}: Path: ${targets.join(' → ')} (${targets.length}/${lengthsStr} tiles${turnCountText}). Click next tile, or click a path tile to undo.`;
     }

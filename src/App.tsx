@@ -328,18 +328,24 @@ import {
 // The newest set: the set of the last card in the card list (it names the current update, e.g. "Fury of the Skies")
 const LATEST_SET = [...initialCardsData.cards].reverse().find((c) => c.set)?.set;
 
-const DEFAULT_PITCH = 35; // 35 degrees viewing angle
+// How far the board tips back from facing straight up at the camera: lower looks down from higher, so the figures cover
+// less of the tiles behind them (each unit is clicked by its tile)
+const DEFAULT_PITCH = 24;
 const DEFAULT_YAW = 0;    // Default yaw
 
-// The hexes are flat-topped, so at 0° an edge of each lies along the bottom of the screen. A hexagon has an edge every
-// 60°, so the rotate buttons turn the board 60° at a time: each turn brings the next edge flat to the screen (six
-// angles, 0° to 300°, both players' starting angles among them). An angle between them rounds to the nearest first.
-const YAW_STEP = 60;
+// The rotate buttons step through these angles. The hexes are flat-topped, so at 0° an edge of each lies along the
+// bottom of the screen, and a hexagon has an edge every 60°: 0° to 300° each bring the next edge flat to the screen
+// (both players' starting angles, 0° and 180°, among them). 90° and 270° are the two side-on views, neither player's.
+const YAW_STOPS = [0, 60, 90, 120, 180, 240, 270, 300];
 const rotateYawToNextEdge = (yaw: number, direction: 1 | -1): number => {
-  const snapped = Math.round(yaw / YAW_STEP) * YAW_STEP;
-  return (((snapped + direction * YAW_STEP) % 360) + 360) % 360;
+  const y = ((yaw % 360) + 360) % 360;
+  if (direction > 0) return YAW_STOPS.find((stop) => stop > y) ?? YAW_STOPS[0];
+  return [...YAW_STOPS].reverse().find((stop) => stop < y) ?? YAW_STOPS[YAW_STOPS.length - 1];
 };
 const BASELINE_ZOOM = 100; // Baseline zoom is 100%
+// Where the camera starts (and goes back to on Reset): a little below the middle, so the battlefield sits a little higher
+// on the screen. Panning still reaches the same distance either way (MAX_CAMERA_PAN, from the middle).
+const DEFAULT_CAMERA_PAN = { x: 0, y: 255 };
 
 // Standee & Hand Hover Card Preview Component
 const HoveredStandeeCardPreview: React.FC<{
@@ -429,7 +435,7 @@ export default function App() {
   const [boardYaw, setBoardYawState] = useState(DEFAULT_YAW);
   const [boardZoom, setBoardZoom] = useState(BASELINE_ZOOM);
   // Camera pan (screen pixels): the battlefield is drawn shifted the opposite way, so the view seems to move
-  const [cameraPan, setCameraPan] = useState({ x: 0, y: 0 });
+  const [cameraPan, setCameraPan] = useState(DEFAULT_CAMERA_PAN);
   // A camera a player set up themselves on their turn (rotate, zoom, pan) is theirs: their later turns start with it
   // instead of the default view, until they press Reset. markCameraChange is called by the camera controls only, so the
   // game's own camera turns are never saved.
@@ -471,7 +477,7 @@ export default function App() {
     savedCamerasRef.current[activePlayer] = { yaw: boardYaw, zoom: boardZoom, pan: cameraPan };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [boardYaw, boardZoom, cameraPan]);
-  const isRotated = boardYaw !== currentDefaultYaw || boardZoom !== BASELINE_ZOOM || cameraPan.x !== 0 || cameraPan.y !== 0;
+  const isRotated = boardYaw !== currentDefaultYaw || boardZoom !== BASELINE_ZOOM || cameraPan.x !== DEFAULT_CAMERA_PAN.x || cameraPan.y !== DEFAULT_CAMERA_PAN.y;
 
   // Battlefield background image, which the player cycles through (green arrows by the camera controls): the default
   // public/assets/art/background.png, then each set's background (its name as a file there, as on the cards), then no
@@ -1071,7 +1077,7 @@ export default function App() {
     setHexColors(generateEarthyHexColors(matchRandom));
     setBoardYaw(DEFAULT_YAW);
     setBoardZoom(BASELINE_ZOOM);
-    setCameraPan({ x: 0, y: 0 });
+    setCameraPan(DEFAULT_CAMERA_PAN);
     savedCamerasRef.current = {};
     // Each match starts on a random battlefield background (any picture, not the plain black); the arrows by the camera
     // controls still change it. Only how it looks, and each screen has its own, so it isn't the match's seeded randomness.
@@ -1200,7 +1206,7 @@ export default function App() {
   const resetToOriginalPerspective = () => {
     setBoardYawState(currentDefaultYaw);
     setBoardZoom(BASELINE_ZOOM);
-    setCameraPan({ x: 0, y: 0 });
+    setCameraPan(DEFAULT_CAMERA_PAN);
     delete savedCamerasRef.current[activePlayer];
   };
 
@@ -1966,7 +1972,7 @@ export default function App() {
       setBoardYaw(targetYaw);
       if (!localPlayer) {
         setBoardZoom(BASELINE_ZOOM);
-        setCameraPan({ x: 0, y: 0 });
+        setCameraPan(DEFAULT_CAMERA_PAN);
       }
     }
 
@@ -2453,6 +2459,30 @@ export default function App() {
       return;
     }
     setIsMovingMode(true);
+  });
+
+  // Likewise an ability that needs a target: once it's been used, it's selected again by itself, as if its button were
+  // pressed again, for as long as the unit can still use it and nothing else has been chosen. Clicking away (cancelling
+  // it) or choosing anything else ends the run. (Not for abilities used for free through another one, and not for the
+  // computer, which picks each action itself.)
+  const abilityRunRef = useRef<{ unitId: string; ability: CardAbility; usesBefore: number } | null>(null);
+  useEffect(() => {
+    const run = abilityRunRef.current;
+    if (!run) return;
+    // (still targeting it, or something it set off is still open)
+    if (activeAbility || multiStageState || providerChain) return;
+    if (pendingFreeMove || pendingRabbleMove || pendingMomentumCharge || anyPopupOpen || popupQueue.length > 0 || cardChoicePrompt || isTurnTransitioning || readySpellReact) return;
+    abilityRunRef.current = null;
+    if (!activeTurnUnit || activeTurnUnit.instanceId !== run.unitId || isMovingMode || selectedHandIndex !== null || isAssistModalOpen || lockedAssist) return;
+    if (gamePhase !== 'playing' || (endlessMode && activePlayer === ENDLESS_CPU)) return;
+    // Used (its count went up), rather than cancelled
+    const used = (activeTurnUnit.usedTurnCounts?.[run.ability.id] || 0) > run.usesBefore;
+    if (!used) return;
+    const canUseAgain =
+      activeTurnUnit.currentAp >= getAbilityApCost(run.ability) &&
+      // (also false while it's locked, e.g. Overload Gemstone)
+      canUseAbilityThisTurn(activeTurnUnit, run.ability).allowed;
+    if (canUseAgain) handleAbilityClick(run.ability);
   });
 
   // Multi-Stage Target Information (prompts and legal hexes for current stage)
@@ -5304,13 +5334,7 @@ export default function App() {
     // Charge / Flight path mode: sequential path selection with turn and legality checking
     if (isChargeFlightAbility(ability)) {
       const spec = getChargeFlightSpec(ability);
-      // If path is complete & valid, and player clicked the destination tile again, confirm and execute
-      const currentCheck = validateChargeFlightPath(multiStageState.casterHex, targets, spec, unitsOnBoard);
-      if (currentCheck.valid && targets.length > 0 && targets[targets.length - 1] === hexId) {
-        resolveChargeFlightExecution();
-        return;
-      }
-
+      // (a path is carried out with its Confirm button only: clicking its last tile again takes that tile back)
       const res = extendChargeFlightPath(multiStageState.casterHex, targets, hexId, spec, unitsOnBoard);
       if (res.error) {
         showNotification(res.error);
@@ -11583,6 +11607,11 @@ export default function App() {
         return;
       }
       setActiveAbility(ability);
+      // (selected again by itself after each use, see abilityRunRef)
+      abilityRunRef.current =
+        !freeUse && !ability.inProviderChain && !ability.prepaidByParent && !ability.id.includes('__')
+          ? { unitId: activeTurnUnit.instanceId, ability, usesBefore: activeTurnUnit.usedTurnCounts?.[ability.id] || 0 }
+          : null;
       if (isMultiStageAbility(ability)) {
         const initialState: MultiStageState = {
           ability,
@@ -16451,9 +16480,6 @@ export default function App() {
                     fusionSelectedHexes={fusionSelectedHexes}
                     validTributeHexes={validTributeHexes}
                     tributeSacrificeHexes={tributeSacrificeHexes}
-                    onUseAbility={handleAbilityClick}
-                    onUniversalDrawClick={handleUniversalDraw}
-                    canUniversalDraw={!isUnitMindless(activeTurnUnit) && !activeTurnUnit?.usedUniversalDrawThisTurn && activeDeck.length > 0}
                     boardPitch={boardPitch}
                     boardYaw={boardYaw}
                     gamePhase={gamePhase}
@@ -16559,7 +16585,7 @@ export default function App() {
                           setBoardYawState((prev) => rotateYawToNextEdge(prev, -1));
                         }}
                         className="p-1.5 hover:bg-stone-800 rounded-md text-stone-300 hover:text-amber-400 transition-colors cursor-pointer"
-                        title="Rotate Board Left 60° (the next hex edge flat to the screen)"
+                        title="Rotate Board Left (to the next stop: a hex edge flat to the screen, or side-on)"
                       >
                         <RotateCcw className="w-4 h-4" />
                       </button>
@@ -16572,7 +16598,7 @@ export default function App() {
                           setBoardYawState((prev) => rotateYawToNextEdge(prev, 1));
                         }}
                         className="p-1.5 hover:bg-stone-800 rounded-md text-stone-300 hover:text-amber-400 transition-colors cursor-pointer"
-                        title="Rotate Board Right 60° (the next hex edge flat to the screen)"
+                        title="Rotate Board Right (to the next stop: a hex edge flat to the screen, or side-on)"
                       >
                         <RotateCw className="w-4 h-4" />
                       </button>
@@ -16739,7 +16765,7 @@ export default function App() {
                           setBoardYawState((prev) => rotateYawToNextEdge(prev, -1));
                         }}
                         className="p-1.5 hover:bg-stone-800 rounded-md text-stone-300 hover:text-amber-400 transition-colors cursor-pointer"
-                        title="Rotate Board Left 60° (the next hex edge flat to the screen)"
+                        title="Rotate Board Left (to the next stop: a hex edge flat to the screen, or side-on)"
                       >
                         <RotateCcw className="w-4 h-4" />
                       </button>
@@ -16752,7 +16778,7 @@ export default function App() {
                           setBoardYawState((prev) => rotateYawToNextEdge(prev, 1));
                         }}
                         className="p-1.5 hover:bg-stone-800 rounded-md text-stone-300 hover:text-amber-400 transition-colors cursor-pointer"
-                        title="Rotate Board Right 60° (the next hex edge flat to the screen)"
+                        title="Rotate Board Right (to the next stop: a hex edge flat to the screen, or side-on)"
                       >
                         <RotateCw className="w-4 h-4" />
                       </button>

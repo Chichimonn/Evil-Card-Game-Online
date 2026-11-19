@@ -4,6 +4,7 @@ import { CardThumbnail } from './CardThumbnail';
 import { resolveCardId } from '../data/cardsData';
 import { useCardImages } from '../context/CardImageContext';
 import { compareCards } from '../utils/cardSort';
+import { formatDeckText, parseDeckText, DECK_SIZE } from '../utils/deckText';
 import { playCardDrawSound } from '../utils/audio';
 import { formatFusionRequirements, formatTributeRequirements } from '../utils/reinforceRules';
 import {
@@ -12,7 +13,6 @@ import {
   Trash2,
   Download,
   Copy,
-  Check,
   Search,
   Layers,
   Edit3,
@@ -108,8 +108,21 @@ export const Deckbuilder: React.FC<DeckbuilderProps> = ({
   const filtersOn = (categoryFilter !== 'all' ? 1 : 0) + classFilter.length;
   const toggleClass = (id: string) =>
     setClassFilter((on) => (on.includes(id) ? on.filter((c) => c !== id) : [...on, id]));
-  const [copied, setCopied] = useState(false);
-  const [saveSuccessMsg, setSaveSuccessMsg] = useState<string | null>(null);
+  // A short notice at the top (ok: blue with a tick; otherwise red, e.g. why a deck can't be saved)
+  const [notice, setNotice] = useState<{ text: string; ok: boolean } | null>(null);
+  const noticeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const showNotice = (text: string, ok = true) => {
+    setNotice({ text, ok });
+    if (noticeTimerRef.current) clearTimeout(noticeTimerRef.current);
+    noticeTimerRef.current = setTimeout(() => setNotice(null), ok ? 3000 : 6000);
+  };
+  // Show as Text: the deck as text (see utils/deckText), to copy out or paste a deck in. It follows the deck until
+  // it's typed in.
+  const [isTextMode, setIsTextMode] = useState(false);
+  // The deck's counts of each kind (basics, promotes, tributes, fusions), hidden at first
+  const [isDeckCountsOpen, setIsDeckCountsOpen] = useState(false);
+  const [deckTextDraft, setDeckTextDraft] = useState('');
+  const [isDeckTextEdited, setIsDeckTextEdited] = useState(false);
  
   // Rename Deck feature
   const [isRenaming, setIsRenaming] = useState(false);
@@ -149,36 +162,17 @@ export const Deckbuilder: React.FC<DeckbuilderProps> = ({
  
   const isDeckFull = totalCards >= 40;
  
+  // How many of each kind the deck has (shown under the deck's buttons)
   const stats = useMemo(() => {
-    if (deckEntries.length === 0) return { avgHp: 0, apCounts: {}, typeCounts: {} };
- 
-    let totalHp = 0;
-    const apCounts: Record<number, number> = {};
-    const typeCounts: Record<string, number> = {
-      basic: 0,
-      promote: 0,
-      fusion: 0,
-      tribute: 0,
-      token: 0
-    };
- 
-    deckEntries.forEach(entry => {
-      totalHp += entry.card.hp * entry.quantity;
-      apCounts[entry.card.ap] = (apCounts[entry.card.ap] || 0) + entry.quantity;
- 
+    const typeCounts: Record<string, number> = { basic: 0, promote: 0, tribute: 0, fusion: 0 };
+    deckEntries.forEach((entry) => {
       if (entry.card.basic) typeCounts.basic += entry.quantity;
       else if (entry.card.reinforce?.mode === 'promote') typeCounts.promote += entry.quantity;
-      else if (entry.card.reinforce?.mode === 'fusion') typeCounts.fusion += entry.quantity;
       else if (entry.card.reinforce?.mode === 'tribute') typeCounts.tribute += entry.quantity;
-      else if (entry.card.isWall) typeCounts.token += entry.quantity;
+      else if (entry.card.reinforce?.mode === 'fusion') typeCounts.fusion += entry.quantity;
     });
- 
-    return {
-      avgHp: Math.round((totalHp / totalCards) * 10) / 10,
-      apCounts,
-      typeCounts
-    };
-  }, [deckEntries, totalCards]);
+    return { typeCounts };
+  }, [deckEntries]);
  
   // Catalog filtered cards sorted by Class Tags
   // Every class in the game (from class tags and reinforce requirements), ordered by how many deckable cards go with
@@ -270,6 +264,10 @@ export const Deckbuilder: React.FC<DeckbuilderProps> = ({
  
   // Save Deck Feature (Online browser persistence via localStorage)
   const handleSaveDeck = () => {
+    if (totalCards !== DECK_SIZE) {
+      showNotice(`A deck needs exactly ${DECK_SIZE} cards to be saved (this one has ${totalCards}).`, false);
+      return;
+    }
     try {
       const existingStr = localStorage.getItem(LOCAL_STORAGE_SAVED_DECKS);
       const existing: SavedDeck[] = existingStr ? JSON.parse(existingStr) : [];
@@ -293,8 +291,7 @@ export const Deckbuilder: React.FC<DeckbuilderProps> = ({
       localStorage.setItem(LOCAL_STORAGE_SAVED_DECKS, JSON.stringify(updatedList));
       setSavedDecksList(updatedList);
  
-      setSaveSuccessMsg(`Deck "${updatedDeck.name}" saved!`);
-      setTimeout(() => setSaveSuccessMsg(null), 3000);
+      showNotice(`Deck "${updatedDeck.name}" saved!`);
     } catch (err) {
       console.error('Failed to save deck to storage:', err);
     }
@@ -335,40 +332,51 @@ export const Deckbuilder: React.FC<DeckbuilderProps> = ({
     setIsRenaming(false);
   };
  
-  // Copy decklist to clipboard
-  const handleCopyDeckList = () => {
-    const lines = [
-      `=== ${deckName} (${totalCards}/40 Cards) ===`,
-      ...deckEntries.map(e => `${e.quantity}x ${e.card.name} [${e.card.hp} HP / ${e.card.ap} AP]`)
-    ];
-    navigator.clipboard.writeText(lines.join('\n'));
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-  };
  
-  // Export deck as JSON
-  const handleExportJson = () => {
-    const exportData = {
-      deckName,
-      created: new Date().toISOString(),
-      cardCount: totalCards,
-      limit: 40,
-      cards: deckEntries.map(e => ({
-        id: e.card.id,
-        name: e.card.name,
-        quantity: e.quantity
-      }))
+  // The current deck as text
+  const deckText = useMemo(() => formatDeckText(deckName, deckEntries), [deckName, deckEntries]);
+  const shownDeckText = isDeckTextEdited ? deckTextDraft : deckText;
+
+  // Export: copies the deck as text
+  const handleExportDeckText = () => {
+    navigator.clipboard
+      .writeText(deckText)
+      .then(() => showNotice(`"${deckName}" copied to the clipboard as text.`))
+      .catch(() => showNotice("Couldn't copy to the clipboard: select the text and copy it yourself.", false));
+  };
+
+  // Import: saves the deck typed or pasted in the text box as a new deck (a name already saved gets a number), and
+  // opens it here
+  const handleImportDeckText = () => {
+    const parsed = parseDeckText(shownDeckText, cards.filter((c) => !isTokenCard(c)));
+    if (parsed.problems.length > 0) {
+      showNotice(`Can't import: ${parsed.problems.slice(0, 3).join(' ')}`, false);
+      return;
+    }
+    const taken = new Set(savedDecksList.map((d) => d.name.toLowerCase()));
+    let name = parsed.name;
+    for (let n = 2; taken.has(name.toLowerCase()); n++) name = `${parsed.name} (${n})`;
+    const newDeck: SavedDeck = {
+      id: `deck_${Date.now()}`,
+      name,
+      updatedAt: new Date().toLocaleDateString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }),
+      cardCount: parsed.total,
+      cards: parsed.entries.map((e) => ({ id: e.card.id, quantity: e.quantity }))
     };
- 
-    const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `${deckName.toLowerCase().replace(/\s+/g, '_')}_deck.json`;
-    a.click();
-    URL.revokeObjectURL(url);
+    const updatedList = [newDeck, ...savedDecksList];
+    try {
+      localStorage.setItem(LOCAL_STORAGE_SAVED_DECKS, JSON.stringify(updatedList));
+    } catch {
+      // (kept for this visit only)
+    }
+    setSavedDecksList(updatedList);
+    setDeckName(name);
+    setDeckEntries(parsed.entries);
+    setIsDeckTextEdited(false);
+    playCardDrawSound();
+    showNotice(`Imported and saved "${name}".`);
   };
- 
+
   // Drag and Drop state between deck and pool
   const [draggingFrom, setDraggingFrom] = useState<'pool' | 'deck' | null>(null);
   const [draggedCardId, setDraggedCardId] = useState<string | null>(null);
@@ -472,10 +480,14 @@ export const Deckbuilder: React.FC<DeckbuilderProps> = ({
   return (
     <div className="flex-1 flex flex-col lg:flex-row overflow-hidden max-w-[1800px] mx-auto w-full p-6 gap-6 relative select-none">
       {/* Save Success Toast */}
-      {saveSuccessMsg && (
-        <div className="absolute top-8 left-1/2 -translate-x-1/2 z-50 bg-sky-400 text-stone-950 font-bold px-4 py-2 rounded-lg shadow-2xl flex items-center gap-2 text-xs animate-in fade-in slide-in-from-top-3">
-          <BookmarkCheck className="w-4 h-4" />
-          <span>{saveSuccessMsg}</span>
+      {notice && (
+        <div
+          className={`absolute top-8 left-1/2 -translate-x-1/2 z-50 max-w-[90%] font-bold px-4 py-2 rounded-lg shadow-2xl flex items-center gap-2 text-xs animate-in fade-in slide-in-from-top-3 ${
+            notice.ok ? 'bg-sky-400 text-stone-950' : 'bg-rose-900 text-rose-50 border border-rose-500'
+          }`}
+        >
+          {notice.ok ? <BookmarkCheck className="w-4 h-4 shrink-0" /> : <X className="w-4 h-4 shrink-0" />}
+          <span>{notice.text}</span>
         </div>
       )}
  
@@ -500,7 +512,7 @@ export const Deckbuilder: React.FC<DeckbuilderProps> = ({
           </div>
         )}
         {/* Deck Header */}
-        <div className="p-4 border-b border-stone-800 bg-stone-900 flex flex-col gap-3">
+        <div className="relative z-10 p-4 border-b border-stone-800 bg-stone-900 flex flex-col gap-3">
           {/* Deck Title & Rename Deck Feature */}
           <div className="flex items-center justify-between gap-3">
             {isRenaming ? (
@@ -576,47 +588,16 @@ export const Deckbuilder: React.FC<DeckbuilderProps> = ({
               <span>Save Deck</span>
             </button>
  
-            {/* Saved Decks Viewer */}
+            {/* Load Deck: the saved decks */}
             <button
               onClick={() => setShowSavedDecksModal(true)}
               className="flex items-center gap-1 px-2.5 py-1 text-xs bg-stone-800 hover:bg-stone-700 text-stone-200 rounded border border-stone-700 transition-colors"
-              title="View and load saved decks"
+              title="Open one of your saved decks"
             >
               <FolderOpen className="w-3.5 h-3.5 text-sky-400" />
-              <span>Saved Decks ({savedDecksList.length})</span>
+              <span>Load Deck ({savedDecksList.length})</span>
             </button>
- 
-            {/* Rename Deck Button */}
-            {!isRenaming && (
-              <button
-                onClick={() => {
-                  setRenameValue(deckName);
-                  setIsRenaming(true);
-                }}
-                className="flex items-center gap-1 px-2.5 py-1 text-xs bg-stone-800 hover:bg-stone-700 text-stone-200 rounded border border-stone-700 transition-colors"
-                title="Rename this deck"
-              >
-                <Edit3 className="w-3.5 h-3.5" />
-                <span>Rename</span>
-              </button>
-            )}
- 
-            <button
-              onClick={handleCopyDeckList}
-              className="flex items-center gap-1 px-2.5 py-1 text-xs bg-stone-800 hover:bg-stone-700 text-stone-200 rounded border border-stone-700 transition-colors"
-              title="Copy decklist as text"
-            >
-              {copied ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
-              <span>{copied ? 'Copied' : 'Copy'}</span>
-            </button>
-            <button
-              onClick={handleExportJson}
-              className="flex items-center gap-1 px-2.5 py-1 text-xs bg-stone-800 hover:bg-stone-700 text-stone-200 rounded border border-stone-700 transition-colors"
-              title="Export deck as JSON"
-            >
-              <Download className="w-3.5 h-3.5" />
-              <span>Export</span>
-            </button>
+
             <button
               onClick={handleClearDeck}
               className="flex items-center gap-1 px-2.5 py-1 text-xs bg-stone-800 hover:bg-rose-900/60 text-stone-300 hover:text-rose-200 rounded border border-stone-700 transition-colors"
@@ -626,35 +607,78 @@ export const Deckbuilder: React.FC<DeckbuilderProps> = ({
               <span>Clear</span>
             </button>
           </div>
- 
-          {/* Deck Rules Notice */}
-          <div className="flex items-center justify-between text-[11px] text-stone-400 font-mono px-1">
-            <span>Limit: Up to 3 per card</span>
-            <span>Limit: Maximum 40 cards total</span>
+
+          {/* Show as Text / Show as Cards: switches the deck list for the deck as text (Export copies it, Import saves what's
+              typed as a new deck) and back. One width for both labels (the longer one), so it doesn't jump. The deck
+              rules sit beside it. */}
+          <div className="flex items-center justify-between gap-3">
+            <button
+              onClick={() => {
+                setIsTextMode((on) => !on);
+                setIsDeckTextEdited(false);
+              }}
+              aria-pressed={isTextMode}
+              title={isTextMode ? 'Back to the deck list' : 'Show the deck as text, to copy it out or paste a deck in'}
+              className="grid px-2.5 py-1 text-xs bg-stone-800 hover:bg-stone-700 text-stone-200 rounded border border-stone-700 transition-colors cursor-pointer"
+            >
+              {/* (both labels in one spot, the hidden one keeping the width) */}
+              <span className={`col-start-1 row-start-1 ${isTextMode ? 'invisible' : ''}`}>Show as Text</span>
+              <span className={`col-start-1 row-start-1 ${isTextMode ? '' : 'invisible'}`}>Show as Cards</span>
+            </button>
+            <span className="text-[11px] text-stone-400 font-mono text-right">Exactly 40 cards, up to 3 of each</span>
           </div>
  
-          {/* Deck Stats Bar */}
-          <div className="grid grid-cols-3 gap-2 pt-2 border-t border-stone-800/80 text-xs">
-            <div className="bg-stone-950/70 p-2 rounded border border-stone-800/80 text-center">
-              <span className="text-[10px] text-stone-400 font-mono block uppercase">Avg HP</span>
-              <span className="font-mono font-bold text-rose-300 text-sm">{stats.avgHp}</span>
+          {/* How many of each kind the deck has (hidden at first: the small tab under the middle of this header shows it) */}
+          {isDeckCountsOpen && (
+            <div className="pt-2 border-t border-stone-800/80 text-xs font-mono leading-tight">
+              <div className="text-sky-300">Basics: {stats.typeCounts.basic || 0}</div>
+              <div className="text-emerald-300">Promotes: {stats.typeCounts.promote || 0}</div>
+              <div className="text-rose-300">Tributes: {stats.typeCounts.tribute || 0}</div>
+              <div className="text-purple-300">Fusions: {stats.typeCounts.fusion || 0}</div>
             </div>
-            <div className="bg-stone-950/70 p-2 rounded border border-stone-800/80 text-center">
-              <span className="text-[10px] text-stone-400 font-mono block uppercase">Basics / Promotes</span>
-              <span className="font-mono font-bold text-sky-300 text-sm">
-                {stats.typeCounts.basic || 0} / {stats.typeCounts.promote || 0}
-              </span>
-            </div>
-            <div className="bg-stone-950/70 p-2 rounded border border-stone-800/80 text-center">
-              <span className="text-[10px] text-stone-400 font-mono block uppercase">Fusions / Tributes</span>
-              <span className="font-mono font-bold text-purple-300 text-sm">
-                {stats.typeCounts.fusion || 0} / {stats.typeCounts.tribute || 0}
-              </span>
-            </div>
-          </div>
+          )}
+          <button
+            onClick={() => setIsDeckCountsOpen((open) => !open)}
+            title={isDeckCountsOpen ? 'Hide the deck counts' : 'Show how many of each kind the deck has'}
+            className="absolute top-full left-1/2 -translate-x-1/2 z-10 px-3 py-0.5 rounded-b-md bg-stone-950/95 border border-t-0 border-stone-800 text-stone-400 hover:text-stone-100 transition-colors cursor-pointer"
+          >
+            {isDeckCountsOpen ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+          </button>
         </div>
  
         {/* Deck Cards List */}
+        {isTextMode ? (
+          <div className="flex-1 min-h-0 p-3 flex flex-col gap-2">
+            <textarea
+              value={shownDeckText}
+              onChange={(e) => {
+                setDeckTextDraft(e.target.value);
+                setIsDeckTextEdited(true);
+              }}
+              spellCheck={false}
+              className="flex-1 min-h-0 w-full bg-stone-950 border border-stone-700 rounded p-2 text-xs font-mono text-stone-100 focus:outline-hidden focus:border-sky-400 resize-none select-text custom-scrollbar"
+              placeholder={'Deck: My EVIL Deck\n3x Sentinel Knight'}
+            />
+            <div className="flex items-center gap-2 shrink-0">
+              <button
+                onClick={handleExportDeckText}
+                className="flex items-center gap-1 px-2.5 py-1 text-xs bg-stone-800 hover:bg-stone-700 text-stone-200 rounded border border-stone-700 transition-colors"
+                title="Copy this deck as text"
+              >
+                <Copy className="w-3.5 h-3.5" />
+                <span>Export</span>
+              </button>
+              <button
+                onClick={handleImportDeckText}
+                className="flex items-center gap-1 px-2.5 py-1 text-xs bg-stone-800 hover:bg-stone-700 text-stone-200 rounded border border-stone-700 transition-colors"
+                title="Save the deck written above as a new deck"
+              >
+                <Download className="w-3.5 h-3.5" />
+                <span>Import</span>
+              </button>
+            </div>
+          </div>
+        ) : (
         <div className="flex-1 p-3 overflow-y-auto flex flex-col gap-1.5 custom-scrollbar">
           {deckEntries.length === 0 ? (
             <div className="h-full flex flex-col items-center justify-center text-center p-8 text-stone-500">
@@ -759,6 +783,7 @@ export const Deckbuilder: React.FC<DeckbuilderProps> = ({
             })
           )}
         </div>
+        )}
       </div>
  
       {/* ================= RIGHT COLUMN: CARD CATALOG POOL ================= */}
@@ -832,7 +857,6 @@ export const Deckbuilder: React.FC<DeckbuilderProps> = ({
             ))}
           </div>
             <div className="flex flex-wrap items-center gap-x-1 gap-y-1 pt-1.5 border-t border-stone-800/80">
-              <span className="text-[10px] font-mono text-stone-400 font-bold uppercase mr-1">Class:</span>
               {classOptions.map((cls) => {
                 const on = classFilter.includes(cls.id);
                 return (
