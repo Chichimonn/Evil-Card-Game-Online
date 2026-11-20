@@ -1074,11 +1074,11 @@ const cardsJsonContent = `{
           "limits": {
             "oncePerTurn": true
           },
-          "text": "Deals 8 damage. Use only once per turn.",
+          "text": "Deals 7 damage. Use only once per turn.",
           "effects": [
             {
               "type": "damage",
-              "amount": 8,
+              "amount": 7,
               "hits": 1
             }
           ]
@@ -2605,10 +2605,11 @@ const cardsJsonContent = `{
       "type": "unit",
       "basic": false,
       "reinforce": {
-        "mode": "promote",
+        "mode": "fusion",
+        "count": 2,
         "requirement": [["Mage"]]
       },
-      "hp": 22,
+      "hp": 25,
       "ap": 3,
       "art": "art/catalyst_curator.png",
       "passives": [
@@ -2616,7 +2617,7 @@ const cardsJsonContent = `{
           "id": "esoteric_pathways",
           "name": "Esoteric Pathways",
           "trigger": "static",
-          "text": "This unit can move into a board boundary if there is an empty tile on the opposite board boundary in the same row or column. Doing so moves it to that tile (without passing through any units in the way. Still pay the AP cost for this unit to move).",
+          "text": "This unit can move into a board boundary if there is an empty tile on the opposite board boundary in the same row or column. Doing so moves it to that tile (without moving over any units in the way. Still pay the AP cost for this unit to move).",
           "effects": [
             {
               "type": "wrapAroundMove",
@@ -2638,7 +2639,7 @@ const cardsJsonContent = `{
           "target": "unit",
           "limits": { "oncePerTurn": true },
           "range": [1, 9],
-          "rangeText": "9"
+          "rangeText": "1-9"
         },
         {
           "id": "overload_gemstone",
@@ -2652,7 +2653,9 @@ const cardsJsonContent = `{
               "filter": { "cost": 1, "kind": "attack" },
               "free": true,
               "times": 2,
-              "sameTarget": true
+              "sameTarget": true,
+              "repeatFirstChoice": true,
+              "repeatAsSeparateUses": true
             },
             {
               "type": "lockAbility",
@@ -2667,11 +2670,12 @@ const cardsJsonContent = `{
           "id": "quartz_ray",
           "name": "Quartz Ray",
           "cost": 2,
-          "text": "Deals 12 damage.",
+          "text": "Deals 10 damage.",
           "effects": [
-            { "type": "damage", "amount": 12, "hits": 1, "area": "allUnitsInLine" }
+            { "type": "damage", "amount": 10, "hits": 1, "area": "allUnitsInLine" }
           ],
           "tags": ["inspiring"],
+          "straightLine": true,
           "target": "direction",
           "targetText": "Choose a direction. Hits all units in a line"
         }

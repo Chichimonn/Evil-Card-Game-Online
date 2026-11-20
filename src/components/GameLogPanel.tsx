@@ -195,6 +195,8 @@ export default function GameLogPanel({ entries, handoffStatus, viewer, open, onT
           >
             {entries.length === 0 && <div className="text-stone-500">Nothing yet.</div>}
             {entries.map((e) => {
+              // (an entry with nothing for this viewer, e.g. the other player's refused click, isn't shown)
+              if (!logTextFor(e, viewer)) return null;
               const header = e.turn !== lastTurn;
               lastTurn = e.turn;
               const age = now - (seenAtRef.current.get(e.seq) ?? 0);

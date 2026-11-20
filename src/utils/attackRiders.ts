@@ -12,10 +12,14 @@ export function getTargetTileScorch(ability: CardAbility | null | undefined): { 
   return eff ? { name: ability!.name, duration: eff.duration } : null;
 }
 
-/** "If this unit attacks the same unit twice in a turn, the tile the target is on becomes scorched" (e.g. Scorching Tempo). */
-export function getSecondAttackScorch(unit: BattlefieldUnit | null | undefined): { name: string; duration?: string } | null {
+/**
+ * "If this unit damages the same unit with a second ability in a turn, the tile that unit is on becomes scorched" (e.g.
+ * Scorching Tempo): two separate ability uses, whichever they are (e.g. Leap Strike, then Torch Beating; or Torch Beating
+ * twice). Several hits of one use count once. See markDamageDealtByActiveUnit in App.tsx.
+ */
+export function getRepeatDamageScorch(unit: BattlefieldUnit | null | undefined): { name: string; duration?: string } | null {
   for (const p of getUnitPassives(unit)) {
-    if (p.trigger !== 'self.attacksSameUnitTwiceInTurn') continue;
+    if (p.trigger !== 'self.damagesSameUnitTwiceInTurn') continue;
     const eff: any = (p.effects || []).find((e: any) => e.type === 'scorchTile');
     if (eff) return { name: p.name, duration: eff.duration };
   }

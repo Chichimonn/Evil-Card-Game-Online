@@ -24,13 +24,33 @@ export const distanceToNearestEnemy = (hex: string, board: Board, me: PlayerId):
 // Effects the computer has no use for: it has no hand or deck
 const CARD_EFFECTS = ['draw', 'loot', 'lookTop', 'revealTop', 'scry', 'returnFromGraveyard', 'reinforce', 'putBottom'];
 
-/** Whether the computer can use this ability at all (it skips card effects and abilities drawn along a path). */
+/**
+ * Whether the computer can use this ability at all (it skips card effects and abilities drawn along a path). An Assist
+ * ability is fine: its units use it from the board like any other (the computer never plays one from a hand).
+ */
 export function isCpuUsableAbility(ability: CardAbility): boolean {
   const effects = (ability.effects || []) as any[];
-  if (ability.tags?.includes('assist')) return false;
   if (effects.some((e) => CARD_EFFECTS.includes(e.type)) && !effects.some((e) => e.type === 'damage')) return false;
   if (isChargeFlightAbility(ability) || getPathSpec(ability) || (ability as any).usesPath) return false;
   return true;
+}
+
+/** An ability that makes a token (e.g. Stone Wall, Mushroom Sprouting, Pitch Camp): the computer can use its tokens. */
+export const isTokenMakingAbility = (ability: CardAbility): boolean =>
+  ((ability.effects || []) as any[]).some((e) => e.type === 'createToken');
+
+/**
+ * Whether a token ability's own limit on how many of its tokens may already be in play is reached (e.g. Stone Wall: "If
+ * you have no Obstructing Wall token in play"), read as the game reads it: { if: 'noFriendlyToken:X' } (none) or
+ * { if: 'friendlyTokensAtMost:X:N' } (N or fewer). The game refuses it then, so the computer doesn't pick it.
+ */
+export function isTokenLimitReached(ability: CardAbility, board: Board, me: PlayerId): boolean {
+  const eff: any = ((ability.effects || []) as any[]).find((e) => e.type === 'createToken');
+  if (!eff || typeof eff.if !== 'string') return false;
+  const atMost = eff.if.match(/^friendlyTokensAtMost:[^:]+:(\d+)$/);
+  const max = eff.if.startsWith('noFriendlyToken:') ? 0 : atMost ? parseInt(atMost[1], 10) : Infinity;
+  const owned = Object.values(board).filter((u) => u.owner === me && u.card.id === eff.token).length;
+  return owned > max;
 }
 
 export const isAttackAbility = (ability: CardAbility): boolean =>
@@ -58,7 +78,7 @@ export type CpuAction =
 
 /**
  * One action for the unit taking the turn: an attack most of the time when one could land, otherwise a step toward
- * the nearest enemy, another ability, or the end of its turn.
+ * the nearest enemy, another ability (including one that makes a token), or the end of its turn.
  */
 export function chooseCpuAction(
   unit: BattlefieldUnit,
@@ -70,7 +90,8 @@ export function chooseCpuAction(
 ): CpuAction {
   const me = unit.owner;
   const attacks = usable.filter((a) => isAttackAbility(a) && attackCouldReach(a, hex, board, me));
-  const others = usable.filter((a) => !isAttackAbility(a) && !isTargetedAbility(a));
+  // (anything else with no target, and abilities that make a token, aimed at a tile: see chooseCpuTarget)
+  const others = usable.filter((a) => !isAttackAbility(a) && (!isTargetedAbility(a) || isTokenMakingAbility(a)));
   const nearest = distanceToNearestEnemy(hex, board, me);
   const steps = canMove ? getSurroundingHexes(hex).filter((h) => !board[h]) : [];
   const closer = steps.filter((h) => distanceToNearestEnemy(h, board, me) < nearest);

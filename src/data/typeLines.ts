@@ -47,7 +47,7 @@ export const TYPE_LINES: Record<string, string> = {
   "ironclad_peacekeeper": "Promote a Knight.", // Hardened Peacekeeper
   "vanguard_commander": "Promote a Knight.", // Vanguard Commander
   "nexus_sorcerer": "Promote a Mage.", // Nexus Sorcerer
-  "catalyst_curator": "Promote a Mage.", // Catalyst Curator
+  "catalyst_curator": "Fusion: 2 Mages.", // Catalyst Curator
   "leyline_invoker": "Promote a Mage.", // Leyline Invoker
   "frostbinder": "Promote a Mage.", // Frostbinder
   "barbarian_tyrant": "Promote a Fighter.", // Barbarian Tyrant
@@ -72,7 +72,7 @@ export const TYPE_LINES: Record<string, string> = {
   "gateway_guardians": "Fusion: 2 Knights.", // Gateway Guardians
   "drakerider_paladin": "Fusion: 2 Knights.", // Drakerider Paladin
   "animus_twin": "Fusion: 2 Mages.", // Animus Twin
-  "starburst_wizard": "Fusion: 2 Mages.", // Starburst Wizard
+  "starburst_wizard": "Promote a Mage.", // Starburst Wizard
   "dawnglow_archer": "Fusion: 2 Fighters.", // Dawnglow Archer
   "breaker_swordsman": "Fusion: 2 Fighters.", // Breaker Swordsman
   "blade_singer": "Fusion: 2 Mages and/or Fighters.", // Blade Singer

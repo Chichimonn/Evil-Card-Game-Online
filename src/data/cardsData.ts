@@ -1222,11 +1222,11 @@ export const initialCardsData: CardsDataSchema = {
           "limits": {
             "oncePerTurn": true
           },
-          "text": "Deals 8 damage. Use only once per turn.",
+          "text": "Deals 7 damage. Use only once per turn.",
           "effects": [
             {
               "type": "damage",
-              "amount": 8,
+              "amount": 7,
               "hits": 1
             }
           ]
@@ -3043,14 +3043,15 @@ export const initialCardsData: CardsDataSchema = {
       "type": "unit",
       "basic": false,
       "reinforce": {
-        "mode": "promote",
+        "mode": "fusion",
+        "count": 2,
         "requirement": [
           [
             "Mage"
           ]
         ]
       },
-      "hp": 22,
+      "hp": 25,
       "ap": 3,
       "art": "art/catalyst_curator.png",
       "passives": [
@@ -3090,9 +3091,9 @@ export const initialCardsData: CardsDataSchema = {
           },
           "range": [
             1,
-            4
+            9
           ],
-          "rangeText": "1-4"
+          "rangeText": "1-9"
         },
         {
           "id": "overload_gemstone",
@@ -3142,7 +3143,8 @@ export const initialCardsData: CardsDataSchema = {
             "inspiring"
           ],
           "straightLine": true,
-          "target": "direction"
+          "target": "direction",
+          "targetText": "Choose a direction. Hits all units in a line"
         }
       ],
       "classTags": []
@@ -3532,35 +3534,10 @@ export const initialCardsData: CardsDataSchema = {
       ],
       "abilities": [
         {
-          "id": "too_easy",
-          "name": "Too Easy",
-          "cost": 1,
-          "text": "Use a 1AP attack of the promoted card as this ability for free, except it deals an additional 2 damage on the first hit. Use only once per turn.",
-          "effects": [
-            {
-              "type": "useAbility",
-              "source": "promotedCard",
-              "filter": {
-                "cost": 1,
-                "kind": "attack"
-              },
-              "free": true,
-              "addDamage": {
-                "amount": 2,
-                "scope": "firstHit"
-              }
-            }
-          ],
-          "script": null,
-          "limits": {
-            "oncePerTurn": true
-          }
-        },
-        {
           "id": "shifting_strike",
           "name": "Shifting Strike",
           "cost": 1,
-          "text": "Use a 1AP attack of the promoted card as this ability for free. This unit may move 1 tile for free before choosing a target for this attack.",
+          "text": "Move 1 tile for free, then use a 1AP attack of the promoted card as this ability for free. Use only once per turn.",
           "effects": [
             {
               "type": "useAbility",
@@ -3575,10 +3552,30 @@ export const initialCardsData: CardsDataSchema = {
                   "type": "move",
                   "target": "self",
                   "distance": 1,
-                  "free": true,
-                  "optional": true
+                  "free": true
                 }
               ]
+            }
+          ],
+          "script": null,
+          "limits": {
+            "oncePerTurn": true
+          }
+        },
+        {
+          "id": "idle_practice",
+          "name": "Idle Practice",
+          "cost": 1,
+          "text": "Use a 1AP attack of the promoted card as this ability for free.",
+          "effects": [
+            {
+              "type": "useAbility",
+              "source": "promotedCard",
+              "filter": {
+                "cost": 1,
+                "kind": "attack"
+              },
+              "free": true
             }
           ],
           "script": null
@@ -3587,7 +3584,7 @@ export const initialCardsData: CardsDataSchema = {
           "id": "flawless_parry",
           "name": "Flawless Parry",
           "cost": 2,
-          "text": "The next time this unit would take damage from an attack until the end of your opponent's next turn, prevent up to 4 damage. Then, if the attacker is within range 1, reflect the attack back at them. This unit's turn ends.",
+          "text": "Until the end of your opponent's next turn, the next time this unit would take damage from an attack, prevent up to 7 damage. If you do, this unit deals up to that much damage to the attacker as a react effect. This unit's turn ends.",
           "effects": [
             {
               "type": "setReact",
@@ -3598,11 +3595,13 @@ export const initialCardsData: CardsDataSchema = {
                 {
                   "type": "preventDamage",
                   "target": "self",
-                  "upTo": 4
+                  "upTo": 7
                 },
                 {
-                  "type": "reflect",
-                  "if": "attacker.withinRange:1"
+                  "type": "damage",
+                  "target": "attacker",
+                  "amount": "preventedAmount",
+                  "if": "damagePrevented"
                 }
               ]
             },
@@ -4760,7 +4759,7 @@ export const initialCardsData: CardsDataSchema = {
         "count": 2,
         "requirement": []
       },
-      "hp": 31,
+      "hp": 30,
       "ap": 3,
       "art": "art/carapace_crusher.png",
       "passives": [
@@ -4768,12 +4767,12 @@ export const initialCardsData: CardsDataSchema = {
           "id": "heavy_shell",
           "name": "Heavy Shell",
           "trigger": "turnStart",
-          "text": "At the start of each player's turn, armour up to 4.",
+          "text": "At the start of each player's turn, armour up to 3.",
           "effects": [
             {
               "type": "armour",
               "target": "self",
-              "upTo": 4
+              "upTo": 3
             }
           ],
           "script": null
@@ -5322,21 +5321,20 @@ export const initialCardsData: CardsDataSchema = {
       "type": "unit",
       "basic": false,
       "reinforce": {
-        "mode": "fusion",
-        "count": 2,
+        "mode": "promote",
         "requirement": [
           [
             "Mage"
           ]
         ]
       },
-      "hp": 25,
+      "hp": 22,
       "ap": 3,
       "art": "art/starburst_wizard.png",
       "passives": [
         {
-          "id": "solar_resonance",
-          "name": "Solar Resonance",
+          "id": "stellar_resonance",
+          "name": "Stellar Resonance",
           "trigger": "turnStart",
           "text": "At the start of each player's turn, armour up to 2.",
           "effects": [
@@ -5394,7 +5392,7 @@ export const initialCardsData: CardsDataSchema = {
             "oncePerTurn": true
           },
           "range": [1, 9],
-          "rangeText": "9"
+          "rangeText": "1-9"
         }
       ],
       "classTags": []
@@ -6174,12 +6172,12 @@ export const initialCardsData: CardsDataSchema = {
           "id": "plundered_shield",
           "name": "Plundered Shield",
           "cost": 1,
-          "text": "Armour up to 5.",
+          "text": "Armour up to 4.",
           "effects": [
             {
               "type": "armour",
               "target": "self",
-              "upTo": 5
+              "upTo": 4
             }
           ]
         },
@@ -6217,20 +6215,13 @@ export const initialCardsData: CardsDataSchema = {
           "name": "Boarding Hook",
           "isMultiStage": true,
           "cost": 2,
-          "text": "Place the target on the closest empty tile surrounding this unit (if there is more than one closest empty tile, choose one), then deal 6 damage. If the target has armour, remove up to 2 armour from it first.",
+          "text": "Place the target on the closest empty tile surrounding this unit (if there is more than one closest empty tile, choose one), then deal 6 damage.",
           "effects": [
             {
               "type": "place",
               "unit": "target",
               "tile": "closestEmptySurroundingSelf",
               "tiebreak": "controllerChooses"
-            },
-            {
-              "type": "removeArmour",
-              "target": "target",
-              "amount": 2,
-              "upTo": true,
-              "if": "target.hasArmour"
             },
             {
               "type": "damage",
@@ -7963,8 +7954,8 @@ export const initialCardsData: CardsDataSchema = {
       "id": "flaming_fighter", "set": "Wrath of the Elements", "name": "Flaming Fighter", "type": "unit", "basic": true,
       "reinforce": { "mode": "basic" }, "hp": 18, "ap": 2, "art": "art/flaming_fighter.png",
       "passives": [
-        { "id": "scorching_tempo", "name": "Scorching Tempo", "trigger": "self.attacksSameUnitTwiceInTurn",
-          "text": "If this unit attacks the same unit twice in a turn, the tile the target is on becomes scorched until the end of your opponent's next turn (a unit moving onto or off of a scorched tile takes 4 damage).",
+        { "id": "scorching_tempo", "name": "Scorching Tempo", "trigger": "self.damagesSameUnitTwiceInTurn",
+          "text": "If this unit damages the same unit with a second ability in a turn, the tile that unit is on becomes scorched until the end of your opponent's next turn (a unit moving onto or off of a scorched tile takes 4 damage).",
           "effects": [{ "type": "scorchTile", "tile": "targetTile", "duration": "untilEndOfOpponentNextTurn", "damage": 4 }], "script": null }
       ],
       "abilities": [
@@ -7994,7 +7985,7 @@ export const initialCardsData: CardsDataSchema = {
           "targetText": "Choose a direction. Hits first unit in a straight line",
           "text": "Deals 5 damage.",
           "effects": [{ "type": "damage", "amount": 5, "hits": 1, "area": "firstUnitInStraightLine" }] },
-        { "id": "flame_geyser", "name": "Flame Geyser", "cost": 2, "range": [1, 3], "rangeText": "1-3", "target": "unit",
+        { "id": "flame_geyser", "name": "Flame Geyser", "cost": 1, "range": [1, 3], "rangeText": "1-3", "target": "unit",
           "text": "Deals 4 damage. The tile the target is on becomes scorched until the end of your opponent's next turn (a unit moving onto or off of a scorched tile takes 4 damage).",
           "effects": [
             { "type": "damage", "amount": 4, "hits": 1 },

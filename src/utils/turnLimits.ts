@@ -5,7 +5,7 @@ import { isAttackAbility } from './providerChain';
 import { getBarredMinCost, getBarredExactCosts, CANNOT_USE_RANGED } from './turnRestrictions';
 import { getSurroundingHexes } from './hexGridMath';
 import { getUnitPassives } from './unitPassives';
-import { getCurrentTurnNumber } from './boardContext';
+import { getCurrentTurnNumber, getCurrentUnitsOnBoard } from './boardContext';
 
 /**
  * Checks if an ability or passive is flagged 1/Turn.
@@ -280,6 +280,9 @@ export function canUseAbilityThisTurn(
   if (unit.statuses?.includes(CANNOT_USE_RANGED) && isRangedAttackAbility(ability)) {
     return { allowed: false, reason: `${unit.card.name} can't use ranged attacks this turn.` };
   }
+  // A limit an enemy puts on the units around it (e.g. Nightruler Cobra's Hypnotic Sway), read from the board as it is
+  const auraBlock = getAuraAbilityBlock(unit, ability, getCurrentUnitsOnBoard());
+  if (auraBlock) return { allowed: false, reason: auraBlock };
 
   const requiredOrdinal = getRequiredAbilityOrdinal(ability);
   if (requiredOrdinal !== null) {

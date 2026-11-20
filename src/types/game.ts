@@ -35,7 +35,9 @@ export interface BattlefieldUnit {
   movesThisTurn?: number; // how many times this unit has moved this turn (each move action or moving ability)
   tilesMovedThisTurn?: number; // tiles this unit has moved this turn, from any move source (path length, else distance)
   attacksUsedThisTurn?: number;
-  readyStance?: { sourceAbilityName: string; preventUpTo: number; expiresOnTurnEndFor: PlayerId } | null;
+  // "Prevent up to N damage ... and deal that much back" (Ready Stance: the next melee attack; anyAttack: the next attack
+  // of any kind, e.g. Flawless Parry), until expiresOnTurnEndFor's turn ends
+  readyStance?: { sourceAbilityName: string; preventUpTo: number; expiresOnTurnEndFor: PlayerId; anyAttack?: boolean } | null;
   lockedIn?: boolean;
   bonusRangeThisTurn?: number;
   turnStartingAp?: number;
@@ -90,6 +92,9 @@ export interface BattlefieldUnit {
   // the units it dealt damage to this turn, by instanceId (e.g. Deep Freeze: "only against a target that this unit has
   // dealt damage to this turn"); cleared with dealtDamageThisTurn
   damagedIdsThisTurn?: string[];
+  // for each unit it damaged this turn (by instanceId), the ability use that first did (see abilityUseSerialRef in App.tsx),
+  // for "damages the same unit with a second ability in a turn" (e.g. Scorching Tempo); cleared with dealtDamageThisTurn
+  damagedByUseThisTurn?: Record<string, number>;
   dealtDamageThisTurn?: boolean; // this unit dealt damage this turn (e.g. Combat Roll); cleared at the end of every turn // e.g. Critical Forecast: the 1AP ability chosen this turn, whose first use repeats for free
   cannotInflictKnockbackNextOwnTurn?: boolean; // e.g. Hold the Gate drawback: cleared when the owner's next turn ends
 }

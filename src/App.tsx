@@ -25,7 +25,7 @@ import {
   freeHomeRowHexes,
   pullBackToOwnHalf
 } from './game/endless';
-import { isCpuUsableAbility, chooseCpuAction, chooseCpuTarget, chooseCpuUnit, distanceToNearestEnemy } from './game/cpuPlayer';
+import { isCpuUsableAbility, chooseCpuAction, chooseCpuTarget, chooseCpuUnit, distanceToNearestEnemy, isTokenLimitReached } from './game/cpuPlayer';
 import { GraveyardZone } from './components/GraveyardZone';
 import { CoinFlipModal } from './components/CoinFlipModal';
 import { PlayerTurnPanel } from './components/PlayerTurnPanel';
@@ -115,7 +115,7 @@ import { applyTurnStartPassives } from './utils/turnStartPassives';
 import { canUseAbilityThisTurn, isOncePerTurn, canTriggerPassiveThisTurn, recordTurnUsage, recordAbilityUse, freeUseKey, getAttacksUsedThisTurn, hasAttackedUnitThisTurn, UNIVERSAL_MOVE_KEY } from './utils/turnLimits';
 import {
   getTargetTileScorch,
-  getSecondAttackScorch,
+  getRepeatDamageScorch,
   getSecondMeleeAttackKnockback,
   getMeleeAttackHealPerHit,
   getFirstDamageHeal,
@@ -451,6 +451,16 @@ export default function App() {
   const [draggedUnitHex, setDraggedUnitHex] = useState<string | null>(null);
   const [activeAbility, setActiveAbility] = useState<CardAbility | null>(null);
   const [multiStageState, setMultiStageState] = useState<MultiStageState | null>(null);
+  // A number for each ability use: it goes up whenever a different ability (or the same one again, after being put down)
+  // is being targeted, so all the damage one use deals shares a number (e.g. Scorching Tempo: "damages the same unit with
+  // a second ability in a turn"; see markDamageDealtByActiveUnit)
+  const abilityUseSerialRef = useRef<{ serial: number; ability: CardAbility | null }>({ serial: 0, ability: null });
+  {
+    const inUse = activeAbility || multiStageState?.ability || null;
+    if (inUse !== abilityUseSerialRef.current.ability) {
+      abilityUseSerialRef.current = { serial: abilityUseSerialRef.current.serial + (inUse ? 1 : 0), ability: inUse };
+    }
+  }
   const [isMovingMode, setIsMovingMode] = useState<boolean>(false);
   // An ability with a choice of cost (e.g. cost [1, 2]) clicked on the big card: its costs are offered under it there
   const [costChoice, setCostChoice] = useState<CardAbility | null>(null);
@@ -683,10 +693,10 @@ export default function App() {
   };
 
   // (hidden: online, a message naming cards only one player may see shows its public wording on the other screen)
-  // In a match (setup or play) the match log holds only completed actions, briefly (see utils/noticeText.ts): an
-  // instruction (e.g. targeting) isn't logged at all, and a refusal (why a click didn't work) shows over the
-  // battlefield for a moment instead (not on the Endless computer's turn: it tries things). Before a match there's no
-  // log yet, so every notice shows over the battlefield.
+  // In a match (setup or play) notices go to the match log only, briefly (see utils/noticeText.ts): an instruction
+  // (e.g. targeting) isn't logged at all; a refusal (why a click didn't work, e.g. "Cannot promote...") is logged for
+  // the player who clicked only (it can name a card in their hand), and not on the Endless computer's turn (it tries
+  // things). Before a match there's no log yet, so every notice shows over the battlefield.
   const showNotification = (msg: string, hidden?: HiddenText) => {
     const shownToThisScreen = (text: string, publicText?: string) =>
       hidden && localPlayer && hidden.privateTo !== localPlayer && publicText !== undefined ? publicText : text;
@@ -695,7 +705,8 @@ export default function App() {
       if (sorted.kind === 'prompt') return;
       const publicSorted = hidden ? sortNotice(hidden.publicText) : null;
       if (sorted.kind === 'refusal') {
-        if (!(endlessMode && activePlayer === ENDLESS_CPU)) flashFeedback(shownToThisScreen(sorted.text, publicSorted?.text));
+        if (endlessMode && activePlayer === ENDLESS_CPU) return;
+        appendLog('note', sorted.text, activePlayer, turnCount, { privateTo: localPlayer ?? activePlayer, publicText: '' });
         return;
       }
       appendLog('note', sorted.text, activePlayer, turnCount, hidden ? { ...hidden, publicText: publicSorted!.text } : undefined);
@@ -898,7 +909,8 @@ export default function App() {
   } | null>(null);
   const [rabbleSecondsLeft, setRabbleSecondsLeft] = useState(4);
   // A free Move granted by an ability (e.g. Shadow Cast: "Then, this unit may move 1 tile for free")
-  const [pendingFreeMove, setPendingFreeMove] = useState<{ unitInstanceId: string; sourceName: string } | null>(null);
+  // mustMove: the move is part of the ability (e.g. Shifting Strike: "Move 1 tile for free, then..."): no Skip
+  const [pendingFreeMove, setPendingFreeMove] = useState<{ unitInstanceId: string; sourceName: string; mustMove?: boolean } | null>(null);
   // A provider chain's instant (untargeted) step, resolved once the provider's payment has rendered
   const [pendingChainInstant, setPendingChainInstant] = useState<CardAbility | null>(null);
   // A free ability to target once the pending free move is made or skipped (e.g. Shifting Strike: move, then attack)
@@ -1639,11 +1651,36 @@ export default function App() {
       // ...and which units it damaged (e.g. Deep Freeze: "only against a target that this unit has dealt damage to"),
       // by the event's unit when it says (a knockback may have moved it off its tile), else whoever is on the tile
       const ids = new Set(next[dealerHex].damagedIdsThisTurn || []);
+      // (units an earlier ability use of it damaged this turn, with the tile each was hit on now)
+      const useSerial = abilityUseSerialRef.current.serial;
+      const byUse = { ...(next[dealerHex].damagedByUseThisTurn || {}) };
+      const repeats: { id: string; hex: string }[] = [];
       hitEvents.forEach((ev) => {
         const id = ev.instanceId || next[ev.hexId]?.instanceId;
-        if (id) ids.add(id);
+        if (!id) return;
+        if (byUse[id] !== undefined && byUse[id] !== useSerial && !repeats.some((r) => r.id === id)) repeats.push({ id, hex: ev.hexId });
+        if (byUse[id] === undefined) byUse[id] = useSerial;
+        ids.add(id);
       });
-      next = { ...next, [dealerHex]: { ...next[dealerHex], dealtDamageThisTurn: true, damagedIdsThisTurn: Array.from(ids) } };
+      next = {
+        ...next,
+        [dealerHex]: { ...next[dealerHex], dealtDamageThisTurn: true, damagedIdsThisTurn: Array.from(ids), damagedByUseThisTurn: byUse }
+      };
+      // "If this unit damages the same unit with a second ability in a turn, the tile that unit is on becomes scorched"
+      // (e.g. Scorching Tempo): the tile it's on now (where it was hit, if this damage defeated it)
+      const repeatScorch = repeats.length ? getRepeatDamageScorch(next[dealerHex]) : null;
+      if (repeatScorch) {
+        const owner = next[dealerHex].owner;
+        const opponent: PlayerId = owner === 'player1' ? 'player2' : 'player1';
+        repeats.forEach(({ id, hex }) => {
+          const tile = Object.keys(next).find((h) => next[h].instanceId === id) || hex;
+          setScorchedTiles((prev) => ({
+            ...prev,
+            [tile]: { expiresOnTurnEndFor: repeatScorch.duration === 'untilEndOfTurn' ? owner : opponent, casterPlayer: owner }
+          }));
+          showNotification(`🔥 ${repeatScorch.name}: ${tile} is scorched!`);
+        });
+      }
     }
     const dealer = dealerHex ? next[dealerHex] : activeTurnUnit;
     const drawTax = getUnitPassives(dealer).some(
@@ -1980,7 +2017,13 @@ export default function App() {
         // "If this unit has dealt damage this turn" (e.g. Combat Roll) and "until the end of the turn" marks on a target
         // (e.g. Parasitic Enzyme) are over
         if (unitToUpdate.dealtDamageThisTurn || unitToUpdate.damagedIdsThisTurn || unitToUpdate.attackerMark) {
-          unitToUpdate = { ...unitToUpdate, dealtDamageThisTurn: undefined, damagedIdsThisTurn: undefined, attackerMark: undefined };
+          unitToUpdate = {
+            ...unitToUpdate,
+            dealtDamageThisTurn: undefined,
+            damagedIdsThisTurn: undefined,
+            damagedByUseThisTurn: undefined,
+            attackerMark: undefined
+          };
         }
         // "...until the end of your opponent's next turn" (e.g. Ethereal Guard): lapses when that opponent's turn ends
         if (unitToUpdate.attackDamageReduction && unitToUpdate.attackDamageReduction.setOnTurnOf !== activePlayer) {
@@ -2515,6 +2558,14 @@ export default function App() {
       showNotification(getMoveBlockedMessage(activeTurnUnit));
       return;
     }
+    // A free move waiting to be taken (e.g. Strike and Withdraw's): Move keeps move mode on for it, rather than turning
+    // it off (the free move's Skip is how to pass it up)
+    if (pendingFreeMove && pendingFreeMove.unitInstanceId === activeTurnUnit.instanceId) {
+      setActiveAbility(null);
+      setIsMovingMode(true);
+      showNotification(`${pendingFreeMove.sourceName}: click a highlighted tile to move 1 tile for free, or click Skip.`);
+      return;
+    }
     if (!canOmnipresenceUnitMove(activeTurnUnit)) {
       showNotification("Magical Omnipresence: This unit may only move once per turn (already moved this turn).");
       return;
@@ -2575,25 +2626,45 @@ export default function App() {
   // pressed again, for as long as the unit can still use it and nothing else has been chosen. Clicking away (cancelling
   // it) or choosing anything else ends the run. (Not for abilities used for free through another one, and not for the
   // computer, which picks each action itself.)
-  const abilityRunRef = useRef<{ unitId: string; ability: CardAbility; usesBefore: number } | null>(null);
+  // committedAt: when a target was clicked for it (or a multi-stage step taken): it's being used, so the run waits for
+  // the use to be recorded rather than taking the ability's deselection for a cancel (some attacks finish a moment after
+  // they deselect, e.g. Cloudsplitter Glaive's mirrored damage). borrowed: an ability used through another (e.g. Floating
+  // Weapon's choice of melee attack): that same choice is selected again, through the one borrowing it (ability).
+  const abilityRunRef = useRef<{
+    unitId: string;
+    ability: CardAbility;
+    usesBefore: number;
+    committedAt?: number;
+    borrowed?: CardAbility;
+  } | null>(null);
   useEffect(() => {
     const run = abilityRunRef.current;
     if (!run) return;
     // (still targeting it, or something it set off is still open)
     if (activeAbility || multiStageState || providerChain) return;
     if (pendingFreeMove || pendingRabbleMove || pendingMomentumCharge || anyPopupOpen || popupQueue.length > 0 || cardChoicePrompt || isTurnTransitioning || readySpellReact) return;
+    // Used (its count went up), rather than cancelled. A use committed by a target click may take a moment to be
+    // recorded: wait for it (a few seconds at most)
+    const used = Boolean(activeTurnUnit) && (activeTurnUnit!.usedTurnCounts?.[run.ability.id] || 0) > run.usesBefore;
+    if (!used && run.committedAt && Date.now() - run.committedAt < 3000 && activeTurnUnit?.instanceId === run.unitId) return;
     abilityRunRef.current = null;
-    if (!activeTurnUnit || activeTurnUnit.instanceId !== run.unitId || isMovingMode || selectedHandIndex !== null || isAssistModalOpen || lockedAssist) return;
+    if (!used || !activeTurnUnit || activeTurnUnit.instanceId !== run.unitId || isMovingMode || selectedHandIndex !== null || isAssistModalOpen || lockedAssist) return;
     if (gamePhase !== 'playing' || (endlessMode && activePlayer === ENDLESS_CPU)) return;
-    // Used (its count went up), rather than cancelled
-    const used = (activeTurnUnit.usedTurnCounts?.[run.ability.id] || 0) > run.usesBefore;
-    if (!used) return;
     const canUseAgain =
       activeTurnUnit.currentAp >= getAbilityApCost(run.ability) &&
       // (also false while it's locked, e.g. Overload Gemstone)
-      canUseAbilityThisTurn(activeTurnUnit, run.ability).allowed;
-    if (canUseAgain) handleAbilityClick(run.ability);
+      canUseAbilityThisTurn(activeTurnUnit, run.ability).allowed &&
+      (!run.borrowed ||
+        (canUseAbilityThisTurn(activeTurnUnit, run.borrowed).allowed &&
+          getQualifyingPromotedAbilities(run.ability, activeTurnUnit.promotedCards, activeTurnUnit).some((q) => q.ability.id === run.borrowed!.id)));
+    if (!canUseAgain) return;
+    if (run.borrowed) handlePromotedAbilitySelect(run.borrowed, run.ability);
+    else handleAbilityClick(run.ability);
   });
+  // A target clicked (or a multi-stage step taken) for the ability being run: it's being used
+  const commitAbilityRun = () => {
+    if (abilityRunRef.current && !abilityRunRef.current.committedAt) abilityRunRef.current.committedAt = Date.now();
+  };
 
   // Multi-Stage Target Information (prompts and legal hexes for current stage)
   const multiStageTargetInfo = useMemo(() => {
@@ -3865,7 +3936,7 @@ export default function App() {
     let usedReadyStance = false;
     // (a target that can't use react effects right now, e.g. after Jolting Bite, can't use its stances)
     const tgtCanReact = canUseReactEffects(tgt);
-    if (targeted && !isFriendly && tgt.readyStance && isMeleeHit && !ignoresReactEffects(ab) && tgtCanReact) {
+    if (targeted && !isFriendly && tgt.readyStance && (isMeleeHit || tgt.readyStance.anyAttack) && !ignoresReactEffects(ab) && tgtCanReact) {
       let left = tgt.readyStance.preventUpTo;
       hits = hits.map((h) => {
         const cut = Math.min(left, h.damage);
@@ -4578,7 +4649,7 @@ export default function App() {
         damage: Math.max(1, h.damage + adjust)
       }));
       let usedReadyStance = false;
-      if (!isFriendlyTarget && tgt.readyStance && isMeleeHit && !ignoresReactEffects(ability)) {
+      if (!isFriendlyTarget && tgt.readyStance && (isMeleeHit || tgt.readyStance.anyAttack) && !ignoresReactEffects(ability)) {
         let left = tgt.readyStance.preventUpTo;
         hits = hits.map((h) => {
           const cut = Math.min(left, h.damage);
@@ -5328,6 +5399,7 @@ export default function App() {
   const handleMultiStageStep = (hexId: string) => {
     if (!multiStageState || !activeTurnUnitHex || !activeTurnUnit) return;
     const { ability, stage, targets, metadata } = multiStageState;
+    commitAbilityRun();
 
     // Move-then-strike (e.g. Pouncing Ambush): strike the chosen enemy in melee range, then finish
     if (metadata?.strikeCandidates) {
@@ -6260,7 +6332,7 @@ export default function App() {
       if (stage === 1) {
         const targetUnit = unitsOnBoard[hexId];
         if (!targetUnit) return;
-        // A unit immune to non-damage effects (Machine Heart) is neither pulled nor has armour removed; the 6 damage still lands
+        // A unit immune to non-damage effects (Machine Heart) isn't pulled; the 6 damage still lands
         const hookBlocked = targetUnit.instanceId !== activeTurnUnit.instanceId && isImmuneToNonDamageEffects(targetUnit);
         const closestEmpty = hookBlocked ? [] : getClosestEmptySurroundingHexes(activeTurnUnitHex, hexId, unitsOnBoard);
 
@@ -6277,7 +6349,6 @@ export default function App() {
 
         const destHex = closestEmpty[0] || hexId;
         const res = applyAttackDamageToHex(destHex, 6, ability, {
-          customArmourReduction: hookBlocked ? 0 : 2,
           targetUnitOverride: { ...targetUnit, hexId: destHex },
           previousHex: hexId
         });
@@ -6298,7 +6369,6 @@ export default function App() {
         const targetUnit = unitsOnBoard[targetHex];
         if (targetUnit) {
           const res = applyAttackDamageToHex(destHex, 6, ability, {
-            customArmourReduction: 2,
             targetUnitOverride: { ...targetUnit, hexId: destHex },
             previousHex: targetHex
           });
@@ -6783,6 +6853,8 @@ export default function App() {
       }
       return;
     }
+    // (a legal target for the ability selected: it's being used, see abilityRunRef)
+    if (activeAbility) commitAbilityRun();
 
     if (
       activeAbility &&
@@ -8720,7 +8792,7 @@ export default function App() {
         // Ready Stance: prevent up to 7 damage from a melee attack and deal that much back
         let readyStanceTriggered = false;
         let readyStancePrevented = 0;
-        if (!isFeedingFrenzy && !skipsReacts && targetUnit.readyStance && activeAbility.tags?.includes('melee')) {
+        if (!isFeedingFrenzy && !skipsReacts && targetUnit.readyStance && (activeAbility.tags?.includes('melee') || targetUnit.readyStance.anyAttack)) {
           readyStanceTriggered = true;
           let left = targetUnit.readyStance.preventUpTo;
           const reducedHits = hitsToExecute.map((h, i) => {
@@ -9375,10 +9447,9 @@ export default function App() {
             }));
           }
           // "The tile the target is on becomes scorched" from the ability (e.g. Flame Geyser, Flamethrower, Flaming
-          // Cutlass's rider) or from attacking the same unit a second time this turn (e.g. Scorching Tempo)
-          const scorchesTargetTile =
-            getTargetTileScorch(activeAbility) ||
-            (hasAttackedUnitThisTurn(activeTurnUnit, targetUnit.instanceId) ? getSecondAttackScorch(activeTurnUnit) : null);
+          // Cutlass's rider). (Damaging the same unit a second time this turn, e.g. Scorching Tempo, is handled where the
+          // damage is recorded, for every way of dealing it: see markDamageDealtByActiveUnit.)
+          const scorchesTargetTile = getTargetTileScorch(activeAbility);
           if (scorchesTargetTile && !isFeedingFrenzy) {
             const scorchOpponent: PlayerId = activePlayer === 'player1' ? 'player2' : 'player1';
             setScorchedTiles((prev) => ({
@@ -9696,9 +9767,9 @@ export default function App() {
         }
         if (readyStancePrevented > 0) {
           if (isImmuneToReactEffects(activeTurnUnit)) {
-            notif += ` 🛡️ ${targetUnit.card.name}'s Ready Stance prevented ${readyStancePrevented} damage, but ${activeTurnUnit.card.name} is Nightbound (cannot be targeted by react effects)! No return damage dealt.`;
+            notif += ` 🛡️ ${targetUnit.card.name}'s ${targetUnit.readyStance?.sourceAbilityName || 'Ready Stance'} prevented ${readyStancePrevented} damage, but ${activeTurnUnit.card.name} is Nightbound (cannot be targeted by react effects)! No return damage dealt.`;
           } else {
-            notif += ` 🛡️ ${targetUnit.card.name}'s Ready Stance prevented ${readyStancePrevented} damage and dealt ${readyStanceReturn} back to ${activeTurnUnit.card.name}${casterDefeated ? ' (Defeated!)' : ''}.`;
+            notif += ` 🛡️ ${targetUnit.card.name}'s ${targetUnit.readyStance?.sourceAbilityName || 'Ready Stance'} prevented ${readyStancePrevented} damage and dealt ${readyStanceReturn} back to ${activeTurnUnit.card.name}${casterDefeated ? ' (Defeated!)' : ''}.`;
           }
         }
         if (retaliationReturn > 0) {
@@ -11483,22 +11554,31 @@ export default function App() {
         return;
       }
     }
-    if (abilityId === 'ready_stance') {
+    // "Prevent up to N damage ... and deal that much back as a react effect" until the end of the opponent's next turn:
+    // Ready Stance (the next melee attack against it), Flawless Parry (the next attack of any kind), read from its
+    // setReact effect (preventDamage upTo; a trigger that isn't about melee attacks covers any attack)
+    if (abilityId === 'ready_stance' || abilityId === 'flawless_parry') {
       const opponent: PlayerId = activePlayer === 'player1' ? 'player2' : 'player1';
       const newAp = activeTurnUnit.currentAp - cost;
       const currentCounts = activeTurnUnit.usedTurnCounts || {};
       const newCounts = recordAbilityUse(currentCounts, ability);
+      const react: any = ability.effects?.find((e: any) => e.type === 'setReact');
+      const preventEff: any = (react?.effects || []).find((e: any) => e.type === 'preventDamage');
+      const preventUpTo = typeof preventEff?.upTo === 'number' ? preventEff.upTo : 7;
+      const anyAttack = !String(react?.trigger || '').toLowerCase().includes('melee');
       setUnitsOnBoard((prev) => ({
         ...prev,
         [activeTurnUnitHex!]: {
           ...activeTurnUnit,
-          readyStance: { sourceAbilityName: ability.name, preventUpTo: 7, expiresOnTurnEndFor: opponent },
+          readyStance: { sourceAbilityName: ability.name, preventUpTo, expiresOnTurnEndFor: opponent, ...(anyAttack ? { anyAttack: true } : {}) },
           currentAp: newAp,
           usedTurnCounts: newCounts
         }
       }));
       playCardDrawSound();
-      showNotification(`${activeTurnUnit.card.name} used ${ability.name}! The next melee attack against it will be partly prevented and reflected.`);
+      showNotification(
+        `${activeTurnUnit.card.name} used ${ability.name}: the next ${anyAttack ? 'attack' : 'melee attack'} against it has up to ${preventUpTo} damage prevented and dealt back.`
+      );
       if (ability.effects?.some((e: any) => e.type === 'endTurn') || (cost > 0 && newAp <= 0)) {
         switchTurn(false);
       }
@@ -12061,7 +12141,6 @@ export default function App() {
     const hasReflect =
       abilityId === 'fortress_stance' ||
       abilityId === 'gird_for_battle' ||
-      abilityId === 'flawless_parry' ||
       Boolean(ability.effects?.some((e: any) => e.type === 'setReact' && e.effects?.some((re: any) => re.type === 'reflect'))) ||
       Boolean(ability.effects?.some((e: any) => e.type === 'reflect')) ||
       ability.text?.toLowerCase().includes('reflect');
@@ -12073,16 +12152,12 @@ export default function App() {
         abilityId === 'fortress_stance' ||
         abilityId === 'gird_for_battle' ||
         Boolean(ability.effects?.some((e: any) => e.trigger?.toLowerCase().includes('ranged')));
-      const isRange1Only =
-        ability.text?.toLowerCase().includes('within range 1') ||
-        abilityId === 'flawless_parry';
+      const isRange1Only = ability.text?.toLowerCase().includes('within range 1');
 
       const opponent: PlayerId = activePlayer === 'player1' ? 'player2' : 'player1';
-      const preventUpTo = abilityId === 'flawless_parry' ? 4 : undefined;
       newReflectStance = {
         sourceAbilityName: ability.name,
         triggerType: isRangedOnly ? 'ranged' : isRange1Only ? 'range1' : 'all',
-        preventUpTo,
         once: true,
         expiresOnTurnEndFor: opponent
       };
@@ -12862,15 +12937,22 @@ export default function App() {
         });
         if (getProviderPreEffects(parentAbility).length > 0) applyProviderPreEffects(parentAbility);
         playCardDrawSound();
-        if (isUnitMovementDisabled(activeTurnUnit)) {
+        // (no move to make: it can't move, or every tile around it is taken)
+        const noStep = !getSurroundingHexes(activeTurnUnitHex!).some((h) => !unitsOnBoard[h]);
+        if (isUnitMovementDisabled(activeTurnUnit) || noStep) {
           setActiveAbility(executableAbility);
           showNotification(`${parentAbility.name}: this unit can't move, so target ${promotedAbility.name} now (${parentCost} AP spent).`);
           return;
         }
-        // Targeting starts once the free move is made or skipped (see abilityAfterFreeMoveRef)
+        // Targeting starts once the free move is made or skipped (see abilityAfterFreeMoveRef). A move that isn't
+        // optional (e.g. Shifting Strike: "Move 1 tile for free, then...") has no Skip.
         abilityAfterFreeMoveRef.current = executableAbility;
         setActiveAbility(null);
-        setPendingFreeMove({ unitInstanceId: activeTurnUnit.instanceId, sourceName: parentAbility.name });
+        setPendingFreeMove({
+          unitInstanceId: activeTurnUnit.instanceId,
+          sourceName: parentAbility.name,
+          ...(beforeMove.optional ? {} : { mustMove: true })
+        });
         setIsMovingMode(true);
         showNotification(
           `${parentAbility.name}: ${parentCost} AP spent. You may move 1 tile for free first (click a highlighted tile, or click Skip), then target ${promotedAbility.name}.`
@@ -12898,6 +12980,13 @@ export default function App() {
       }
 
       setActiveAbility(executableAbility);
+      // (selected again by itself after each use, with the same borrowed ability: see abilityRunRef)
+      abilityRunRef.current = {
+        unitId: activeTurnUnit.instanceId,
+        ability: parentAbility,
+        usesBefore: activeTurnUnit.usedTurnCounts?.[parentAbility.id] || 0,
+        borrowed: promotedAbility
+      };
       if (parentAbility.id === 'anchor_smash' || isMultiStageAbility(parentAbility)) {
         const initialState: MultiStageState = {
           ability: executableAbility,
@@ -12930,6 +13019,12 @@ export default function App() {
       // One with a target (e.g. a heal on a friendly unit) is targeted as usual, for the provider's cost
       if (isTargetedAbility(promotedAbility)) {
         setActiveAbility(executableAbility);
+        abilityRunRef.current = {
+          unitId: activeTurnUnit.instanceId,
+          ability: parentAbility,
+          usesBefore: activeTurnUnit.usedTurnCounts?.[parentAbility.id] || 0,
+          borrowed: promotedAbility
+        };
         showNotification(`Targeting ${parentAbility.name} using ${promotedAbility.name} for free (${parentCost} AP). Click a target in range.`);
         return;
       }
@@ -15364,6 +15459,10 @@ export default function App() {
     if (!endlessMode || activeTab !== 'play' || winner || gamePhase !== 'playing' || endlessBusy) return;
     const cpuUnits = Object.values(unitsOnBoard).filter((u) => u.owner === ENDLESS_CPU && u.card.type !== 'token' && !u.card.isWall);
     if (cpuUnits.length > 0) return;
+    // A wave cleared on the player's turn: they finish their turn first (their unit may still have AP). The next wave
+    // (or the new starting phase) comes once the turn has passed to the computer, placed for free at the start of its
+    // turn, which it then takes. (The first wave, as the game starts, comes straight away.)
+    if (endlessWave > 0 && activePlayer === ENDLESS_PLAYER) return;
     const wave = endlessWave + 1;
     const timer = setTimeout(() => {
       if (startsNewRound(wave) && endlessWave % WAVES_PER_ROUND === 0 && gamePhase === 'playing' && !endlessRoundResetRef.current.has(wave)) {
@@ -15390,6 +15489,8 @@ export default function App() {
         setInitialFirstPlayer(ENDLESS_PLAYER);
         setActivePlayer(ENDLESS_PLAYER);
         setTurnCount(1);
+        // (the turns count from 1 again: the turn handoff's check that turns only go forward starts over with them)
+        lastHandoffTurnRef.current = null;
         setBoardYaw(0);
         lastSetupPlayerRef.current = ENDLESS_PLAYER;
         appendLog('note', `Endless: wave ${endlessWave} cleared. Your board, hand and graveyard were shuffled back into your deck.`);
@@ -15399,12 +15500,6 @@ export default function App() {
         return;
       }
       spawnEndlessWave(wave);
-      // Clearing a wave ends the player's turn (not the first wave arriving as the game starts): the new wave's
-      // computer goes next
-      if (endlessWave > 0 && activePlayer === ENDLESS_PLAYER) {
-        appendLog('note', `Endless: wave ${endlessWave} cleared, ending your turn.`);
-        switchTurn(false);
-      }
     }, 700);
     return () => clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -15584,7 +15679,12 @@ export default function App() {
       const steps = getSurroundingHexes(activeTurnUnitHex).filter((h) => !unitsOnBoard[h]);
       const here = distanceToNearestEnemy(activeTurnUnitHex, unitsOnBoard, ENDLESS_CPU);
       const closer = steps.filter((h) => distanceToNearestEnemy(h, unitsOnBoard, ENDLESS_CPU) < here);
-      const dest = closer.length && here > 1 ? closer[Math.floor(random() * closer.length)] : null;
+      const dest =
+        closer.length && here > 1
+          ? closer[Math.floor(random() * closer.length)]
+          : pendingFreeMove.mustMove && steps.length
+            ? steps[Math.floor(random() * steps.length)]
+            : null;
       if (dest) handleUnitMove(activeTurnUnitHex, dest);
       else {
         setPendingFreeMove(null);
@@ -15670,7 +15770,9 @@ export default function App() {
         !turn.failed.has(String(a.baseAbilityId || a.id)) &&
         unit.currentAp >= getAbilityApCost(a) &&
         canUseAbilityThisTurn(unit, a).allowed &&
-        !getAuraAbilityBlock(unit, a, unitsOnBoard)
+        !getAuraAbilityBlock(unit, a, unitsOnBoard) &&
+        // (a token ability whose limit is reached would be refused, e.g. Stone Wall with its wall already out)
+        !isTokenLimitReached(a, unitsOnBoard, ENDLESS_CPU)
     );
     const canMove =
       turn.moves < 6 &&
@@ -15808,14 +15910,18 @@ export default function App() {
     const omni = hasMagicalOmnipresence(u);
     const omniUsed = omni && Boolean(u.movedThisTurn);
     const moveBlocked = isUnitMovementDisabled(u) || omniUsed;
+    // A free move waiting to be taken (e.g. Strike and Withdraw's, after its attack): Move is that move, for no AP
+    const freeMovePending = Boolean(pendingFreeMove && pendingFreeMove.unitInstanceId === u.instanceId);
     out.push({
       key: 'move',
       name: 'Move',
-      cost: `${moveCost} AP`,
-      text: omni
-        ? 'Place this unit on any empty tile within range 2. Once per turn.'
-        : `Move to an empty surrounding tile.${taxed ? ' (Cold Feet: this first move costs 1 more.)' : ''}`,
-      usable: !locked && !moveBlocked && u.currentAp >= moveCost,
+      cost: freeMovePending ? 'Free' : `${moveCost} AP`,
+      text: freeMovePending
+        ? `${pendingFreeMove!.sourceName}: move to an empty surrounding tile for free (or Skip).`
+        : omni
+          ? 'Place this unit on any empty tile within range 2. Once per turn.'
+          : `Move to an empty surrounding tile.${taxed ? ' (Cold Feet: this first move costs 1 more.)' : ''}`,
+      usable: !locked && !isUnitMovementDisabled(u) && (freeMovePending || (!omniUsed && u.currentAp >= moveCost)),
       active: isMovingMode,
       why: omniUsed ? 'already moved this turn' : moveBlocked ? getMoveBlockedMessage(u) : `needs ${moveCost} AP`,
       onClick: handleUniversalMoveClick
@@ -16693,19 +16799,22 @@ export default function App() {
       {pendingFreeMove && (
         <div className="fixed top-4 left-1/2 -translate-x-1/2 z-[60] flex items-center gap-3 px-4 py-2 rounded-xl bg-stone-900/95 border-2 border-emerald-400/90 shadow-xl text-xs sm:text-sm text-stone-200 font-sans">
           <span>
-            <span className="font-bold text-emerald-300">{pendingFreeMove.sourceName}</span>: you may move 1 tile for free.
+            <span className="font-bold text-emerald-300">{pendingFreeMove.sourceName}</span>:{' '}
+            {pendingFreeMove.mustMove ? 'move 1 tile for free first.' : 'you may move 1 tile for free.'}
           </span>
-          <button
-            onClick={() => {
-              setPendingFreeMove(null);
-              setIsMovingMode(false);
-              showNotification(`${pendingFreeMove.sourceName}: skipped the free move.`);
-              if (activeTurnUnit && activeTurnUnit.currentAp <= 0 && !abilityAfterFreeMoveRef.current) switchTurn(false);
-            }}
-            className="px-3 py-1 rounded-lg font-bold text-xs uppercase tracking-wide bg-stone-700 hover:bg-stone-600 text-stone-100 cursor-pointer transition-colors"
-          >
-            Skip
-          </button>
+          {!pendingFreeMove.mustMove && (
+            <button
+              onClick={() => {
+                setPendingFreeMove(null);
+                setIsMovingMode(false);
+                showNotification(`${pendingFreeMove.sourceName}: skipped the free move.`);
+                if (activeTurnUnit && activeTurnUnit.currentAp <= 0 && !abilityAfterFreeMoveRef.current) switchTurn(false);
+              }}
+              className="px-3 py-1 rounded-lg font-bold text-xs uppercase tracking-wide bg-stone-700 hover:bg-stone-600 text-stone-100 cursor-pointer transition-colors"
+            >
+              Skip
+            </button>
+          )}
         </div>
       )}
       {abilityReinforcePending && (
@@ -16955,7 +17064,9 @@ export default function App() {
                   {/* The match log, under the players' box and as wide */}
                   <GameLogPanel
                     entries={gameLog}
-                    handoffStatus={handoffStatus}
+                    // (only online, where there's a second game to be out of step with; offline the handoff is the game
+                    // checking its own saved state each turn, reported in the console)
+                    handoffStatus={isOnline() ? handoffStatus : null}
                     viewer={isOnline() ? localPlayer : null}
                     open={isLogOpen}
                     onToggle={() => setIsLogOpen((o) => !o)}

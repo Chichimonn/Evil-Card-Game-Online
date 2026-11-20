@@ -253,7 +253,7 @@ export function applyAttackerBonusPassives(
   }
 
   // 1-4. A provider's "except it deals an additional N damage on the first hit", read from its useAbility effect's
-  // addDamage: { amount: N, scope } (Knightly Armament, Invoke Sorcery, Too Easy, Dreadknight Smash) or
+  // addDamage: { amount: N, scope } (Knightly Armament, Invoke Sorcery, Dreadknight Smash) or
   // { amount: { perPreviousUseThisTurn: N }, scope } (Destructive Arcana: +1 for each earlier use this turn).
   // Conditional (if) and per-target amounts are handled where their condition is known (Umbral Strike, Anchor Smash).
   const providerId = String(parentId || '');
@@ -961,8 +961,8 @@ export function getAbilityHitStructure(
       isBladefury: false,
       isMultiHit: false,
       hits: [],
-      summaryText: "The next time this unit would take damage from an attack until the end of your opponent's next turn, prevent up to 4 damage. Then, if the attacker is within range 1, reflect the attack back at them. This unit's turn ends.",
-      badgeText: 'Parry (4+R1)'
+      summaryText: "Until the end of your opponent's next turn, the next time this unit would take damage from an attack, prevent up to 7 damage and deal that much back to the attacker (a react effect). This unit's turn ends.",
+      badgeText: 'Parry (7)'
     };
   }
 

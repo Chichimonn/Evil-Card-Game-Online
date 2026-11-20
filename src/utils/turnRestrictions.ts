@@ -5,6 +5,7 @@ import { getUnitPassives, PASSIVES_REMOVED } from './unitPassives';
 import { getApSpent } from './promotedAbilities';
 import { getCurrentTurnNumber } from './boardContext';
 import { CANNOT_BE_MOVED } from './knockbackRules';
+import { getStartingApForTurn } from './noxiousBurst';
 
 export const TURN_DENIED = 'turn_denied';
 export const MOVE_TAX = 'move_tax';
@@ -584,14 +585,19 @@ export function getUniversalMoveCost(
 }
 
 /**
- * A marked unit cannot be chosen to take a turn unless its controller has no other
- * non-token unit to choose.
+ * Whether a unit can be chosen to take the turn, for every player (clicked or dragged) and the Endless computer:
+ *   - only a unit that would start the turn with some AP (not a 0AP token or wall, nor one whose AP is cut to 0 for the
+ *     turn, e.g. by Noxious Burst): its turn would be over the moment it began;
+ *   - a marked unit (e.g. by Tornado Sphere) only when its controller has no other non-token unit to choose.
  */
 export function canChooseUnitForTurn(
   unit: BattlefieldUnit,
   units: Record<string, BattlefieldUnit>,
   player: PlayerId
 ): { allowed: boolean; reason?: string } {
+  if (getStartingApForTurn(unit, units).startingAp <= 0) {
+    return { allowed: false, reason: `${unit.card.name} has no AP to take a turn with.` };
+  }
   if (!unit.statuses?.includes(TURN_DENIED)) return { allowed: true };
   const hasOther = Object.values(units).some(
     (u) => u.owner === player && u.instanceId !== unit.instanceId && !u.card.isWall && u.card.type !== 'token'
