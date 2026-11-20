@@ -4004,7 +4004,7 @@ export const initialCardsData: CardsDataSchema = {
           "id": "dirty_blow",
           "name": "Dirty Blow",
           "cost": 1,
-          "text": "Use a 1AP ability of the promoted card as this ability for free. If it's an attack, you may have it apply knockback 1.",
+          "text": "Use a 1AP ability of the promoted card as this ability for free. If it's a melee attack, it applies knockback 1.",
           "effects": [
             {
               "type": "useAbility",
@@ -4012,8 +4012,13 @@ export const initialCardsData: CardsDataSchema = {
               "filter": {
                 "cost": 1
               },
-              "free": true,
-              "ifAttackOptionalKnockback": 1
+              "free": true
+            },
+            {
+              "type": "knockback",
+              "target": "hitUnit",
+              "distance": 1,
+              "ifBorrowed": "meleeAttack"
             }
           ],
           "script": null
@@ -5592,7 +5597,7 @@ export const initialCardsData: CardsDataSchema = {
           ]
         ]
       },
-      "hp": 23,
+      "hp": 22,
       "ap": 3,
       "art": "art/blade_singer.png",
       "passives": [
@@ -5600,12 +5605,12 @@ export const initialCardsData: CardsDataSchema = {
           "id": "wheel_of_blades",
           "name": "Wheel of Blades",
           "trigger": "turnStart",
-          "text": "At the start of each player's turn, armour up to 4.",
+          "text": "At the start of each player's turn, armour up to 3.",
           "effects": [
             {
               "type": "armour",
               "target": "self",
-              "upTo": 4
+              "upTo": 3
             }
           ],
           "script": null
@@ -14066,6 +14071,9 @@ export const initialCardsData: CardsDataSchema = {
           "id": "chilling_insight",
           "name": "Chilling Insight",
           "cost": 2,
+          "tags": [
+            "assist"
+          ],
           "text": "Choose a basic unit card from your graveyard and return it to your hand.",
           "target": "self",
           "effects": [
@@ -14374,6 +14382,9 @@ export const initialCardsData: CardsDataSchema = {
           "id": "induce_fear",
           "name": "Induce Fear",
           "cost": 0,
+          "tags": [
+            "assist"
+          ],
           "text": "The target unit gets \"Passive- Mindless: This unit cannot use the Universal Draw Action.\" during your opponent's next turn. Use only once per turn.",
           "range": [
             1,
@@ -17589,6 +17600,9 @@ export const initialCardsData: CardsDataSchema = {
           "id": "solar_nova",
           "name": "Solar Nova",
           "cost": 1,
+          "tags": [
+            "inspiring"
+          ],
           "text": "Deals 6 damage to the unit on the target tile. Then, heal 3 damage from each friendly unit surrounding the target tile. Use only once per turn.",
           "effects": [
             {
@@ -17804,6 +17818,9 @@ export const initialCardsData: CardsDataSchema = {
           "id": "long_barrel",
           "name": "Long Barrel",
           "cost": 1,
+          "tags": [
+            "inspiring"
+          ],
           "text": "Deals 6 damage. Use only once per turn.",
           "effects": [
             {
@@ -17880,6 +17897,9 @@ export const initialCardsData: CardsDataSchema = {
           "id": "hook_and_haul",
           "name": "Hook and Haul",
           "cost": 1,
+          "tags": [
+            "inspiring"
+          ],
           "text": "Deals 3 damage. Pull the target 1 tile toward this unit. Use only once per turn.",
           "effects": [
             {
@@ -17961,12 +17981,15 @@ export const initialCardsData: CardsDataSchema = {
           "id": "muster_rations",
           "name": "Muster Rations",
           "cost": 1,
-          "text": "Heal 3 damage from the target.",
+          "tags": [
+            "assist"
+          ],
+          "text": "Heal 4 damage from the target.",
           "effects": [
             {
               "type": "heal",
               "target": "friendlyTarget",
-              "amount": 3
+              "amount": 4
             }
           ],
           "range": [
@@ -18192,6 +18215,9 @@ export const initialCardsData: CardsDataSchema = {
           "id": "plant_the_pike",
           "name": "Plant the Pike",
           "cost": 1,
+          "tags": [
+            "inspiring"
+          ],
           "text": "Armour up to 3. Until the end of your opponent's next turn, this unit cannot be moved.",
           "effects": [
             {
@@ -18622,6 +18648,9 @@ export const initialCardsData: CardsDataSchema = {
           "id": "moonlight_ward",
           "name": "Moonlight Ward",
           "cost": 1,
+          "tags": [
+            "assist"
+          ],
           "text": "Until the end of your opponent's next turn, the next time that unit would take damage from an attack, prevent up to 4 of that damage. This effect does not stack.",
           "effects": [
             {
@@ -19198,6 +19227,9 @@ export const initialCardsData: CardsDataSchema = {
           "id": "chart_the_field",
           "name": "Chart the Field",
           "cost": 2,
+          "tags": [
+            "assist"
+          ],
           "text": "Look at the top X cards of your deck, where X is the number of enemy units on or surrounding the target tile. Put one into your hand and the rest on the bottom of your deck.",
           "effects": [
             {

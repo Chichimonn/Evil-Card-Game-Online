@@ -36,6 +36,18 @@ export const SLOW_PULSE_CSS = `
 `;
 export const pulseInStep = (): React.CSSProperties => ({ animationDelay: `-${Date.now() % SLOW_PULSE_MS}ms` });
 
+/**
+ * The same swell, half as far (to 1.03), in step with it (use pulseInStep too): the big card's options worth a look
+ * when a unit is picked to take the turn (see FocusCardPanel). "slow-pulse-soft".
+ */
+export const SLOW_PULSE_SOFT_CSS = `
+@keyframes slow-pulse-soft {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.03); }
+}
+.slow-pulse-soft { animation: slow-pulse-soft ${SLOW_PULSE_MS}ms ease-in-out infinite; }
+`;
+
 // How long a new entry stands out
 const FLASH_MS = 5000;
 // Three quick flashes, then a slow fade

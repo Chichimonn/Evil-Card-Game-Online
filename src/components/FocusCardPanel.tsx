@@ -13,6 +13,7 @@ import {
   CARD_FACE_PADDING
 } from './CardView';
 import { getCardFill } from '../utils/classColours';
+import { SLOW_PULSE_SOFT_CSS, pulseInStep } from './GameLogPanel';
 import { getAbilityApCost } from '../utils/promotedAbilities';
 import { canUseAbilityThisTurn } from '../utils/turnLimits';
 
@@ -75,6 +76,9 @@ interface Props {
   // Abilities being borrowed (e.g. a promoted card's abilities used for free) while the ability borrowing them is
   // selected: drawn under it, set in. parentKey: that ability's id (a printed one) or its action's key (one underneath).
   subActions?: FocusSubActions | null;
+  // Options worth a look right now (the unit picked, nothing done yet): they swell gently, in step with the turn banner.
+  // A printed ability's id, or an extra action's key.
+  pulsingKeys?: Set<string>;
   children?: React.ReactNode;
 }
 
@@ -159,6 +163,7 @@ export const FocusCardPanel: React.FC<Props> = ({
   tag,
   actions = [],
   subActions = null,
+  pulsingKeys,
   children
 }) => {
   const frameRef = useRef<HTMLDivElement>(null);
@@ -248,6 +253,18 @@ export const FocusCardPanel: React.FC<Props> = ({
     return { usable, active, cost: costs.join('–'), why };
   });
   const stateKey = JSON.stringify(abilityStates.map((a) => [a.usable, a.active]));
+  const pulseKey = pulsingKeys ? [...pulsingKeys].sort().join(',') : '';
+  const isPulsing = (key: string | undefined) => Boolean(key && pulsingKeys?.has(key));
+  // An extra box's swell starts in step with the turn banner when it starts pulsing, and keeps that timing while it
+  // pulses (worked out again each render, its timing would jump)
+  const pulseDelaysRef = useRef<Record<string, string>>({});
+  Object.keys(pulseDelaysRef.current).forEach((k) => {
+    if (!isPulsing(k)) delete pulseDelaysRef.current[k];
+  });
+  const pulseStyleFor = (key: string): React.CSSProperties => {
+    if (!pulseDelaysRef.current[key]) pulseDelaysRef.current[key] = String(pulseInStep().animationDelay);
+    return { animationDelay: pulseDelaysRef.current[key] };
+  };
 
   // The light, dimming and press on the card's own ability boxes (drawn under their text, see above)
   useEffect(() => {
@@ -263,6 +280,11 @@ export const FocusCardPanel: React.FC<Props> = ({
       box.style.transform = pressed === i ? 'scale(0.97)' : '';
       box.style.transition = 'transform 100ms, opacity 150ms';
       layer.style.transition = 'box-shadow 120ms';
+      // (worth a look: the gentle swell, in step with the turn banner)
+      if (isPulsing(abilities[i].id)) {
+        box.classList.add('slow-pulse-soft');
+        box.style.animationDelay = String(pulseInStep().animationDelay);
+      }
       touched.push(box, layer);
     });
     return () => {
@@ -270,10 +292,12 @@ export const FocusCardPanel: React.FC<Props> = ({
         el.style.boxShadow = '';
         el.style.opacity = '';
         el.style.transform = '';
+        el.classList.remove('slow-pulse-soft');
+        el.style.animationDelay = '';
       });
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [interactive, rects, hovered, pressed, stateKey, card.id]);
+  }, [interactive, rects, hovered, pressed, stateKey, card.id, pulseKey]);
 
   // The unit's AP as it is now, on the card's own AP badge (its number; amber once some is spent), while its options are
   // being picked; the printed number comes back after
@@ -328,8 +352,9 @@ export const FocusCardPanel: React.FC<Props> = ({
           a.onHover?.(false);
         }}
         title={a.usable ? `${a.name}${a.cost ? ` (${a.cost})` : ''}` : `${a.name}: ${a.why || 'not now'}`}
-        className={`block w-full text-left ${a.usable ? 'cursor-pointer' : 'cursor-not-allowed'}`}
+        className={`block w-full text-left ${a.usable ? 'cursor-pointer' : 'cursor-not-allowed'} ${isPulsing(a.key) ? 'slow-pulse-soft' : ''}`}
         style={{
+          ...(isPulsing(a.key) ? pulseStyleFor(a.key) : {}),
           opacity: a.usable || a.active ? undefined : 0.5,
           transform: isPressed ? 'scale(0.97)' : undefined,
           transition: 'transform 100ms, opacity 150ms'
@@ -379,6 +404,8 @@ export const FocusCardPanel: React.FC<Props> = ({
 
   return (
     <div className="w-full flex flex-col gap-1.5">
+      {/* (the gentle swell of the options worth a look) */}
+      <style>{SLOW_PULSE_SOFT_CSS}</style>
       <div className="w-full flex flex-col shadow-2xl rounded-xl">
         <div ref={frameRef} className="relative w-full aspect-[5/7] overflow-visible select-none">
           <div className={`absolute inset-0 overflow-hidden bg-black ${actions.length > 0 ? 'rounded-t-xl' : 'rounded-xl'}`}>

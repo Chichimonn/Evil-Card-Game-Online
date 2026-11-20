@@ -130,13 +130,25 @@ export function buildProviderExecutable(
 ): CardAbility {
   const idx = findUseAbilityIndex(parent);
   const useEff: any = idx >= 0 ? (parent.effects || [])[idx] : undefined;
-  const riders = (idx >= 0 ? (parent.effects || []).slice(idx + 1) : []).filter(
-    (e: any) =>
-      e.type !== 'move' &&
-      !dependsOnReveal(e) &&
-      // "The first unit hit by this attack each turn": only on the provider's first use this turn
-      !(e.target === 'firstUnitHitByThisAbilityEachTurn' && opts.parentUsedBefore)
-  );
+  // "If it's a melee attack, it applies knockback 1" (e.g. Dirty Blow): a rider with ifBorrowed: 'meleeAttack' only
+  // comes along when the ability borrowed is a melee attack, and then as a plain rider (an automatic knockback)
+  const borrowedIsMeleeAttack =
+    (Boolean(promoted.tags?.includes('melee')) || /\bmelee\b/i.test(promoted.text || '')) &&
+    ((promoted.effects || []) as any[]).some((e) => e.type === 'damage' && e.target !== 'self');
+  const riders = (idx >= 0 ? (parent.effects || []).slice(idx + 1) : [])
+    .filter(
+      (e: any) =>
+        e.type !== 'move' &&
+        !dependsOnReveal(e) &&
+        // "The first unit hit by this attack each turn": only on the provider's first use this turn
+        !(e.target === 'firstUnitHitByThisAbilityEachTurn' && opts.parentUsedBefore) &&
+        !(e.ifBorrowed === 'meleeAttack' && !borrowedIsMeleeAttack)
+    )
+    .map((e: any) => {
+      if (!e.ifBorrowed) return e;
+      const { ifBorrowed: _onlyIf, ...rest } = e;
+      return rest;
+    });
   let tags = [...(parent.tags || []), ...(promoted.tags || [])];
   let range = promoted.range;
   let rangeText = promoted.rangeText;

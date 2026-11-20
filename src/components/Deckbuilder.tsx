@@ -383,12 +383,36 @@ export const Deckbuilder: React.FC<DeckbuilderProps> = ({
   const [draggedCardId, setDraggedCardId] = useState<string | null>(null);
   const [dragCounterDeck, setDragCounterDeck] = useState(0);
   const [dragCounterPool, setDragCounterPool] = useState(0);
+  // Reordering the deck (card view): where the card being dragged would go if dropped, as the index of the entry it
+  // would go before (deckEntries.length: at the end); null when it isn't over the deck list
+  const [deckDropIndex, setDeckDropIndex] = useState<number | null>(null);
  
   const handleGlobalDragEnd = () => {
     setDraggingFrom(null);
     setDraggedCardId(null);
     setDragCounterDeck(0);
     setDragCounterPool(0);
+    setDeckDropIndex(null);
+  };
+ 
+  // Moves the dragged deck entry to before the entry at index "to" (deckEntries.length: the end)
+  const moveDeckEntry = (cardId: string, to: number) => {
+    setDeckEntries((prev) => {
+      const from = prev.findIndex((e) => e.card.id === cardId);
+      if (from < 0) return prev;
+      const target = from < to ? to - 1 : to;
+      if (target === from) return prev;
+      const next = [...prev];
+      const [moved] = next.splice(from, 1);
+      next.splice(target, 0, moved);
+      return next;
+    });
+  };
+ 
+  // Whether dropping at this index would leave the dragged card where it is (no line is shown there)
+  const isNoMoveDrop = (index: number): boolean => {
+    const from = deckEntries.findIndex((e) => e.card.id === draggedCardId);
+    return from < 0 || index === from || index === from + 1;
   };
  
   const handleDeckDragEnter = (e: React.DragEvent) => {
@@ -401,6 +425,8 @@ export const Deckbuilder: React.FC<DeckbuilderProps> = ({
   const handleDeckDragLeave = (e: React.DragEvent) => {
     e.preventDefault();
     setDragCounterDeck((prev) => Math.max(0, prev - 1));
+    // (out of the deck column altogether: no line)
+    if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setDeckDropIndex(null);
   };
  
   const handleDeckDragOver = (e: React.DragEvent) => {
@@ -413,6 +439,12 @@ export const Deckbuilder: React.FC<DeckbuilderProps> = ({
   const handleDeckDrop = (e: React.DragEvent) => {
     e.preventDefault();
     setDragCounterDeck(0);
+    // A card of the deck dropped back on it: moved to where its line was (dropped anywhere else on the deck: stays put)
+    if (draggingFrom === 'deck') {
+      if (draggedCardId && deckDropIndex !== null) moveDeckEntry(draggedCardId, deckDropIndex);
+      handleGlobalDragEnd();
+      return;
+    }
     let cardId = draggedCardId;
  
     try {
@@ -434,6 +466,7 @@ export const Deckbuilder: React.FC<DeckbuilderProps> = ({
  
     setDraggingFrom(null);
     setDraggedCardId(null);
+    setDeckDropIndex(null);
   };
  
   const handlePoolDragEnter = (e: React.DragEvent) => {
@@ -680,7 +713,23 @@ export const Deckbuilder: React.FC<DeckbuilderProps> = ({
             </div>
           </div>
         ) : (
-        <div className="flex-1 p-3 overflow-y-auto flex flex-col gap-1.5 custom-scrollbar">
+        <div
+          className="flex-1 p-3 overflow-y-auto flex flex-col gap-1.5 custom-scrollbar"
+          onDragOver={(e) => {
+            // Where a card of the deck being dragged would go: before the first card whose middle is below the pointer
+            // (over a card, its upper half puts it above, its lower half below; the gaps and the space under the last
+            // card count too)
+            if (draggingFrom !== 'deck') return;
+            e.preventDefault();
+            e.dataTransfer.dropEffect = 'move';
+            const rows = Array.from(e.currentTarget.querySelectorAll<HTMLElement>('[data-deck-row]'));
+            const at = rows.findIndex((row) => {
+              const r = row.getBoundingClientRect();
+              return e.clientY < r.top + r.height / 2;
+            });
+            setDeckDropIndex(at < 0 ? rows.length : at);
+          }}
+        >
           {deckEntries.length === 0 ? (
             <div className="h-full flex flex-col items-center justify-center text-center p-8 text-stone-500">
               <Layers className="w-10 h-10 mb-2 opacity-40 text-sky-400" />
@@ -690,12 +739,20 @@ export const Deckbuilder: React.FC<DeckbuilderProps> = ({
               </p>
             </div>
           ) : (
-            deckEntries.map(entry => {
+            deckEntries.map((entry, index) => {
               const isAtMaxCopies = entry.quantity >= 3;
+              // Where the dragged card would go: a line in the gap above this card, or below it for the last one
+              const lineAbove = draggingFrom === 'deck' && deckDropIndex === index && !isNoMoveDrop(index);
+              const lineBelow =
+                draggingFrom === 'deck' &&
+                index === deckEntries.length - 1 &&
+                deckDropIndex === deckEntries.length &&
+                !isNoMoveDrop(deckEntries.length);
  
               return (
                 <div
                   key={`deck-card-${entry.card.id}`}
+                  data-deck-row
                   draggable={true}
                   onDragStart={(e) => {
                     e.dataTransfer.setData('text/plain', JSON.stringify({ type: 'deck-to-pool', cardId: entry.card.id }));
@@ -704,9 +761,18 @@ export const Deckbuilder: React.FC<DeckbuilderProps> = ({
                     setDraggedCardId(entry.card.id);
                   }}
                   onDragEnd={handleGlobalDragEnd}
-                  className="flex items-center justify-between p-2 rounded-lg bg-stone-950/60 border border-stone-800 hover:border-sky-500/50 transition-colors group cursor-grab active:cursor-grabbing select-none"
-                  title="Drag card to pool to remove"
+                  className={`relative flex items-center justify-between p-2 rounded-lg bg-stone-950/60 border border-stone-800 hover:border-sky-500/50 transition-colors group cursor-grab active:cursor-grabbing select-none ${
+                    draggingFrom === 'deck' && draggedCardId === entry.card.id ? 'opacity-50' : ''
+                  }`}
+                  title="Drag up or down to reorder, or onto the catalog to remove"
                 >
+                  {/* Where it'll go if released: a line in the gap above (or below) this card */}
+                  {lineAbove && (
+                    <span aria-hidden className="pointer-events-none absolute -top-[5px] left-0 right-0 h-[3px] rounded-full bg-sky-400 shadow-[0_0_8px_rgba(56,189,248,0.9)]" />
+                  )}
+                  {lineBelow && (
+                    <span aria-hidden className="pointer-events-none absolute -bottom-[5px] left-0 right-0 h-[3px] rounded-full bg-sky-400 shadow-[0_0_8px_rgba(56,189,248,0.9)]" />
+                  )}
                   <div className="flex items-center gap-2 flex-1 min-w-0">
                     <GripVertical className="w-3.5 h-3.5 text-stone-600 group-hover:text-stone-400 shrink-0 -mr-0.5" />
                     {/* Mini preview thumbnail */}

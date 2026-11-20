@@ -2903,7 +2903,7 @@ const cardsJsonContent = `{
         "count": 2,
         "requirement": [["Mage", "Fighter"]]
       },
-      "hp": 23,
+      "hp": 22,
       "ap": 3,
       "art": "art/blade_singer.png",
       "passives": [
@@ -2911,8 +2911,8 @@ const cardsJsonContent = `{
           "id": "wheel_of_blades",
           "name": "Wheel of Blades",
           "trigger": "turnStart",
-          "text": "At the start of each player's turn, armour up to 4.",
-          "effects": [{ "type": "armour", "target": "self", "upTo": 4 }]
+          "text": "At the start of each player's turn, armour up to 3.",
+          "effects": [{ "type": "armour", "target": "self", "upTo": 3 }]
         }
       ],
       "abilities": [

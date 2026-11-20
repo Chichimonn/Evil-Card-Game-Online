@@ -213,6 +213,7 @@ import {
 import { FaqModal } from './components/FaqModal';
 import { NewsModal } from './components/NewsModal';
 import { CURRENT_NEWS } from './data/news';
+import { sortNotice } from './utils/noticeText';
 import { isAreaAttack, isSelfCentredArea, resolveAreaAttack } from './utils/areaAttacks';
 import { withAttackStatuses, resolveSlowVenom, clearDamageMarks } from './utils/statusEffects';
 import { applyDestroyBlast } from './utils/destroyPassives';
@@ -232,7 +233,7 @@ import {
   describeCardChanges,
   boardLogSnapshot
 } from './game/turnHandoff';
-import GameLogPanel, { pulseInStep } from './components/GameLogPanel';
+import GameLogPanel, { pulseInStep, SLOW_PULSE_SOFT_CSS } from './components/GameLogPanel';
 import OnlineLobbyModal from './components/OnlineLobbyModal';
 import { RoomConnection, RoomRole, RoomStatus, normalizeRoomCode } from './net/connection';
 import { makeSecret, commitTo, checkReveal, combineSeed, seatsFromSeed } from './net/lobby';
@@ -673,16 +674,34 @@ export default function App() {
     setGameLog([]);
   };
 
+  // A short message over the battlefield for a few seconds (a newer one replaces it)
+  const feedbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const flashFeedback = (text: string) => {
+    setFeedbackMessage(text);
+    if (feedbackTimerRef.current) clearTimeout(feedbackTimerRef.current);
+    feedbackTimerRef.current = setTimeout(() => setFeedbackMessage(null), 3000);
+  };
+
   // (hidden: online, a message naming cards only one player may see shows its public wording on the other screen)
-  // In a match (setup or play) a notice goes in the match log only, which flashes it (see GameLogPanel); before one
-  // starts, there's no log yet, so it shows over the battlefield for a few seconds
+  // In a match (setup or play) the match log holds only completed actions, briefly (see utils/noticeText.ts): an
+  // instruction (e.g. targeting) isn't logged at all, and a refusal (why a click didn't work) shows over the
+  // battlefield for a moment instead (not on the Endless computer's turn: it tries things). Before a match there's no
+  // log yet, so every notice shows over the battlefield.
   const showNotification = (msg: string, hidden?: HiddenText) => {
+    const shownToThisScreen = (text: string, publicText?: string) =>
+      hidden && localPlayer && hidden.privateTo !== localPlayer && publicText !== undefined ? publicText : text;
     if (gamePhase === 'setup' || gamePhase === 'playing') {
-      appendLog('note', msg, activePlayer, turnCount, hidden);
+      const sorted = sortNotice(msg);
+      if (sorted.kind === 'prompt') return;
+      const publicSorted = hidden ? sortNotice(hidden.publicText) : null;
+      if (sorted.kind === 'refusal') {
+        if (!(endlessMode && activePlayer === ENDLESS_CPU)) flashFeedback(shownToThisScreen(sorted.text, publicSorted?.text));
+        return;
+      }
+      appendLog('note', sorted.text, activePlayer, turnCount, hidden ? { ...hidden, publicText: publicSorted!.text } : undefined);
       return;
     }
-    setFeedbackMessage(hidden && localPlayer && hidden.privateTo !== localPlayer ? hidden.publicText : msg);
-    setTimeout(() => setFeedbackMessage(null), 3000);
+    flashFeedback(shownToThisScreen(msg, hidden?.publicText));
   };
 
   // Who decides a scry: its deck's owner, except Field Notes (whoever uses it, on either player's deck: player is then
@@ -2717,21 +2736,16 @@ export default function App() {
     return getAbilityRangeHexesFrom(hoveredActionAbility, activeTurnUnitHex, unitsOnBoard[activeTurnUnitHex] || null);
   }, [activeAbility, hoveredActionAbility, activeTurnUnitHex, unitsOnBoard]);
 
-  // Legal Hex Targets for Active Ability (Units or Tiles)
-  const rawValidAttackHexes = useMemo(() => {
-    if (!activeAbility) return [];
-    const sourceHex = lockedAssist ? lockedAssist.unitHex : activeTurnUnitHex;
-    if (!sourceHex) return [];
-
-    const attackerUnit = lockedAssist
-      ? unitsOnBoard[lockedAssist.unitHex]
-      : (activeTurnUnitHex ? unitsOnBoard[activeTurnUnitHex] : null);
+  // The tiles an ability could be aimed at from sourceHex, given its range tiles (before the "can't be targeted" checks:
+  // see filterTargetableHexes). Asked of the ability in use (rawValidAttackHexes) and of abilities not yet chosen (which
+  // of the unit's options to pulse, see pulsingActionKeys), so both follow the same rules.
+  const getAbilityTargetHexes = (
+    activeAbility: CardAbility,
+    sourceHex: string,
+    attackerUnit: BattlefieldUnit | null,
+    abilityRangeHexes: string[]
+  ): string[] => {
     const canTargetFriendly = hasFeedingFrenzy(attackerUnit);
-
-    // 0. Multi-stage abilities: return valid targets for the current stage
-    if (multiStageTargetInfo) {
-      return multiStageTargetInfo.validHexes;
-    }
 
     const allowEmpty =
       Boolean((activeAbility as any).allowEmptyTileTarget) ||
@@ -2875,31 +2889,50 @@ export default function App() {
       }
     });
     return hexesWithTargets;
+  };
+
+  // Legal Hex Targets for Active Ability (Units or Tiles)
+  const rawValidAttackHexes = useMemo(() => {
+    if (!activeAbility) return [];
+    const sourceHex = lockedAssist ? lockedAssist.unitHex : activeTurnUnitHex;
+    if (!sourceHex) return [];
+    // 0. Multi-stage abilities: return valid targets for the current stage
+    if (multiStageTargetInfo) return multiStageTargetInfo.validHexes;
+    const attackerUnit = lockedAssist
+      ? unitsOnBoard[lockedAssist.unitHex]
+      : (activeTurnUnitHex ? unitsOnBoard[activeTurnUnitHex] : null);
+    return getAbilityTargetHexes(activeAbility, sourceHex, attackerUnit, abilityRangeHexes);
   }, [activeAbility, activeTurnUnitHex, lockedAssist, abilityRangeHexes, unitsOnBoard, activePlayer, multiStageTargetInfo]);
 
   // A unit that can't be targeted right now (e.g. after Vanish) can't be picked by an enemy's ability. Abilities aimed
   // at a tile still hit whatever is on it.
-  const validAttackHexes = useMemo(() => {
-    const targetsTile = isAbilityTargetingAnyTile(activeAbility) || Boolean(multiStageTargetInfo?.isTileTarget);
-    if (targetsTile) return rawValidAttackHexes;
-    const attacker = activeTurnUnitHex ? unitsOnBoard[activeTurnUnitHex] : null;
-    return rawValidAttackHexes.filter((h) => {
+  // The tiles among hexes the ability may really be aimed at: a unit that can't be targeted right now (e.g. after
+  // Vanish) can't be picked, and an ability's own "use only against..." rules (Chew Up, Deep Freeze, from behind,
+  // surrounding a token). inMultiStage: hexes are a multi-stage ability's step (its own rules already applied).
+  const filterTargetableHexes = (
+    ability: CardAbility | null,
+    hexes: string[],
+    attacker: BattlefieldUnit | null,
+    attackerHex: string | null,
+    inMultiStage: boolean
+  ): string[] =>
+    hexes.filter((h) => {
       if (isUntargetableBy(unitsOnBoard[h], activePlayer)) return false;
       // "Use only against targets that this unit has already attacked this turn" (e.g. Chew Up)
-      if (!multiStageTargetInfo && activeAbility?.requires === 'target.attackedBySelfThisTurn') {
+      if (!inMultiStage && ability?.requires === 'target.attackedBySelfThisTurn') {
         return Boolean(unitsOnBoard[h] && hasAttackedUnitThisTurn(attacker, unitsOnBoard[h].instanceId));
       }
       // "Use this ability only against a target that this unit has dealt damage to this turn" (e.g. Deep Freeze)
-      if (!multiStageTargetInfo && activeAbility?.requires === 'target.damagedBySelfThisTurn') {
+      if (!inMultiStage && ability?.requires === 'target.damagedBySelfThisTurn') {
         return Boolean(unitsOnBoard[h] && (attacker?.damagedIdsThisTurn || []).includes(unitsOnBoard[h].instanceId));
       }
       // "Use only if this attack is (not) made from the tile behind the target" (e.g. Gleeful Execution, Carve a Smile)
-      if (!multiStageTargetInfo && attacker && unitsOnBoard[h] && (activeAbility?.requires === 'selfOnTileBehindTarget' || activeAbility?.requires === '!selfOnTileBehindTarget')) {
-        const behind = isAttackFromBehind(activeTurnUnitHex!, h, unitsOnBoard[h].owner, activeAbility);
-        return activeAbility.requires === 'selfOnTileBehindTarget' ? behind : !behind;
+      if (!inMultiStage && attacker && attackerHex && unitsOnBoard[h] && (ability?.requires === 'selfOnTileBehindTarget' || ability?.requires === '!selfOnTileBehindTarget')) {
+        const behind = isAttackFromBehind(attackerHex, h, unitsOnBoard[h].owner, ability);
+        return ability.requires === 'selfOnTileBehindTarget' ? behind : !behind;
       }
       // "A unit surrounding a Toadstool" (e.g. Spray of Spores): next to one of your tokens of that kind
-      const tokenReq = !multiStageTargetInfo && activeAbility?.requires?.match(/^target\.surroundingFriendlyToken:(.+)$/);
+      const tokenReq = !inMultiStage && ability?.requires?.match(/^target\.surroundingFriendlyToken:(.+)$/);
       if (tokenReq) {
         return getSurroundingHexes(h).some(
           (s) => unitsOnBoard[s] && unitsOnBoard[s].owner === activePlayer && unitsOnBoard[s].card.id === tokenReq[1]
@@ -2907,6 +2940,12 @@ export default function App() {
       }
       return true;
     });
+
+  const validAttackHexes = useMemo(() => {
+    const targetsTile = isAbilityTargetingAnyTile(activeAbility) || Boolean(multiStageTargetInfo?.isTileTarget);
+    if (targetsTile) return rawValidAttackHexes;
+    const attacker = activeTurnUnitHex ? unitsOnBoard[activeTurnUnitHex] : null;
+    return filterTargetableHexes(activeAbility, rawValidAttackHexes, attacker, activeTurnUnitHex, Boolean(multiStageTargetInfo));
   }, [rawValidAttackHexes, activeAbility, multiStageTargetInfo, unitsOnBoard, activePlayer, activeTurnUnitHex]);
 
   // Promote and Fusion Target Calculations
@@ -2968,6 +3007,63 @@ export default function App() {
       })
       .map(([hexId]) => hexId);
   }, [activeTurnUnitHex, abilityReinforcePending, selectedCardForReinforce, unitsOnBoard, activePlayer, tributeSacrificeHexes, sealedReinforceHexes]);
+
+  // The hand cards that can be played now, during the pregame setup phase only (they swell gently, like the turn's
+  // options on the big card): a basic unit with an empty back-row tile to go on, or a Promote, Fusion or Tribute unit
+  // whose requirements are in play (by the same checks placing it makes, sealed tiles included). By index in the hand.
+  const setupPlayableHandIndexes: Set<number> = useMemo(() => {
+    const out = new Set<number>();
+    if (gamePhase !== 'setup' || shownHandPlayer !== activePlayer) return out;
+    if (localPlayer !== null && localPlayer !== activePlayer) return out;
+    if (lockedAssist || pendingAssistDeployment || abilityReinforcePending) return out;
+    const isP1 = activePlayer === 'player1';
+    const backRow = isP1 ? 1 : 6;
+    const emptyBackRow = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H']
+      .map((c) => `${c}${backRow}`)
+      .filter((h) => !unitsOnBoard[h] && !sealedReinforceHexes.has(h));
+    // (a Tribute's sacrifices: friendly basic units on your side of the board)
+    const friendlyBasics = Object.entries(unitsOnBoard)
+      .filter(([hexId, u]) => {
+        if (u.owner !== activePlayer || u.card.isWall) return false;
+        const isBasic = u.card.basic !== false && (u.card.basic || u.card.reinforce?.mode === 'basic' || !u.card.reinforce);
+        if (!isBasic) return false;
+        const rowNum = parseInt(hexId.slice(1), 10);
+        return isP1 ? rowNum >= 1 && rowNum <= 3 : rowNum >= 4 && rowNum <= 6;
+      })
+      .map(([, u]) => u);
+    shownHand.forEach((card, idx) => {
+      const mode = card.reinforce?.mode;
+      let playable = false;
+      if (mode === 'promote') {
+        playable = getValidPromoteTargets(card, unitsOnBoard, activePlayer).some((h) => !sealedReinforceHexes.has(h));
+      } else if (mode === 'fusion') {
+        const f = checkFusionMaterials(card, unitsOnBoard, activePlayer);
+        playable = f.canFuse && f.materialHexes.some((h) => !sealedReinforceHexes.has(h));
+      } else if (mode === 'tribute') {
+        playable =
+          emptyBackRow.length > 0 &&
+          friendlyBasics.length >= (card.reinforce?.count || 2) &&
+          countUnmetTributeSlots(card, friendlyBasics) === 0;
+      } else {
+        const isBasic = card.basic || mode === 'basic' || !card.reinforce;
+        playable = Boolean(isBasic) && emptyBackRow.length > 0;
+      }
+      if (playable) out.add(idx);
+    });
+    return out;
+  }, [gamePhase, shownHandPlayer, activePlayer, localPlayer, lockedAssist, pendingAssistDeployment, abilityReinforcePending, unitsOnBoard, sealedReinforceHexes, shownHand]);
+
+  // A pulsing hand card's swell keeps the timing it started with (in step with the turn banner), so re-rendering the
+  // hand never makes it jump; each card is keyed by its place and id
+  const handPulseDelaysRef = useRef<Record<string, string>>({});
+  const handPulseStyle = (key: string, on: boolean): React.CSSProperties => {
+    if (!on) {
+      delete handPulseDelaysRef.current[key];
+      return {};
+    }
+    if (!handPulseDelaysRef.current[key]) handPulseDelaysRef.current[key] = String(pulseInStep().animationDelay);
+    return { animationDelay: handPulseDelaysRef.current[key] };
+  };
 
   // Assist Deployment Hexes: Unoccupied tiles on active player's back row (Row 1 for P1, Row 6 for P2)
   const assistDeployHexes = useMemo(() => {
@@ -4156,6 +4252,12 @@ export default function App() {
       checkVictory(next);
       return next;
     });
+    // Loot from the attack, as for any other (e.g. a Shared Spoils surrounding the ally that attacked)
+    if (target.owner !== ally.owner) {
+      getAttackLoots(ally, allyHex, ab, { dealtDamage: dealt > 0, killedEnemy: exec.isDefeated }, unitsOnBoard).forEach((l) =>
+        triggerLoot(l.player, l.amount, l.title, ally.card.name)
+      );
+    }
     playCardDrawSound();
     showNotification(
       `${ally.card.name} used ${ab.name} for free on ${target.card.name}: ${dealt} damage${exec.isDefeated ? ' (defeated!)' : ''}.`
@@ -4592,6 +4694,17 @@ export default function App() {
     }
 
     setUnitsOnBoard(nextBoard);
+    // Loot from the attack, as for any other (e.g. Dead Shot, a surrounding Shared Spoils): it dealt damage when an enemy
+    // took some
+    if (activeTurnUnit && activeTurnUnitHex) {
+      const multiDealtDamage = multiDamageEvents.some(
+        (ev) => ev.damagedUnitOwner && ev.damagedUnitOwner !== activeTurnUnit.owner && (ev.damageAmount ?? 1) > 0
+      );
+      const multiKilledEnemy = defeated.some((u) => u.owner !== activeTurnUnit.owner);
+      getAttackLoots(activeTurnUnit, activeTurnUnitHex, ability, { dealtDamage: multiDealtDamage, killedEnemy: multiKilledEnemy }, nextBoard).forEach(
+        (l) => triggerLoot(l.player, l.amount, l.title, activeTurnUnit.card.name)
+      );
+    }
     defeated.forEach((u) => {
       if (u.card.type === 'token') return;
       if (u.owner === 'player1') setPlayer1Graveyard((g) => [...g, u.card]);
@@ -11151,6 +11264,17 @@ export default function App() {
       if (u.hexId) finalUnits = applyDestroyTriggers(activeTurnUnit, u, u.hexId, finalUnits, ability);
     });
     setUnitsOnBoard(finalUnits);
+    // Loot from the attack, as for any other attack (e.g. Dead Shot, Smash and Stash, a surrounding Shared Spoils): it
+    // dealt damage when an enemy took some
+    if (isAttackAbility(ability)) {
+      const areaDealtDamage = (res.damageEvents || []).some(
+        (ev) => ev.damagedUnitOwner && ev.damagedUnitOwner !== activeTurnUnit.owner && (ev.damageAmount ?? 1) > 0
+      );
+      const areaKilledEnemy = res.defeated.some((u) => u.owner !== activeTurnUnit.owner);
+      getAttackLoots(activeTurnUnit, casterHex, ability, { dealtDamage: areaDealtDamage, killedEnemy: areaKilledEnemy }, finalUnits).forEach(
+        (l) => triggerLoot(l.player, l.amount, l.title, activeTurnUnit.card.name)
+      );
+    }
     if (casterHex !== activeTurnUnitHex) {
       setActiveTurnUnitHex(casterHex);
       setSelectedHex(casterHex);
@@ -14281,6 +14405,9 @@ export default function App() {
       providerChain ||
       abilityReinforcePending ||
       facelessKingPendingChoice ||
+      // (a card to pick, e.g. Chilling Insight's from the graveyard: the assist is still acting until it's picked, so
+      // running out of its AP can't end the real turn)
+      cardChoicePrompt ||
       isTurnTransitioning
     ) {
       return;
@@ -14303,6 +14430,7 @@ export default function App() {
     providerChain,
     abilityReinforcePending,
     facelessKingPendingChoice,
+    cardChoicePrompt,
     isTurnTransitioning
   ]);
 
@@ -15271,10 +15399,16 @@ export default function App() {
         return;
       }
       spawnEndlessWave(wave);
+      // Clearing a wave ends the player's turn (not the first wave arriving as the game starts): the new wave's
+      // computer goes next
+      if (endlessWave > 0 && activePlayer === ENDLESS_PLAYER) {
+        appendLog('note', `Endless: wave ${endlessWave} cleared, ending your turn.`);
+        switchTurn(false);
+      }
     }, 700);
     return () => clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [endlessMode, activeTab, winner, gamePhase, endlessBusy, unitsOnBoard, endlessWave]);
+  }, [endlessMode, activeTab, winner, gamePhase, endlessBusy, unitsOnBoard, endlessWave, activePlayer]);
   const endlessRoundResetRef = useRef<Set<number>>(new Set());
 
   // Puts a wave's units on the computer's home row. The player's units on its half go back to the closest empty tile
@@ -15354,6 +15488,38 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [endlessMode, winner, cardChoicePrompt, lootPending, scryPending, researchPending, deckArrangePending, knockbackChoicePending, readySpellPrompt, popupOrderChoice]);
 
+  // The other choices that come up while the computer is acting (asked of the unit taking the turn, not listed in
+  // openDecision): answered at random too, so its turn always goes on. A split hit's second target, an optional
+  // knockback (none against a ranged target: pushing it needs a direction drawn), a Momentum Charge, a Rabble Rouse step,
+  // and an ability's "you may Reinforce now" (the computer has no hand: skipped).
+  const isCpuActingPrompt = Boolean(
+    splitHitPrompt || attackKnockbackPrompt || pendingMomentumCharge || pendingRabbleMove || abilityReinforcePending
+  );
+  useEffect(() => {
+    if (!endlessMode || winner || activePlayer !== ENDLESS_CPU || !isCpuActingPrompt) return;
+    const pick = <T,>(items: T[]): T => items[Math.floor(matchRandom() * items.length)];
+    const timer = setTimeout(() => {
+      if (splitHitPrompt) {
+        handleSplitHitChoice(matchRandom() < 0.5 ? 'same' : 'split');
+      } else if (attackKnockbackPrompt) {
+        const ranged = activeTurnUnitHex ? getHexDistance(activeTurnUnitHex, attackKnockbackPrompt.hexId) > 1 : true;
+        const options = ranged ? attackKnockbackPrompt.options.filter((o) => o.tiles === 0) : attackKnockbackPrompt.options;
+        handleAttackKnockbackChoice(String((options.length ? pick(options) : attackKnockbackPrompt.options[0]).tiles));
+      } else if (pendingMomentumCharge) {
+        if (matchRandom() < 0.5) handleExecuteMomentumCharge(pendingMomentumCharge.nextHex);
+        else handleDeclineMomentumCharge();
+      } else if (pendingRabbleMove) {
+        const { choices, mustMove } = pendingRabbleMove;
+        if (choices.length > 0 && (mustMove || matchRandom() < 0.5)) handleExecuteRabbleMove(pick(choices));
+        else handleDeclineRabbleMove('skip');
+      } else if (abilityReinforcePending) {
+        finishAbilityReinforce([]);
+      }
+    }, 450);
+    return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [endlessMode, winner, activePlayer, splitHitPrompt, attackKnockbackPrompt, pendingMomentumCharge, pendingRabbleMove, abilityReinforcePending]);
+
   // ---- Endless: the computer's turns ----
   // One step at a time (choose a unit, an action, a target, ...), through the same handlers the player's clicks use.
   // It acts at random but favours attacking (see game/cpuPlayer.ts). A step that changes nothing still moves the tick on.
@@ -15367,7 +15533,7 @@ export default function App() {
   });
   useEffect(() => {
     if (!endlessMode || activeTab !== 'play' || winner || activePlayer !== ENDLESS_CPU || isTurnTransitioning || isCoinFlipOpen) return;
-    if (openDecision() || popupQueue.length > 0 || pendingRabbleMove || pendingMomentumCharge || readySpellReact) return;
+    if (openDecision() || popupQueue.length > 0 || isCpuActingPrompt || readySpellReact) return;
     // (a new wave is about to arrive: wait for it)
     if (gamePhase === 'playing' && !Object.values(unitsOnBoard).some((u) => u.owner === ENDLESS_CPU && u.card.type !== 'token')) return;
     const timer = setTimeout(() => {
@@ -15380,6 +15546,7 @@ export default function App() {
     endlessMode, activeTab, winner, activePlayer, isTurnTransitioning, isCoinFlipOpen, gamePhase, unitsOnBoard, activeTurnUnitHex,
     activeAbility, multiStageState, pendingFreeMove, popupQueue, cardChoicePrompt, lootPending, scryPending, researchPending,
     knockbackChoicePending, readySpellPrompt, popupOrderChoice, deckArrangePending, pendingRabbleMove, pendingMomentumCharge,
+    splitHitPrompt, attackKnockbackPrompt, abilityReinforcePending,
     readySpellReact, setupConsecutiveStarts, turnCount, cpuTick
   ]);
 
@@ -15535,6 +15702,100 @@ export default function App() {
     setCostChoice(null);
     handleAbilityClick(ability);
   };
+
+  // Which of the unit's options pulse on the big card, to help decide, for the whole of its turn while nothing is being
+  // chosen: every ability it can use now that has a valid target (an attack: an enemy it would hit; any other: something
+  // to aim it at), by the same targeting rules the game uses when it's chosen. Before it has done anything (no AP spent):
+  // with no such ability, Move (when it can move); with nothing else, Draw. Keys: a printed ability's id, a granted
+  // one's box key ("granted-<id>"), "move", "draw" (see focusActions).
+  const pulsingActionKeys: Set<string> = useMemo(() => {
+    const keys = new Set<string>();
+    const u = activeTurnUnit;
+    const hex = activeTurnUnitHex;
+    if (!u || !hex || !focusIsTurnUnit || gamePhase !== 'playing') return keys;
+    if (activeAbility || lockedAssist || multiStageState || providerChain || pendingAssistDeployment || isMovingMode) return keys;
+    // (only for the player taking the turn: not the computer's, nor the other player's in an online match)
+    if (endlessMode && activePlayer === ENDLESS_CPU) return keys;
+    if (localPlayer !== null && localPlayer !== activePlayer) return keys;
+
+    const isEnemyOn = (h: string) => Boolean(unitsOnBoard[h] && unitsOnBoard[h].owner !== u.owner);
+    // A dry run of an area attack aimed at tile t: whether it would damage an enemy
+    const areaHitsEnemy = (ab: CardAbility, t: string) => {
+      const res = resolveAreaAttack(ab, hex, t, unitsOnBoard, u.owner);
+      return Boolean(res?.damageEvents.some((ev) => ev.damagedUnitOwner && ev.damagedUnitOwner !== u.owner));
+    };
+    const hasValidTarget = (ab: CardAbility, borrowed = false): boolean => {
+      // One that borrows a promoted card's ability (e.g. Overload Gemstone): when one it can borrow has a target
+      if (!borrowed && isPromotedAbilityProvider(ab)) {
+        return getQualifyingPromotedAbilities(ab, u.promotedCards, u).some(({ ability: p }) =>
+          hasValidTarget(buildProviderExecutable(ab, p, { cost: 0, parentUsedBefore: false }), true)
+        );
+      }
+      // An attack on the units around this one (e.g. Release Neurotoxin): it would hit an enemy
+      if (isSelfCentredArea(ab)) return areaHitsEnemy(ab, hex);
+      // A multi-stage ability: its first step's targets (an attack: an enemy among them)
+      if (isMultiStageAbility(ab)) {
+        const info = getMultiStageTargetInfo({ ability: ab, casterHex: hex, stage: 1, targets: [] }, unitsOnBoard, activePlayer);
+        const hexes = info.isTileTarget ? info.validHexes : filterTargetableHexes(ab, info.validHexes, u, hex, true);
+        return isAttackAbility(ab) && !info.isTileTarget ? hexes.some(isEnemyOn) : hexes.length > 0;
+      }
+      // One with nothing to aim at (e.g. "Armour up to 5"): no set of targets
+      if (!isTargetedAbility(ab)) return false;
+      const raw = getAbilityTargetHexes(ab, hex, u, getAbilityRangeHexesFrom(ab, hex, u));
+      const hexes = isAbilityTargetingAnyTile(ab) ? raw : filterTargetableHexes(ab, raw, u, hex, false);
+      if (!isAttackAbility(ab)) return hexes.length > 0;
+      // An attack aimed at a tile with an area (e.g. a fireball): some tile it could be aimed at hits an enemy
+      if (isAreaAttack(ab) && !(ab as any).usesPath) return hexes.some((t) => areaHitsEnemy(ab, t));
+      return hexes.some(isEnemyOn);
+    };
+    // (usable now: its turn rules allow it and there's AP for it, or for its cheapest cost when it has a choice)
+    const canUse = (ab: CardAbility) => {
+      const costs = Array.isArray(ab.cost) ? ab.cost : [getAbilityApCost(ab)];
+      return canUseAbilityThisTurn(u, ab).allowed && u.currentAp >= Math.min(...costs);
+    };
+    (u.card.abilities || []).forEach((ab) => {
+      if (canUse(ab) && hasValidTarget(ab)) keys.add(String(ab.id));
+    });
+    (u.grantedAbilities || []).forEach((ab) => {
+      if (canUse(ab) && hasValidTarget(ab)) keys.add(`granted-${ab.id}`);
+    });
+    // (Move and Draw only point the way before the unit has done anything)
+    if (keys.size > 0 || turnUnitHasActed) return keys;
+
+    // No ability has a target: Move, when it can move somewhere (Magical Omnipresence: an empty tile within range 2)
+    const omni = hasMagicalOmnipresence(u);
+    const moveTiles = omni ? getHexesInRange(hex, 1, 2) : getSurroundingHexes(hex);
+    const canMove =
+      !isUnitMovementDisabled(u) &&
+      !(omni && u.movedThisTurn) &&
+      u.currentAp >= getUniversalMoveCost(u, unitsOnBoard) &&
+      moveTiles.some((h) => !unitsOnBoard[h]);
+    if (canMove) {
+      keys.add('move');
+      return keys;
+    }
+    // Nothing else: Draw, when it can draw
+    if (!isUnitMindless(u) && !u.usedUniversalDrawThisTurn && activeDeck.length > 0 && u.currentAp >= 1) keys.add('draw');
+    return keys;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    activeTurnUnit,
+    activeTurnUnitHex,
+    focusIsTurnUnit,
+    turnUnitHasActed,
+    gamePhase,
+    activeAbility,
+    lockedAssist,
+    multiStageState,
+    providerChain,
+    pendingAssistDeployment,
+    isMovingMode,
+    endlessMode,
+    activePlayer,
+    localPlayer,
+    unitsOnBoard,
+    activeDeck.length
+  ]);
 
   const focusActions: FocusAction[] = (() => {
     const u = activeTurnUnit;
@@ -16931,6 +17192,7 @@ export default function App() {
                       activeAbility={activeAbility}
                       onAbilityClick={handleCardAbilityClick}
                       onHoverAbility={setHoveredActionAbility}
+                      pulsingKeys={pulsingActionKeys}
                       locked={Boolean(lockedAssist)}
                       tag={
                         shownFocus.owner && shownFocus.owner !== (localPlayer ?? activePlayer)
@@ -17037,9 +17299,13 @@ export default function App() {
 
               {/* Overlapping interactive cards scaled larger and spilling over the top of the dock container */}
               <div className="flex items-end justify-start -space-x-8 sm:-space-x-10 md:-space-x-12 lg:-space-x-14 max-w-[calc(100%-19.5rem)] w-full pl-1 sm:pl-2 overflow-visible pb-1 relative z-20 pointer-events-none">
+                {/* (the gentle swell of the hand cards playable in the setup phase) */}
+                <style>{SLOW_PULSE_SOFT_CSS}</style>
                 {shownHand.map((card, idx) => {
                   // (online, while waiting, this is this screen's own hand: clicks on it are blocked until its turn)
                   const isSelectedForDeploy = selectedHandIndex === idx && shownHandPlayer === activePlayer;
+                  // (setup phase: playable now, so it swells gently; not once picked up)
+                  const isSetupPlayable = setupPlayableHandIndexes.has(idx) && !isSelectedForDeploy;
 
                   return (
                     <div
@@ -17130,7 +17396,7 @@ export default function App() {
                       }}
                       // While targeting or moving, the hand lets clicks through to the board under it (your back row
                       // sits behind the hand on screen, and a hand-card click there would try to reinforce)
-                      className={`w-28 sm:w-32 md:w-36 lg:w-40 xl:w-44 aspect-[5/7] transition-all duration-200 transform cursor-pointer drop-shadow-2xl rounded-xl overflow-hidden border-2 bg-stone-950 select-none ${
+                      className={`w-28 sm:w-32 md:w-36 lg:w-40 xl:w-44 aspect-[5/7] transition-all duration-200 transform cursor-pointer drop-shadow-2xl rounded-xl overflow-hidden border-2 bg-stone-950 select-none ${isSetupPlayable ? 'slow-pulse-soft' : ''} ${
                         !abilityReinforcePending &&
                         (activeAbility || multiStageState || isMovingMode || pendingFreeMove || pendingRabbleMove)
                           ? 'pointer-events-none'
@@ -17143,6 +17409,7 @@ export default function App() {
                           : 'hover:-translate-y-6 hover:scale-105 hover:z-30 border-stone-800 hover:border-sky-400 z-10'
                       }`}
                       style={{
+                        ...handPulseStyle(`${idx}-${card.id}`, isSetupPlayable),
                         transformOrigin: 'bottom center'
                       }}
                       title={
