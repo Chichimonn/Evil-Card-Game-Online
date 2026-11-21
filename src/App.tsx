@@ -10659,7 +10659,7 @@ export default function App() {
           moreTiles: firstMoveBonus.extraTiles - 1,
           scorchImmune: firstMoveBonus.scorchImmune
         });
-        showNotification(`${movedUnit.card.name}'s ${firstMoveBonus.name}: you may move up to ${firstMoveBonus.extraTiles} more tiles for free (4 seconds each).`);
+        showNotification(`${movedUnit.card.name}'s ${firstMoveBonus.name}: you may move up to ${firstMoveBonus.extraTiles} more tile${firstMoveBonus.extraTiles === 1 ? "" : "s"} for free (4 seconds${firstMoveBonus.extraTiles === 1 ? "" : " each"}).`);
         return;
       }
     }
@@ -15449,6 +15449,9 @@ export default function App() {
   // ---- Endless: waves ----
   // When the computer has no non-token units left (and nothing is being decided or resolved), the next wave comes. Every
   // 10 waves the player's board, hand and graveyard go back into their deck for a new starting phase first.
+  // The computer's side has no units left that count for the wave (tokens and walls don't)
+  const isEndlessWaveCleared = (board: Record<string, BattlefieldUnit>) =>
+    !Object.values(board).some((u) => u.owner === ENDLESS_CPU && u.card.type !== 'token' && !u.card.isWall);
   const endlessBusy =
     Boolean(openDecision()) ||
     popupQueue.length > 0 ||
@@ -15456,13 +15459,28 @@ export default function App() {
     isTurnTransitioning ||
     isCoinFlipOpen;
   useEffect(() => {
-    if (!endlessMode || activeTab !== 'play' || winner || gamePhase !== 'playing' || endlessBusy) return;
-    const cpuUnits = Object.values(unitsOnBoard).filter((u) => u.owner === ENDLESS_CPU && u.card.type !== 'token' && !u.card.isWall);
-    if (cpuUnits.length > 0) return;
+    if (!endlessMode || activeTab !== 'play' || winner || gamePhase !== 'playing') return;
+    if (!isEndlessWaveCleared(unitsOnBoard)) {
+      endlessClearedOnTurnRef.current = null;
+      return;
+    }
+    // (the turn the computer's side was first seen empty on)
+    if (endlessClearedOnTurnRef.current === null) endlessClearedOnTurnRef.current = turnCount;
+    if (endlessBusy) return;
     // A wave cleared on the player's turn: they finish their turn first (their unit may still have AP). The next wave
     // (or the new starting phase) comes once the turn has passed to the computer, placed for free at the start of its
     // turn, which it then takes. (The first wave, as the game starts, comes straight away.)
-    if (endlessWave > 0 && activePlayer === ENDLESS_PLAYER) return;
+    if (endlessWave > 0 && activePlayer === ENDLESS_PLAYER) {
+      if (endlessClearedOnTurnRef.current === turnCount) return;
+      // ...but a turn of theirs that began with the computer's side already empty (e.g. its last unit fell on its own
+      // turn, or a new starting phase just ended) is not a whole free turn: it ends, and the computer's turn comes, with
+      // the next wave
+      const passTimer = setTimeout(() => {
+        appendLog('note', 'Endless: no enemies in play, so the next wave arrives on the enemy turn.');
+        switchTurn(false);
+      }, 700);
+      return () => clearTimeout(passTimer);
+    }
     const wave = endlessWave + 1;
     const timer = setTimeout(() => {
       if (startsNewRound(wave) && endlessWave % WAVES_PER_ROUND === 0 && gamePhase === 'playing' && !endlessRoundResetRef.current.has(wave)) {
@@ -15503,8 +15521,9 @@ export default function App() {
     }, 700);
     return () => clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [endlessMode, activeTab, winner, gamePhase, endlessBusy, unitsOnBoard, endlessWave, activePlayer]);
+  }, [endlessMode, activeTab, winner, gamePhase, endlessBusy, unitsOnBoard, endlessWave, activePlayer, turnCount]);
   const endlessRoundResetRef = useRef<Set<number>>(new Set());
+  const endlessClearedOnTurnRef = useRef<number | null>(null);
 
   // Puts a wave's units on the computer's home row. The player's units on its half go back to the closest empty tile
   // of their own half first (no choices).
@@ -15630,7 +15649,7 @@ export default function App() {
     if (!endlessMode || activeTab !== 'play' || winner || activePlayer !== ENDLESS_CPU || isTurnTransitioning || isCoinFlipOpen) return;
     if (openDecision() || popupQueue.length > 0 || isCpuActingPrompt || readySpellReact) return;
     // (a new wave is about to arrive: wait for it)
-    if (gamePhase === 'playing' && !Object.values(unitsOnBoard).some((u) => u.owner === ENDLESS_CPU && u.card.type !== 'token')) return;
+    if (gamePhase === 'playing' && isEndlessWaveCleared(unitsOnBoard)) return;
     const timer = setTimeout(() => {
       runCpuStep();
       setCpuTick((t) => t + 1);

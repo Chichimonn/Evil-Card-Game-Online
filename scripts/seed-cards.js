@@ -1270,7 +1270,7 @@ const cardsJsonContent = `{
           "range": [1, 3],
           "rangeText": "1-3",
           "target": "unit",
-          "text": "Deals 5 damage. If the first unit hit by this attack each turn takes the next turn, that unit takes 4 damage.",
+          "text": "Deals 5 damage. If the first unit hit by this attack each turn takes the next turn, that unit takes 4 damage. This additional damage does not stack.",
           "effects": [
             {
               "type": "damage",
@@ -1289,6 +1289,7 @@ const cardsJsonContent = `{
           "id": "exploding_fireball",
           "name": "Exploding Fireball",
           "cost": 2,
+          "tags": ["assist"],
           "range": [1, 3],
           "rangeText": "1-3",
           "target": "tile",

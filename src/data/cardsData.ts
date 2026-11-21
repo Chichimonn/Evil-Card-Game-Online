@@ -1438,7 +1438,7 @@ export const initialCardsData: CardsDataSchema = {
           "range": [1, 3],
           "rangeText": "1-3",
           "target": "unit",
-          "text": "Deals 5 damage. If the first unit hit by this attack each turn takes the next turn, that unit takes 4 damage.",
+          "text": "Deals 5 damage. If the first unit hit by this attack each turn takes the next turn, that unit takes 4 damage. This additional damage does not stack.",
           "effects": [
             {
               "type": "damage",
@@ -1458,6 +1458,7 @@ export const initialCardsData: CardsDataSchema = {
           "id": "exploding_fireball",
           "name": "Exploding Fireball",
           "cost": 2,
+          "tags": ["assist"],
           "range": [1, 3],
           "rangeText": "1-3",
           "target": "tile",
@@ -16677,7 +16678,7 @@ export const initialCardsData: CardsDataSchema = {
           "id": "burning_trail",
           "name": "Burning Trail",
           "trigger": "self.firstMoveOnOwnTurn",
-          "text": "The first time this unit moves each turn, it does not take damage from scorched tiles, and it may move an additional 2 tiles for free.",
+          "text": "The first time this unit moves each turn, it does not take damage from scorched tiles, and it may move an additional tile for free.",
           "effects": [
             {
               "type": "firstMoveScorchImmunity"
@@ -16685,7 +16686,7 @@ export const initialCardsData: CardsDataSchema = {
             {
               "type": "move",
               "target": "self",
-              "extraTiles": 2,
+              "extraTiles": 1,
               "direction": "any",
               "free": true,
               "optional": true
