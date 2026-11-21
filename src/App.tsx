@@ -2367,6 +2367,50 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [unitsOnBoard]);
 
+  // 'self.takesDamage' draws (e.g. Blood Sage's Sanguine Offering: "Whenever this unit takes damage, draw 1 card. This
+  // may only happen once on each player's turn."): read from the board, so any source of damage counts (attacks,
+  // its own abilities, auras, splashes, scorched tiles, reflected or retaliating damage, ...). Taking damage is
+  // gaining damage counters (a hit its armour soaks up entirely is not damage taken). Limited by the turn number
+  // (both players' turns count), so it can happen once on each player's turn.
+  const lastDamageRef = useRef<Record<string, number>>({});
+  useEffect(() => {
+    const prev = lastDamageRef.current;
+    const now: Record<string, number> = {};
+    Object.values(unitsOnBoard).forEach((u) => (now[u.instanceId] = u.damageCounters));
+    lastDamageRef.current = now;
+    if (gamePhase !== 'playing') return;
+    const draws: { hex: string; key: string; unit: BattlefieldUnit; amount: number; name: string }[] = [];
+    Object.entries(unitsOnBoard).forEach(([hex, u]) => {
+      if (!(u.instanceId in prev) || u.damageCounters <= prev[u.instanceId]) return;
+      getUnitPassives(u).forEach((p) => {
+        if (p.trigger !== 'self.takesDamage') return;
+        const draw: any = (p.effects || []).find((e: any) => e.type === 'draw');
+        if (!draw) return;
+        const key = p.id || p.name;
+        const limited = Boolean(p.limits?.oncePerPlayerTurn || p.limits?.oncePerTurn);
+        if (limited && u.passiveTurnMarks?.[key] === turnCount) return;
+        draws.push({ hex, key, unit: u, amount: draw.amount || 1, name: p.name });
+      });
+    });
+    if (draws.length === 0) return;
+    draws.forEach((d) => {
+      for (let i = 0; i < d.amount; i++) drawCardForPlayer(d.unit.owner);
+      healOnDraw(d.unit, d.amount);
+      showNotification(`🩸 ${d.name}: ${d.unit.card.name} took damage, so ${d.unit.owner === 'player1' ? 'Player 1' : 'Player 2'} draws ${d.amount} card${d.amount === 1 ? '' : 's'}.`);
+    });
+    setUnitsOnBoard((b) => {
+      let next = b;
+      draws.forEach((d) => {
+        const h = Object.keys(next).find((x) => next[x].instanceId === d.unit.instanceId);
+        if (!h) return;
+        const u = next[h];
+        next = { ...next, [h]: { ...u, passiveTurnMarks: { ...(u.passiveTurnMarks || {}), [d.key]: turnCount } } };
+      });
+      return next;
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [unitsOnBoard]);
+
   // Passives that follow what the unit taking the turn has done so far this turn:
   //   'self.usesThirdAbilityOfTurn' armour (e.g. Midnight Calm: armours up to 3 once it has used 3 abilities),
   //   Critical Forecast's chosen ability: once used, a free copy is granted for the rest of the turn,
@@ -3045,7 +3089,7 @@ export default function App() {
 
   const validFusionHexes = useMemo(() => {
     if (!fusionCheck || !fusionCheck.canFuse) return [];
-    if (fusionCheck.validCombinations.length > 1 && fusionSelectedHexes.length > 0) {
+    if (fusionSelectedHexes.length > 0) {
       // Find candidate hexes that can form a valid combination with all currently selected hexes
       const matchingCombos = fusionCheck.validCombinations.filter((c) =>
         fusionSelectedHexes.every((h) => c.hexes.includes(h))
@@ -3428,18 +3472,16 @@ export default function App() {
 
       let combo: FusionCombination | undefined;
 
-      // If there is ONLY 1 possible combination, fuse immediately into the clicked hex
-      if (fCheck.validCombinations.length === 1) {
-        combo = fCheck.validCombinations[0];
-      } else {
-        // If there is MORE THAN ONE possible set of units to fuse it, prompt player to decide which 2/3 (modeled after tribute)
+      // Every fusion is made the same way, however many ways there are to make it: the player clicks each of its
+      // materials, and the fused unit goes on the tile of the one clicked last
+      {
         if (fusionSelectedHexes.length < requiredFusionCount - 1) {
           const nextSelected = [...fusionSelectedHexes, hexId];
           setFusionSelectedHexes(nextSelected);
           showNotification(
             `Selected ${nextSelected.length}/${requiredFusionCount} fusion materials (${unitsOnBoard[hexId]?.card.name || 'material'}). Click ${
               requiredFusionCount - nextSelected.length
-            } more material unit(s) to fuse for ${cardToPlace.name}!`
+            } more material unit(s) to fuse for ${cardToPlace.name}: it goes on the tile of the one you click last.`
           );
           return;
         }
@@ -3461,7 +3503,7 @@ export default function App() {
         const openMaterial = combo.hexes.find((h: string) => !sealedReinforceHexes.has(h));
         showNotification(
           openMaterial
-            ? `${hexId} is sealed (enemy Sealed Gate): finish the fusion by clicking a material outside its range, e.g. ${openMaterial}.`
+            ? `${hexId} is sealed (enemy Sealed Gate), and the fused unit goes on the material clicked last: click a material outside its range last, e.g. ${openMaterial} (click a selected one again to deselect it).`
             : `Cannot fuse here: every material tile is sealed by an enemy Sealed Gate.`
         );
         return;
@@ -6685,6 +6727,32 @@ export default function App() {
   };
 
   // Handle clicking hexes on the board
+  // Putting a selected hand card back down without clicking anything on the board: Escape, or a right-click anywhere.
+  // (not while a reinforce is something you're locked into, e.g. an ability's Reinforce or an Assist placement)
+  useEffect(() => {
+    if (selectedHandIndex === null || abilityReinforcePending || pendingAssistDeployment) return;
+    const unselect = () => {
+      setSelectedHandIndex(null);
+      setFusionSelectedHexes([]);
+      setTributeSacrificeHexes([]);
+      showNotification('Card unselected.');
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') unselect();
+    };
+    const onContext = (e: MouseEvent) => {
+      e.preventDefault();
+      unselect();
+    };
+    window.addEventListener('keydown', onKey);
+    window.addEventListener('contextmenu', onContext);
+    return () => {
+      window.removeEventListener('keydown', onKey);
+      window.removeEventListener('contextmenu', onContext);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedHandIndex, abilityReinforcePending, pendingAssistDeployment]);
+
   const handleHexClick = (hexId: string) => {
     if (attackKnockbackPrompt) {
       showNotification(`Choose whether ${attackKnockbackPrompt.abilityName} applies knockback first.`);
@@ -6773,7 +6841,7 @@ export default function App() {
       return;
     }
 
-    // Direct click on unoccupied back row tile: auto-select first basic card or prompt. Only when you could reinforce
+    // Direct click on unoccupied back row tile: a reminder to choose a card first. Only when you could reinforce
     // right now (no unit taking a turn, nothing in progress); otherwise the click goes on to whatever you're doing.
     if (isBackRow && !unitsOnBoard[hexId] && !activeTurnUnitHex && !isMidAction) {
       if (sealedReinforceHexes.has(hexId)) {
@@ -6781,20 +6849,8 @@ export default function App() {
         setSelectedHex(hexId);
         return;
       }
-      const basicIdx = activeHand.findIndex(
-        (c) => c.basic || c.reinforce?.mode === 'basic' || !c.reinforce
-      );
-      if (basicIdx !== -1) {
-        setSelectedHandIndex(basicIdx);
-        setSelectedHex(hexId);
-        showNotification(`Selected ${hexId} and ${activeHand[basicIdx].name}. Click again to reinforce!`, {
-          privateTo: activePlayer,
-          publicText: `Selected ${hexId} to reinforce.`
-        });
-      } else {
-        setSelectedHex(hexId);
-        showNotification(`Tile ${hexId} is ready, but you have no Basic units in hand.`);
-      }
+      // (nothing is picked for you: reinforcing is always choosing a card in your hand, then where it goes)
+      showNotification(`To reinforce onto ${hexId}, select a unit card in your hand first, then click the tile.`);
       return;
     }
 
@@ -6804,7 +6860,6 @@ export default function App() {
       if (unitOnHex) {
         showNotification("Unit abilities and movement are inactive during the pregame setup phase (Rule 5.3). Both players must choose 'Start' to begin gameplay.");
       }
-      setSelectedHex((prev) => (prev === hexId ? null : hexId));
       return;
     }
 
@@ -8977,7 +9032,6 @@ export default function App() {
         const onAttackArmour = getOnAttackSelfArmour(activeTurnUnit, targetUnit.armour > 0);
         let casterDefeated = false;
         let casterCountersAfterDamage = activeTurnUnit.damageCounters;
-        let drewCardFromSelfDamage = false;
         let attackFinalAp = newAp;
         let lootTriggerAmount = 0;
         let lootTriggerTitle = '';
@@ -9093,21 +9147,8 @@ export default function App() {
 
           casterDefeated = casterCountersAfterDamage >= activeTurnUnit.card.hp;
 
-          // Check Sanguine Offering passive (Blood Sage: Whenever this unit takes damage, draw 1 card. Once per turn)
-          if (casterTookDamage) {
-            const unitPassives = getUnitPassives(activeTurnUnit);
-            const sanguineOffering = unitPassives.find(
-              (p) => p.id === 'sanguine_offering' || p.name === 'Sanguine Offering'
-            );
-            if (sanguineOffering && canTriggerPassiveThisTurn(activeTurnUnit, sanguineOffering)) {
-              const pKey = sanguineOffering.id || sanguineOffering.name;
-              nextCounts[pKey] = (nextCounts[pKey] || 0) + 1;
-              nextCounts['sanguine_offering'] = (nextCounts['sanguine_offering'] || 0) + 1;
-              drawCardForPlayer(activeTurnUnit.owner);
-              healOnDraw(activeTurnUnit, 1);
-              drewCardFromSelfDamage = true;
-            }
-          }
+          // (Sanguine Offering, Blood Sage's draw when it takes damage, is handled for every source of damage by the
+          // watcher on the board: see 'self.takesDamage' draws)
 
           // Check Loot passives on attacker:
           const attackerPassives = getUnitPassives(activeTurnUnit);
@@ -9735,7 +9776,7 @@ export default function App() {
         if (selfDamage > 0) {
           notif += ` ${activeTurnUnit.card.name} took ${selfDamage} self-damage${
             casterDefeated ? ' (Defeated!)' : ` (💥${casterCountersAfterDamage}/${activeTurnUnit.card.hp})`
-          }.${drewCardFromSelfDamage ? ' Sanguine Offering triggered: drew 1 card!' : ''}`;
+          }.`;
         }
         const actualHeal = Math.min(bloodrushHeal, activeTurnUnit.damageCounters);
         if (actualHeal > 0) {
@@ -12018,20 +12059,8 @@ export default function App() {
       const currentCounts = activeTurnUnit.usedTurnCounts || {};
       const newCounts = recordAbilityUse(currentCounts, ability);
 
-      // Check Sanguine Offering passive (Blood Sage: Whenever this unit takes damage, draw 1 card. Once per turn)
-      const unitPassives = getUnitPassives(activeTurnUnit);
-      const sanguineOffering = unitPassives.find(
-        (p) => p.id === 'sanguine_offering' || p.name === 'Sanguine Offering'
-      );
-      let drewCardFromPassive = false;
-      if (sanguineOffering && canTriggerPassiveThisTurn(activeTurnUnit, sanguineOffering)) {
-        const pKey = sanguineOffering.id || sanguineOffering.name;
-        newCounts[pKey] = (newCounts[pKey] || 0) + 1;
-        newCounts['sanguine_offering'] = (newCounts['sanguine_offering'] || 0) + 1;
-        drawCardForPlayer(activeTurnUnit.owner);
-        healOnDraw(activeTurnUnit, 1);
-        drewCardFromPassive = true;
-      }
+      // (Sanguine Offering, Blood Sage's draw when it takes damage, is handled for every source of damage by the
+      // watcher on the board: see 'self.takesDamage' draws)
 
       setUnitsOnBoard((prev) => {
         const next = { ...prev };
@@ -12067,9 +12096,7 @@ export default function App() {
 
       playCardDrawSound();
       showNotification(
-        `${activeTurnUnit.card.name} used ${ability.name} and took ${selfDmgAmount} damage!${
-          drewCardFromPassive ? ' Sanguine Offering triggered (drew 1 card)!' : ''
-        }${isDefeated ? ' (Defeated!)' : ''} (${cost === 0 ? 'Free' : `${cost} AP spent`}, ${newAp} AP remaining).`
+        `${activeTurnUnit.card.name} used ${ability.name} and took ${selfDmgAmount} damage!${isDefeated ? ' (Defeated!)' : ''} (${cost === 0 ? 'Free' : `${cost} AP spent`}, ${newAp} AP remaining).`
       );
 
       if (isDefeated) {
@@ -13274,6 +13301,7 @@ export default function App() {
       tiles[u.instanceId] = { hex: h, cardId: u.card.id, tiles: u.tilesMovedThisTurn || 0 };
     });
     lastBoardRef.current = byId;
+    lastDamageRef.current = Object.fromEntries(Object.values(s.unitsOnBoard).map((u) => [u.instanceId, u.damageCounters]));
     lastUnitTilesRef.current = tiles;
     leftPlayAliveRef.current.clear();
     lastArmourRef.current = null;
@@ -17465,16 +17493,8 @@ export default function App() {
                         }
                         const isP1 = activePlayer === 'player1';
                         const isBasic = card.basic !== false && (card.basic || card.reinforce?.mode === 'basic' || !card.reinforce);
-                        // If an unoccupied back row tile is already selected and this is a basic card, reinforce onto it immediately!
-                        if (
-                          isBasic &&
-                          selectedHex &&
-                          (isP1 ? selectedHex.endsWith('1') : selectedHex.endsWith('6')) &&
-                          !unitsOnBoard[selectedHex]
-                        ) {
-                          handleDeployCardToHex(selectedHex, idx);
-                          return;
-                        }
+                        // (clicking a card only selects it, or unselects it when it's already selected: it is placed
+                        // only by then clicking a tile, so nothing happens that wasn't clicked for)
                         const isSelecting = selectedHandIndex !== idx;
                         setSelectedHandIndex((prev) => (prev === idx ? null : idx));
                         setActiveTurnUnitHex(null);
@@ -17505,7 +17525,7 @@ export default function App() {
                           }
                         }
 
-                        // Selecting a fusion unit from hand prompts to select fusion materials if more than one possible set
+                        // Selecting a fusion unit from hand prompts to select its fusion materials
                         if (isSelecting && card.reinforce?.mode === 'fusion') {
                           const fCheck = checkFusionMaterials(card, unitsOnBoard, activePlayer);
                           const requiredFusionCount = card.reinforce?.count || (Array.isArray(card.reinforce?.requirement) ? card.reinforce.requirement.length : 2);
@@ -17513,13 +17533,9 @@ export default function App() {
                             showNotification(
                               fCheck.reason || `Cannot fuse ${card.name}: You must control (${fCheck.requiredMaterials.join(' + ')}) in play on your side.`
                             );
-                          } else if (fCheck.validCombinations.length > 1) {
-                            showNotification(
-                              `Prompt: Multiple material combinations available. Decide which ${requiredFusionCount} units (${fCheck.requiredMaterials.join(' + ')}) to fuse: Click your chosen units on the board.`
-                            );
                           } else {
                             showNotification(
-                              `Click one of your valid fusion material units (${fCheck.requiredMaterials.join(', ')}) to summon ${card.name}.`
+                              `Click each of the ${requiredFusionCount} units to fuse into ${card.name} (${fCheck.requiredMaterials.join(' + ')}): it goes on the tile of the one you click last.`
                             );
                           }
                         }

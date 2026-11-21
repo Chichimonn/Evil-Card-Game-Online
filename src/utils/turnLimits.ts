@@ -211,6 +211,20 @@ export function isLockActive(
 }
 
 /**
+ * The N of an ability whose whole text is "Armour up to N." and whose only effect is armouring this unit up to N, or
+ * null for any other ability.
+ */
+export function getPureArmourUpTo(ability: CardAbility): number | null {
+  const m = (ability.text || '').trim().match(/^Armour up to (\d+)\.?$/i);
+  if (!m) return null;
+  const effects = (ability.effects || []) as any[];
+  const pure =
+    effects.length > 0 &&
+    effects.every((e) => e.type === 'armour' && (e.target === 'self' || !e.target) && typeof e.upTo === 'number' && !e.if && !e.timing);
+  return pure ? parseInt(m[1], 10) : null;
+}
+
+/**
  * Checks whether an ability can be used this turn under 1/Turn restrictions.
  */
 export function canUseAbilityThisTurn(
@@ -241,6 +255,13 @@ export function canUseAbilityThisTurn(
         reason: `${ability.name} is a 1/Turn ability and has already been used this turn.`
       };
     }
+  }
+
+  // An ability that only armours this unit up (e.g. Bulwark Stance: "Armour up to 5."), when it already has that much:
+  // using it would do nothing, so it isn't offered (only for that exact text, so one that does anything else still is)
+  const armourCap = getPureArmourUpTo(ability);
+  if (armourCap !== null && (unit.armour || 0) >= armourCap) {
+    return { allowed: false, reason: `${unit.card.name} already has ${unit.armour} armour, so ${ability.name} would do nothing.` };
   }
 
   // "Use this ability only if this unit has moved this turn" (e.g. Cloven Crash)
