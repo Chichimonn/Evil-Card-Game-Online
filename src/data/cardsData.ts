@@ -18783,17 +18783,15 @@ export const initialCardsData: CardsDataSchema = {
           "effects": [
             {
               "type": "place",
-              "unit": "friendlyTarget",
+              "unit": "target",
               "tile": "chosenEmptySurroundingSelf"
             }
           ],
-          "range": [
-            1,
-            2
+          "tags": [
+            "melee"
           ],
-          "rangeText": "1-2",
-          "target": "friendlyUnit",
-          "targetText": "targets friendly unit",
+          "target": "anyUnit",
+          "targetText": "can target friendly",
           "limits": {
             "oncePerTurn": true
           }

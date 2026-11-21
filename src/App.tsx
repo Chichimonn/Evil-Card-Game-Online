@@ -2749,6 +2749,7 @@ export default function App() {
       (!ability.effects?.some((e) => e.type === 'damage') &&
         // (not one that targets a unit in range, then places it around this unit, e.g. Drag and Drop)
         ability.target !== 'friendlyUnit' &&
+        ability.target !== 'anyUnit' &&
         ability.effects?.some((e) => e.tile === 'chosenEmptySurrounding' || e.tile === 'chosenEmptySurroundingSelf'))
     ) {
       if (bonusRange > 0) {
@@ -7003,12 +7004,19 @@ export default function App() {
         return;
       }
 
-      // Subcase 3.006: "Place the target on an empty tile surrounding this unit" for a friendly target (e.g. Drag and Drop):
-      // { type: 'place', unit: 'friendlyTarget', tile: 'chosenEmptySurroundingSelf' }. The tile is chosen from a list.
+      // Subcase 3.006: "Place the target on an empty tile surrounding this unit" (e.g. Drag and Drop, melee, can target
+      // friendly): { type: 'place', unit: 'target' (any unit) | 'friendlyTarget', tile: 'chosenEmptySurroundingSelf' }.
+      // The tile is chosen from a list.
       const dropEff: any = activeAbility.effects?.find(
-        (e: any) => e.type === 'place' && e.unit === 'friendlyTarget' && e.tile === 'chosenEmptySurroundingSelf'
+        (e: any) => e.type === 'place' && (e.unit === 'friendlyTarget' || e.unit === 'target') && e.tile === 'chosenEmptySurroundingSelf'
       );
-      if (dropEff && unitsOnBoard[hexId] && unitsOnBoard[hexId].owner === activePlayer && hexId !== activeTurnUnitHex) {
+      if (
+        dropEff &&
+        unitsOnBoard[hexId] &&
+        !unitsOnBoard[hexId].card.isWall &&
+        (dropEff.unit === 'target' || unitsOnBoard[hexId].owner === activePlayer) &&
+        hexId !== activeTurnUnitHex
+      ) {
         const carried = unitsOnBoard[hexId];
         const casterHex = activeTurnUnitHex;
         const spots = getSurroundingHexes(casterHex).filter((h) => !unitsOnBoard[h]);
