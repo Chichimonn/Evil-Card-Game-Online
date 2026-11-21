@@ -52,6 +52,9 @@ const TILE_W = 360;
 // Tokens can't go in a deck
 const isTokenCard = (card: CardItem) => card.isWall || card.art?.includes('token') || card.type === 'token';
 
+// A fairy (counted on its own in the deck's counts)
+const isFairyCard = (card: CardItem) => Boolean(card.classTags?.some((t) => t.toLowerCase() === 'fairy'));
+
 const UNCLASSED = 'unclassed';
 
 // A class is a class tag that more than one deckable card has AND that a promote/fusion/tribute requirement names.
@@ -164,10 +167,12 @@ export const Deckbuilder: React.FC<DeckbuilderProps> = ({
   const isDeckFull = totalCards >= 40;
  
   // How many of each kind the deck has (shown under the deck's buttons)
+  // (fairies are basic units, counted on their own: the five kinds add up to the deck)
   const stats = useMemo(() => {
-    const typeCounts: Record<string, number> = { basic: 0, promote: 0, tribute: 0, fusion: 0 };
+    const typeCounts: Record<string, number> = { basic: 0, promote: 0, tribute: 0, fusion: 0, fairy: 0 };
     deckEntries.forEach((entry) => {
-      if (entry.card.basic) typeCounts.basic += entry.quantity;
+      if (entry.card.basic && isFairyCard(entry.card)) typeCounts.fairy += entry.quantity;
+      else if (entry.card.basic) typeCounts.basic += entry.quantity;
       else if (entry.card.reinforce?.mode === 'promote') typeCounts.promote += entry.quantity;
       else if (entry.card.reinforce?.mode === 'tribute') typeCounts.tribute += entry.quantity;
       else if (entry.card.reinforce?.mode === 'fusion') typeCounts.fusion += entry.quantity;
@@ -179,6 +184,35 @@ export const Deckbuilder: React.FC<DeckbuilderProps> = ({
   // Every class in the game (from class tags and reinforce requirements), ordered by how many deckable cards go with
   // it (the cards that class filter shows), then alphabetically; Unclassed last. The class sort uses the same order.
   const deckClasses = useMemo(() => getDeckClasses(cards), [cards]);
+
+  // The deck's most played types (shown beside the counts of each kind), most first, then by name:
+  //   - basics: the classes of its basic units (not fairies, counted apart), a unit with two counting for both;
+  //   - upgrades: the classes its promotes, tributes and fusions name in what they need, each once per card.
+  // A card with no class among them counts as Other.
+  const deckTypeTotals = useMemo(() => {
+    // How many of the deck's cards of one kind go with each type (types: the classes a card goes with; none: Other)
+    const tally = (isKind: (card: CardItem) => boolean, typesOf: (card: CardItem) => string[]) => {
+      const counts = new Map<string, number>();
+      deckEntries.forEach((entry) => {
+        if (!isKind(entry.card)) return;
+        const types = typesOf(entry.card);
+        (types.length ? types : ['Other']).forEach((t) => counts.set(t, (counts.get(t) || 0) + entry.quantity));
+      });
+      return [...counts].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+    };
+    const classNames = (words: string[]) =>
+      Array.from(new Set(words.map((w) => deckClasses.get(w.toLowerCase())).filter((n): n is string => Boolean(n))));
+    return {
+      basics: tally(
+        (card) => Boolean(card.basic) && !isFairyCard(card),
+        (card) => classNames(card.classTags || [])
+      ),
+      upgrades: tally(
+        (card) => !card.basic && Boolean(card.reinforce) && card.reinforce!.mode !== 'basic',
+        (card) => classNames((card.reinforce?.requirement || []).flat())
+      )
+    };
+  }, [deckEntries, deckClasses]);
   const classOptions = useMemo(() => {
     const deckable = cards.filter((card) => !isTokenCard(card));
     const options = Array.from(deckClasses.values())
@@ -663,12 +697,31 @@ export const Deckbuilder: React.FC<DeckbuilderProps> = ({
           </div>
  
           {/* How many of each kind the deck has (hidden at first: the small tab under the middle of this header shows it) */}
+          {/* Three columns, five rows each: how many of each kind (left); the basics' top types (middle); the upgrades'
+              (promotes, tributes, fusions) top types, by the types they need (right) */}
           {isDeckCountsOpen && (
-            <div className="pt-2 border-t border-stone-800/80 text-xs font-mono leading-tight">
-              <div className="text-sky-300">Basics: {stats.typeCounts.basic || 0}</div>
-              <div className="text-emerald-300">Promotes: {stats.typeCounts.promote || 0}</div>
-              <div className="text-rose-300">Tributes: {stats.typeCounts.tribute || 0}</div>
-              <div className="text-purple-300">Fusions: {stats.typeCounts.fusion || 0}</div>
+            <div className="pt-2 border-t border-stone-800/80 text-xs leading-tight grid grid-cols-3 gap-2">
+              <div>
+                <div className="text-sky-300">Basics: {stats.typeCounts.basic || 0}</div>
+                <div className="text-emerald-300">Promotes: {stats.typeCounts.promote || 0}</div>
+                <div className="text-rose-300">Tributes: {stats.typeCounts.tribute || 0}</div>
+                <div className="text-purple-300">Fusions: {stats.typeCounts.fusion || 0}</div>
+                <div className="text-yellow-300">Fairies: {stats.typeCounts.fairy || 0}</div>
+              </div>
+              {([['Basics', deckTypeTotals.basics], ['Upgrades', deckTypeTotals.upgrades]] as const).map(([title, list], col) => (
+                <div key={title} className={col === 0 ? 'justify-self-center' : 'justify-self-end'}>
+                  <div className="text-stone-200 font-bold">{title}:</div>
+                  {list.length === 0 ? (
+                    <div className="text-stone-500">None yet</div>
+                  ) : (
+                    list.slice(0, 4).map(([type, n]) => (
+                      <div key={type} className="text-stone-300">
+                        {type}: {n}
+                      </div>
+                    ))
+                  )}
+                </div>
+              ))}
             </div>
           )}
           <button
