@@ -26,6 +26,10 @@ export interface ProviderChainSpec {
   // The repeats are separate uses of the attack, each fired at the first one's target with no new click
   // (e.g. Overload Gemstone: "twice ... both against the same target")
   autoTargetRepeats?: boolean;
+  // The provider's own attack comes first, then each chosen ability is used as usual (all its effects) against that
+  // attack's target, with no new click (e.g. Gemstone Hammer: "Deals 2 damage. Then, use a 1AP ranged attack from among
+  // the promoted cards against the target for free.")
+  afterOwnHit?: boolean;
   maxAttacks?: number;
   maxNonAttacks?: number;
   totalCostMax?: number;
@@ -104,6 +108,21 @@ export function getProviderChainSpec(
     };
   }
 
+  // "Deals N damage. Then, use a ... from among the promoted cards against the target for free" (e.g. Gemstone Hammer):
+  // the choice is made first, then the provider's own hit is targeted, then the choice is used at that target
+  if (eff.afterOwnHit) {
+    return {
+      uses: typeof eff.times === 'number' ? eff.times : 1,
+      distinct: Boolean(eff.distinct),
+      nonAttackDistinct: false,
+      sameTargetForAttacks: true,
+      chooseFirst: true,
+      upTo: false,
+      autoTargetRepeats: true,
+      afterOwnHit: true
+    };
+  }
+
   // One choice, cast several times against one target from a single target click. Either all as hits of one attack
   // (e.g. Overload: 3 times against its melee target) or, with repeatAsSeparateUses, as separate uses where each repeat
   // fires at the first one's target by itself (e.g. Overload Gemstone: twice against the same target)
@@ -175,6 +194,29 @@ export function getProviderChainSpec(
 }
 
 const abilityKey = (ab: CardAbility) => ab.id || ab.name;
+
+/**
+ * The provider's own attack, as the first step of an afterOwnHit chain (e.g. Gemstone Hammer's 2 damage): its effects
+ * before the useAbility, with its own tags and range.
+ */
+export function buildOwnHitStep(parent: CardAbility): CardAbility {
+  const effects = parent.effects || [];
+  const idx = effects.findIndex((e: any) => e.type === 'useAbility');
+  const own = idx > 0 ? effects.slice(0, idx) : effects.filter((e: any) => e.type === 'damage');
+  const damage: any = own.find((e: any) => e.type === 'damage');
+  return {
+    id: `${parent.id}_own_hit`,
+    name: parent.name,
+    cost: 0,
+    text: damage ? `Deals ${damage.amount} damage.` : parent.text,
+    tags: parent.tags,
+    range: parent.range,
+    rangeText: parent.rangeText,
+    target: 'unit',
+    effects: own,
+    isOwnHitStep: true
+  } as CardAbility;
+}
 
 /**
  * Whether one more promoted ability may be added to the chain under its rules.

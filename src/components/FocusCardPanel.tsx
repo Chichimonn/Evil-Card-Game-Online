@@ -311,9 +311,14 @@ export const FocusCardPanel: React.FC<Props> = ({
     number.textContent = String(currentAp);
     number.style.color = currentAp < card.ap ? '#fcd34d' : '';
     badge.title = `Action Points: ${currentAp} of ${card.ap} left this turn`;
+    // (the unit taking its turn: its AP swells gently, in step with the suggested abilities)
+    badge.classList.add('slow-pulse-soft');
+    badge.style.animationDelay = String(pulseInStep().animationDelay);
     return () => {
       number.textContent = printed;
       number.style.color = '';
+      badge.classList.remove('slow-pulse-soft');
+      badge.style.animationDelay = '';
       badge.title = `Action Points: ${card.ap}`;
     };
   }, [currentAp, card.id, card.ap, rects]);

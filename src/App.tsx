@@ -109,7 +109,8 @@ import {
   canAddToChain,
   getChainCandidates,
   isChainTargetGone,
-  isAttackAbility
+  isAttackAbility,
+  buildOwnHitStep
 } from './utils/providerChain';
 import { applyTurnStartPassives } from './utils/turnStartPassives';
 import { canUseAbilityThisTurn, isOncePerTurn, canTriggerPassiveThisTurn, recordTurnUsage, recordAbilityUse, freeUseKey, getAttacksUsedThisTurn, hasAttackedUnitThisTurn, UNIVERSAL_MOVE_KEY } from './utils/turnLimits';
@@ -254,6 +255,7 @@ import {
   getUniversalMoveCost,
   MOVE_TAX,
   isUnitMovementDisabled,
+  hasSelfCannotMovePassive,
   CANNOT_MOVE,
   CANT_MOVE_SELF,
   applySelfCannotMove,
@@ -4228,7 +4230,7 @@ export default function App() {
         const hex = Object.keys(prev).find((h) => prev[h].instanceId === trappedId);
         return hex ? { ...prev, [hex]: applyCannotMoveThisTurn(prev[hex]) } : prev;
       });
-      showNotification(`🪤 ${tgt.card.name}'s ${hitTrap}: ${activeTurnUnit.card.name} can't move for the rest of this turn.`);
+      showNotification(`🪤 ${tgt.card.name}'s ${hitTrap}: ${activeTurnUnit.card.name} can't move for the rest of this turn or during its next turn.`);
     }
 
     const recoil = readyStanceReturn + retaliation + reflectReturn;
@@ -4720,7 +4722,14 @@ export default function App() {
       const dealt = exec.hitResults.reduce((sum, h) => sum + h.damage, 0);
       multiHitsLanded += exec.hitResults.length;
       if (!isFriendlyTarget) {
-        multiRecoil += getTargetedRetaliation(tgt, !isMeleeHit, dealt > 0).amount;
+        // (its own armour goes first, before any a surrounding unit shares with it)
+        const ownArmourLostHere = Math.min(startArmour, Math.max(0, usable.total - exec.finalArmour));
+        multiRecoil += getTargetedRetaliation(tgt, !isMeleeHit, dealt > 0, {
+          distance: getHexDistance(activeTurnUnitHex, hex),
+          attacker: activeTurnUnit,
+          rawFirstHit: hits[0]?.damage,
+          armourLost: ownArmourLostHere
+        }).amount;
         noteMultiStepAttack({ anyTargetArmoured: tgt.armour > 0 });
         if (scry) openDefenderScryForMultiStep(tgt, scry.name);
       }
@@ -9812,7 +9821,7 @@ export default function App() {
             const h = Object.keys(prev).find((k) => prev[k].instanceId === trappedId);
             return h ? { ...prev, [h]: applyCannotMoveThisTurn(prev[h]) } : prev;
           });
-          notif += ` 🪤 ${targetUnit.card.name}'s ${meleeTrap}: ${activeTurnUnit.card.name} can't move for the rest of this turn.`;
+          notif += ` 🪤 ${targetUnit.card.name}'s ${meleeTrap}: ${activeTurnUnit.card.name} can't move for the rest of this turn or during its next turn.`;
         }
         if (readyStancePrevented > 0) {
           if (isImmuneToReactEffects(activeTurnUnit)) {
@@ -10208,10 +10217,10 @@ export default function App() {
     }
 
     // Check cannot move (walls, blazing fixture, tokens with cannotMove, pincer clamp)
-    const movingPassives = getUnitPassives(movingUnit);
+    // (a passive that stops another unit moving doesn't count, e.g. Jaw Plant's Trapping Teeth)
     if (
       movingUnit.card.isWall ||
-      movingPassives.some((p) => p.effects?.some((e) => e.type === 'cannotMove')) ||
+      hasSelfCannotMovePassive(movingUnit) ||
       movingUnit.card.id === 'raging_bonfire' ||
       movingUnit.card.id === 'obstructing_wall' ||
       movingUnit.statuses?.includes(CANNOT_MOVE) ||
@@ -12434,12 +12443,16 @@ export default function App() {
     // Attacks, and non-attack abilities that need a target, are targeted as usual (for free) before the next choice
     const needsTarget = isAttackAbility(promoted) || isTargetedAbility(promoted);
     if (needsTarget) {
-      const executable = buildProviderExecutable(parent, promoted, {
+      const built = buildProviderExecutable(parent, promoted, {
         cost: 0,
         // Later uses in the same chain are not the provider's first use this turn
         parentUsedBefore: chain.used.length > 0,
         extra: { prepaidByParent: true, inProviderChain: true }
       });
+      // The provider's own hit is the provider itself (e.g. Gemstone Hammer's 2 damage), not a borrowed ability
+      const executable: CardAbility = (promoted as any).isOwnHitStep
+        ? { ...built, id: `${parent.id}__own_hit`, name: parent.name, promotedAbilityId: undefined }
+        : built;
       // A repeat of the same attack (e.g. Overload Gemstone's second use) fires at the locked target by itself
       if (chain.spec.autoTargetRepeats && chain.targetInstanceId) {
         const targetHex = Object.keys(unitsOnBoard).find((h) => unitsOnBoard[h].instanceId === chain.targetInstanceId);
@@ -12447,7 +12460,15 @@ export default function App() {
           endProviderChain(`${parent.name} ended early: ${chain.targetName || 'the target'} is gone.`);
           return;
         }
-        setActiveAbility(executable);
+        // "...against the target": the chosen ability reaches that target wherever it is (e.g. Gemstone Hammer's ranged
+        // attack against the unit it just hit in melee)
+        let fired = executable;
+        if (chain.spec.afterOwnHit && activeTurnUnitHex) {
+          const dist = getHexDistance(activeTurnUnitHex, targetHex);
+          const [lo, hi] = Array.isArray(executable.range) ? executable.range : [1, 1];
+          if (dist < lo || dist > hi) fired = { ...executable, range: [Math.min(lo, dist), Math.max(hi, dist)] };
+        }
+        setActiveAbility(fired);
         setPendingAttackReplayHex(targetHex);
         showNotification(`${parent.name} ${stepLabel}: ${promoted.name} again at ${chain.targetName || 'the same target'}.`);
         return;
@@ -12653,6 +12674,13 @@ export default function App() {
         return;
       }
       if (next.queue.length >= next.spec.uses || !moreAvailable) {
+        // (e.g. Gemstone Hammer: its own hit first, then what was chosen, at that hit's target)
+        if (next.spec.afterOwnHit) {
+          setProviderChain({ ...next, phase: 'using', queue: [buildOwnHitStep(parentAbility), ...next.queue] });
+          setActiveAbility(null);
+          showNotification(`${parentAbility.name}: chose ${next.queue.map((a) => a.name).join(', ')}. Click the target for ${parentAbility.name} first.`);
+          return;
+        }
         setProviderChain({ ...next, phase: 'using' });
         setActiveAbility(null);
         showNotification(`${parentAbility.name}: chose ${next.queue.map((a) => a.name).join(', ')}. Using them in order.`);
@@ -13717,7 +13745,9 @@ export default function App() {
   // player's loot, scry, research, deck order, popup order, or a card choice such as Reassemble) is sent to them. This
   // screen hides it and waits; their screen shows the same choice from the request, and its answer comes back and
   // runs here exactly as a click would. Their screen never resolves the choice itself.
-  const isMyDecision = (decider: PlayerId | undefined) => !decider || !localPlayer || !isOnline() || decider === localPlayer;
+  // (in Endless, the computer's choices are its own: answered at random, with no window shown)
+  const isMyDecision = (decider: PlayerId | undefined) =>
+    !(endlessMode && decider === ENDLESS_CPU) && (!decider || !localPlayer || !isOnline() || decider === localPlayer);
   // The request this screen sent and is waiting on, and the one it is showing for the other screen
   const outgoingDecisionRef = useRef<{ id: number; kind: DecisionKind } | null>(null);
   const incomingDecisionRef = useRef<{ id: number; kind: DecisionKind } | null>(null);
@@ -15617,7 +15647,8 @@ export default function App() {
     const timer = setTimeout(() => {
       const r = matchRandom();
       if (d.kind === 'knockback') handleKnockbackChoice(r < 0.5);
-      else if (d.kind === 'readySpell') handleReadySpellAnswer(r < 0.5);
+      // (a readied ability, e.g. Ready Spell: it interrupts 80% of the times it can)
+      else if (d.kind === 'readySpell') handleReadySpellAnswer(r < 0.8);
       else if (d.kind === 'popupOrder') handlePopupOrderChoice(String(popupOrderChoice?.options[0]?.key ?? ''));
       else if (d.kind === 'loot') {
         const hand = player2Hand;
@@ -15643,7 +15674,7 @@ export default function App() {
   // knockback (none against a ranged target: pushing it needs a direction drawn), a Momentum Charge, a Rabble Rouse step,
   // and an ability's "you may Reinforce now" (the computer has no hand: skipped).
   const isCpuActingPrompt = Boolean(
-    splitHitPrompt || attackKnockbackPrompt || pendingMomentumCharge || pendingRabbleMove || abilityReinforcePending
+    splitHitPrompt || attackKnockbackPrompt || pendingMomentumCharge || pendingRabbleMove || abilityReinforcePending || readySpellChoice
   );
   useEffect(() => {
     if (!endlessMode || winner || activePlayer !== ENDLESS_CPU || !isCpuActingPrompt) return;
@@ -15664,11 +15695,14 @@ export default function App() {
         else handleDeclineRabbleMove('skip');
       } else if (abilityReinforcePending) {
         finishAbilityReinforce([]);
+      } else if (readySpellChoice) {
+        // Ready Spell: which of its abilities to ready, at random
+        handleReadySpellChoice(pick(readySpellChoice.options).id);
       }
     }, 450);
     return () => clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [endlessMode, winner, activePlayer, splitHitPrompt, attackKnockbackPrompt, pendingMomentumCharge, pendingRabbleMove, abilityReinforcePending]);
+  }, [endlessMode, winner, activePlayer, splitHitPrompt, attackKnockbackPrompt, pendingMomentumCharge, pendingRabbleMove, abilityReinforcePending, readySpellChoice]);
 
   // ---- Endless: the computer's turns ----
   // One step at a time (choose a unit, an action, a target, ...), through the same handlers the player's clicks use.
@@ -15683,7 +15717,9 @@ export default function App() {
   });
   useEffect(() => {
     if (!endlessMode || activeTab !== 'play' || winner || activePlayer !== ENDLESS_CPU || isTurnTransitioning || isCoinFlipOpen) return;
-    if (openDecision() || popupQueue.length > 0 || isCpuActingPrompt || readySpellReact) return;
+    // (an interrupt of its own, e.g. Ready Spell on the player's turn, it targets itself: see runCpuStep)
+    const ownInterrupt = Boolean(readySpellReact?.started && readySpellReact.reactorOwner === ENDLESS_CPU);
+    if (openDecision() || popupQueue.length > 0 || isCpuActingPrompt || (readySpellReact && !ownInterrupt)) return;
     // (a new wave is about to arrive: wait for it)
     if (gamePhase === 'playing' && isEndlessWaveCleared(unitsOnBoard)) return;
     const timer = setTimeout(() => {
@@ -15713,7 +15749,10 @@ export default function App() {
       handleSetupStartClick();
       return;
     }
-    const key = `${turnCount}`;
+    // Interrupting with a readied ability (e.g. Ready Spell): only that ability's targeting, never other actions. Once
+    // it's done (or nothing is left to target) the turn goes back to whoever was taking it.
+    if (readySpellReact && !activeAbility && !multiStageState && !pendingFreeMove) return;
+    const key = readySpellReact ? `react-${turnCount}` : `${turnCount}`;
     const t = cpuTurnRef.current;
     if (t.key !== key) cpuTurnRef.current = { key, steps: 0, moves: 0, stageSteps: 0, failed: new Set() };
     const turn = cpuTurnRef.current;
@@ -16786,7 +16825,7 @@ export default function App() {
           onChoose={handleReadySpellAnswer}
         />
       )}
-      {readySpellChoice && (
+      {readySpellChoice && isMyDecision(activePlayer) && (
         <ChoiceModal
           title={readySpellChoice.ability.name}
           message={`Choose the ${readySpellChoice.cost}AP ability to ready. During your opponent's next turn, you may use it for free to interrupt each ability they use.`}

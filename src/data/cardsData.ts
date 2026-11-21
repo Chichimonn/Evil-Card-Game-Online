@@ -5693,7 +5693,7 @@ export const initialCardsData: CardsDataSchema = {
           "id": "reflective_armour",
           "name": "Reflective Armour",
           "trigger": "multiple",
-          "text": "At the start of each player's turn, armour up to 3. When targeted by a ranged attack, this unit deals 3 damage to the attacker.",
+          "text": "At the start of each player's turn, armour up to 3. When this unit loses armour to a ranged attack, it deals that much damage to the attacker.",
           "effects": [
             {
               "trigger": "turnStart",
@@ -5702,11 +5702,10 @@ export const initialCardsData: CardsDataSchema = {
               "upTo": 3
             },
             {
-              "trigger": "self.targetedByRangedAttack",
+              "trigger": "self.armourDamagedByRangedAttack",
               "type": "damage",
               "target": "attacker",
-              "amount": 3,
-              "hits": 1
+              "amount": "armourDamageTaken"
             }
           ],
           "script": null
@@ -5750,7 +5749,8 @@ export const initialCardsData: CardsDataSchema = {
               },
               "free": true,
               "times": 1,
-              "countsAsAdditionalHits": true
+              "sameTarget": true,
+              "afterOwnHit": true
             }
           ],
           "script": null,
@@ -8372,7 +8372,7 @@ export const initialCardsData: CardsDataSchema = {
       "passives": [
         { "id": "trapping_teeth", "name": "Trapping Teeth", "trigger": "self.hitByMeleeAttack",
           "text": "When this unit is hit by a melee attack, the attacker cannot move during your opponent's next turn.",
-          "effects": [{ "type": "cannotMove", "target": "attacker", "duration": "untilEndOfAttackersTurn" }], "script": null }
+          "effects": [{ "type": "cannotMove", "target": "attacker", "duration": "thisAndAttackersNextTurn" }], "script": null }
       ],
       "abilities": [
         { "id": "swift_bite", "name": "Swift Bite", "cost": 1, "tags": ["melee"], "limits": { "oncePerTurn": true },
@@ -13236,6 +13236,22 @@ export const initialCardsData: CardsDataSchema = {
           ]
         },
         {
+          "id": "shredding_claws",
+          "name": "Shredding Claws",
+          "cost": 1,
+          "text": "Deals 6 damage.",
+          "effects": [
+            {
+              "type": "damage",
+              "amount": 6,
+              "hits": 1
+            }
+          ],
+          "tags": [
+            "melee"
+          ]
+        },
+        {
           "id": "infernal_breath",
           "name": "Infernal Breath",
           "cost": 2,
@@ -15021,15 +15037,12 @@ export const initialCardsData: CardsDataSchema = {
           "id": "laser_tail",
           "name": "Laser Tail",
           "cost": 1,
-          "text": "Deals 3 damage. Then, hits again for 2 damage.",
+          "text": "Deals 3 damage. Hits twice.",
           "effects": [
             {
               "type": "damage",
               "amount": 3,
-              "hits": 1,
-              "extraHit": {
-                "amount": 2
-              }
+              "hits": 2
             }
           ],
           "tags": [
@@ -15097,18 +15110,16 @@ export const initialCardsData: CardsDataSchema = {
           "id": "ray_gun",
           "name": "Ray Gun",
           "cost": 1,
-          "text": "Deals 4 damage.",
-          "range": [
-            1,
-            3
-          ],
-          "rangeText": "1-3",
-          "target": "unit",
+          "text": "Deals 5 damage.",
+          "straightLine": true,
+          "target": "direction",
+          "targetText": "Choose a direction. Hits first unit in a straight line",
           "effects": [
             {
               "type": "damage",
-              "amount": 4,
-              "hits": 1
+              "amount": 5,
+              "hits": 1,
+              "area": "firstUnitInStraightLine"
             }
           ]
         },
@@ -15134,7 +15145,7 @@ export const initialCardsData: CardsDataSchema = {
           "id": "overheat_blaster",
           "name": "Overheat Blaster",
           "cost": 2,
-          "text": "Deals 4 damage. Hits 3 times. You cannot choose this unit to take your next turn unless it is your last non-token unit (you must choose a different non-token unit if able).",
+          "text": "Deals 4 damage. Hits three times. You cannot choose this unit to take your next turn unless it is your last non-token unit (you must choose a different non-token unit if able).",
           "range": [
             1,
             2
@@ -18543,11 +18554,11 @@ export const initialCardsData: CardsDataSchema = {
           "id": "boarding_cutlass",
           "name": "Boarding Cutlass",
           "cost": 1,
-          "text": "Deals 6 damage.",
+          "text": "Deals 5 damage.",
           "effects": [
             {
               "type": "damage",
-              "amount": 6,
+              "amount": 5,
               "hits": 1
             }
           ],
@@ -18559,7 +18570,7 @@ export const initialCardsData: CardsDataSchema = {
           "id": "flare_pistol",
           "name": "Flare Pistol",
           "cost": 1,
-          "text": "Deals 5 damage. If this attack kills the target, Loot 3.",
+          "text": "Deals 5 damage. If this attack kills the target, Loot 2.",
           "effects": [
             {
               "type": "damage",
@@ -18568,7 +18579,7 @@ export const initialCardsData: CardsDataSchema = {
             },
             {
               "type": "loot",
-              "amount": 3,
+              "amount": 2,
               "if": "targetKilled"
             }
           ],
@@ -19732,16 +19743,13 @@ export const initialCardsData: CardsDataSchema = {
           "id": "iron_quarrel",
           "name": "Iron Quarrel",
           "cost": 1,
-          "text": "Deals 5 damage, bypassing up to 2 armour. Use only once per turn.",
+          "text": "Deals 5 damage. Use only once per turn.",
           "effects": [
             {
               "type": "damage",
               "amount": 5,
-              "hits": 1
-            },
-            {
-              "type": "bypassArmourUpTo",
-              "amount": 2
+              "hits": 1,
+              "area": "firstUnitInStraightLine"
             }
           ],
           "range": [
@@ -19749,7 +19757,9 @@ export const initialCardsData: CardsDataSchema = {
             3
           ],
           "rangeText": "1-3",
-          "target": "unit",
+          "straightLine": true,
+          "target": "direction",
+          "targetText": "Choose a direction. Hits first unit in a straight line",
           "limits": {
             "oncePerTurn": true
           }

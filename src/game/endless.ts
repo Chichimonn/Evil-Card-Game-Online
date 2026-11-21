@@ -21,7 +21,8 @@ export const ENDLESS_PLAYER: PlayerId = 'player1';
 export const ENDLESS_CPU: PlayerId = 'player2';
 export const WAVES_PER_ROUND = 10;
 
-/** Units the computer never fields: their strength is drawing and handling cards, which it doesn't have. */
+/** Units the computer never fields: their strength is drawing and handling cards, which it doesn't have, or it can't
+ * use them properly (Assault Lander). */
 export const CPU_EXCLUDED_UNITS = new Set<string>([
   'archivist_sage',
   'blood_sage',
@@ -30,7 +31,8 @@ export const CPU_EXCLUDED_UNITS = new Set<string>([
   'surveying_sage',
   'skeleton_sage',
   'conflict_correspondent',
-  'grandfather_mystic' // Grandfather Oracle
+  'grandfather_mystic', // Grandfather Oracle
+  'assault_lander'
 ]);
 
 /** The Threat Level for a wave (waves are numbered from 1): the cost of the units it brings, starting at 2. */

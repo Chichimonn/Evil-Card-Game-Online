@@ -37,6 +37,9 @@ export const DRAW_TAX = 'draw_tax';
 // "You cannot choose this unit to take your next turn" (e.g. Overheat Blaster): given on its own turn, so it is pending
 // until that turn ends and then works like TURN_DENIED through its controller's next turn
 export const SELF_TURN_DENIED_PENDING = 'self_turn_denied_pending';
+// "The attacker cannot move during your opponent's next turn" (e.g. Trapping Teeth) on the attacker's own turn: it also
+// can't move on its controller's next turn. Pending until this turn ends, then it becomes CANNOT_MOVE for that turn.
+export const CANNOT_MOVE_NEXT_OWN_TURN_PENDING = 'cannot_move_next_own_turn_pending';
 
 /** AP costs a unit can't use right now because of an exact-cost status (e.g. Suffocation Draught). */
 export function getBarredExactCosts(unit: BattlefieldUnit | null | undefined): number[] {
@@ -70,11 +73,12 @@ const isNextTurnLimitStatus = (s: string) =>
   s.startsWith(CANNOT_USE_COST_PREFIX) ||
   s.startsWith(CANNOT_USE_EXACT_PREFIX);
 /**
- * "The attacker cannot move during your opponent's next turn" (e.g. Trapping Teeth): the attack happens on that turn,
- * so it takes hold right away and lapses when the attacker's turn ends (CANNOT_MOVE).
+ * "The attacker cannot move during your opponent's next turn" (e.g. Trapping Teeth): the attack happens on the
+ * attacker's own turn, so it takes hold right away for the rest of that turn (CANNOT_MOVE), and holds through its
+ * controller's next turn as well (CANNOT_MOVE_NEXT_OWN_TURN_PENDING, which becomes CANNOT_MOVE when this turn ends).
  */
 export function applyCannotMoveThisTurn(unit: BattlefieldUnit): BattlefieldUnit {
-  return addStatus(unit, CANNOT_MOVE);
+  return addStatus(addStatus(unit, CANNOT_MOVE), CANNOT_MOVE_NEXT_OWN_TURN_PENDING);
 }
 // Statuses a unit gives itself on its own turn that last until the end of the opponent's next turn
 const SELF_STATUSES_UNTIL_OPPONENT_TURN_END = [CANT_MOVE_SELF, IMMUNE_TO_REACT, UNTARGETABLE, SHARES_ARMOUR, CANNOT_BE_MOVED];
@@ -451,6 +455,16 @@ export function getMoveBlockedMessage(unit: BattlefieldUnit): string {
 }
 
 /**
+ * A passive saying "this unit cannot move" (e.g. Blazing Fixture: { type: 'cannotMove', target: 'self' }). Not one that
+ * stops another unit moving (e.g. Trapping Teeth: target 'attacker', the unit that hit this one with a melee attack).
+ */
+export function hasSelfCannotMovePassive(unit: BattlefieldUnit | null | undefined): boolean {
+  return getUnitPassives(unit).some((p) =>
+    (p.effects || []).some((e: any) => e.type === 'cannotMove' && (!e.target || e.target === 'self'))
+  );
+}
+
+/**
  * Checks if a unit's Universal Move action is disabled
  * (Pincer Clamp, self cannot move, walls, immobile tokens, cannotMove passives).
  */
@@ -462,8 +476,7 @@ export function isUnitMovementDisabled(
   if (unit.card.isWall) return true;
   // "Then, this unit may no longer move this turn" (Magical Omnipresence, after its placement)
   if (unit.passiveTurnMarks?.omnipresence_placed === getCurrentTurnNumber()) return true;
-  const passives = getUnitPassives(unit);
-  if (passives.some((p) => p.effects?.some((e: any) => e.type === 'cannotMove'))) return true;
+  if (hasSelfCannotMovePassive(unit)) return true;
   if (unit.card.id === 'raging_bonfire' || unit.card.id === 'obstructing_wall') return true;
   return false;
 }
@@ -667,6 +680,13 @@ export function expireTurnRestrictions(
   Object.entries(next).forEach(([hex, u]) => {
     if (u.owner !== player || !u.statuses?.includes(SELF_TURN_DENIED_PENDING)) return;
     next[hex] = { ...u, statuses: [...u.statuses.filter((s) => s !== SELF_TURN_DENIED_PENDING), TURN_DENIED] };
+    changed = true;
+  });
+  // ...and so does a "can't move" from being caught this turn (e.g. Trapping Teeth)
+  Object.entries(next).forEach(([hex, u]) => {
+    if (u.owner !== player || !u.statuses?.includes(CANNOT_MOVE_NEXT_OWN_TURN_PENDING)) return;
+    const rest = u.statuses.filter((s) => s !== CANNOT_MOVE_NEXT_OWN_TURN_PENDING && s !== CANNOT_MOVE);
+    next[hex] = { ...u, statuses: [...rest, CANNOT_MOVE] };
     changed = true;
   });
   return expireLockedAbilities(changed ? next : units, player);

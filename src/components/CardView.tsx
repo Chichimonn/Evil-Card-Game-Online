@@ -210,14 +210,35 @@ export const CardAbilityBox: React.FC<{
           </span>
         ))}
         {isStraightLineAbility(ability) ? (
-          <span className={`bg-amber-800 text-white ${chip}`}>
-            <Zap className="w-[0.9em] h-[0.9em] text-amber-300" />
-            Straight Line
-          </span>
+          // Aimed by choosing a direction: what it hits down that line, and how far it reaches (e.g. Iron Quarrel:
+          // "Straight Line: First Unit" + "Range: 1-3"; Quartz Ray: "Straight Line: All Units")
+          <>
+            <span className={`bg-amber-800 text-white ${chip}`}>
+              <Zap className="w-[0.9em] h-[0.9em] text-amber-300" />
+              {`Straight Line: ${ability.effects?.some((e: any) => e.area === 'allUnitsInLine') ? 'All Units' : 'First Unit'}`}
+            </span>
+            {(ability.rangeText || (ability.range && ability.range.length > 0)) && (
+              <span className={`bg-sky-800 text-white ${chip}`}>
+                <Crosshair className="w-[0.9em] h-[0.9em]" />
+                {withNumerals(`Range: ${ability.rangeText || (ability.range!.length > 1 ? `${ability.range![0]}-${ability.range![1]}` : ability.range![0])}`)}
+              </span>
+            )}
+          </>
         ) : (ability.usesPath || ability.id === 'bananarang') ? (
+          // A path drawn tile by tile, which must run straight for some (e.g. Glacial Spikes: "Straight Path: 3 tiles")
           <span className={`bg-amber-800 text-white ${chip}`}>
             <Sparkles className="w-[0.9em] h-[0.9em] text-amber-300" />
-            {withNumerals(`Path: ${ability.rangeText || (ability.range ? (ability.range[0] === ability.range[1] ? `${ability.range[0]} tiles` : `${ability.range[0]}-${ability.range[1]} tiles`) : '3 tiles')}`)}
+            {withNumerals(
+              `${(ability as any).pathRule === 'straight' ? 'Straight Path' : 'Path'}: ${
+                ability.rangeText
+                  ? `${ability.rangeText} tile${ability.rangeText === '1' ? '' : 's'}`
+                  : ability.range
+                  ? ability.range[0] === ability.range[1]
+                    ? `${ability.range[0]} tiles`
+                    : `${ability.range[0]}-${ability.range[1]} tiles`
+                  : '3 tiles'
+              }`
+            )}
           </span>
         ) : (ability.rangeText || (ability.range && ability.range.length > 0)) ? (
           <span className={`bg-sky-800 text-white ${chip}`}>

@@ -372,8 +372,8 @@ export function getTargetedScryPassive(
 }
 
 /**
- * Damage a unit deals back to an attacker just for targeting it (e.g. Reflective Armour: "When targeted by a ranged
- * attack, this unit deals 3 damage to the attacker"). Read from passive effects
+ * Damage a unit deals back to an attacker just for targeting it (e.g. "When targeted by a ranged attack, this unit deals
+ * 3 damage to the attacker"), or for the armour it lost to the attack (e.g. Reflective Armour). Read from passive effects
  * { trigger: 'self.targetedByRangedAttack' | 'self.targetedByMeleeAttack' | 'self.targetedByAttack', type: 'damage', target: 'attacker' }.
  * It is a passive, not a react effect, so react immunity does not stop it (silencing its passives does).
  * 'self.takesDamageFromMeleeAttack' (e.g. Hot to the Touch) only fires when the attack dealt it damage (tookDamage).
@@ -401,10 +401,15 @@ export function getTargetedRetaliation(
         return;
       }
       // "When damage is dealt to this unit's armour by a melee attack, it deals that much damage back to the attacker"
-      // (e.g. Wheel of Blades): { type: 'damage', target: 'attacker', amount: 'armourDamageTaken',
-      // trigger: 'self.armourDamagedByMeleeAttack' }
+      // (e.g. Wheel of Blades), and "When this unit loses armour to a ranged attack, it deals that much damage to the
+      // attacker" (e.g. Reflective Armour): { type: 'damage', target: 'attacker', amount: 'armourDamageTaken',
+      // trigger: 'self.armourDamagedByMeleeAttack' | 'self.armourDamagedByRangedAttack' }. Only its own armour counts
+      // (not armour another unit shares with it).
       if (e.type === 'damage' && e.target === 'attacker' && e.amount === 'armourDamageTaken') {
-        if ((e.trigger || p.trigger) === 'self.armourDamagedByMeleeAttack' && !isRangedAttack && (opts?.armourLost || 0) > 0) {
+        const trig = e.trigger || p.trigger;
+        const fitsAttack =
+          (trig === 'self.armourDamagedByMeleeAttack' && !isRangedAttack) || (trig === 'self.armourDamagedByRangedAttack' && isRangedAttack);
+        if (fitsAttack && (opts?.armourLost || 0) > 0) {
           result.amount += opts!.armourLost!;
           result.sources.push(p.name);
         }
