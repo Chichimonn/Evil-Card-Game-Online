@@ -228,7 +228,9 @@ export const DeckSelectModal: React.FC<DeckSelectModalProps> = ({
     return map;
   }, [allCards]);
 
-  const { customDecks, lockedPresetDecks, allDecksMap } = useMemo(() => buildSelectableDecks(allCards, cardsById), [allCards, cardsById]);
+  // (read again every time this opens, so a deck saved in the Deckbuilder since is there right away)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const { customDecks, lockedPresetDecks, allDecksMap } = useMemo(() => buildSelectableDecks(allCards, cardsById), [allCards, cardsById, isOpen]);
 
   // Pre-select the first available deck for each player when opening so they can proceed immediately
   useEffect(() => {
