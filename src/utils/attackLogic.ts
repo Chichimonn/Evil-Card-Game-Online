@@ -515,7 +515,10 @@ export function applyAttackerBonusPassives(
       if (!amount) return;
       const distance =
         options?.attackerHex && options?.targetHex ? getHexDistance(options.attackerHex, options.targetHex) : 1;
-      const isRangedAttack = Boolean(ability?.tags?.includes('ranged')) || distance > 1 || (ability?.range?.[1] ?? 1) > 1;
+      // (an attack without the Melee tag is ranged, as everywhere else, e.g. a straight-line attack with no range such as
+      // Iron Quarrel; a melee attack reaching past range 1 counts too)
+      const isRangedAttack =
+        !isMelee || Boolean(ability?.tags?.includes('ranged')) || distance > 1 || (ability?.range?.[1] ?? 1) > 1;
       if (eff.appliesTo === 'ownRangedAttacks' && !isRangedAttack) return;
       if (eff.appliesTo === 'ownMeleeAttacks' && !isMelee) return;
       const key = `bonus_${p.id || p.name}${effIdx > 0 ? `_${effIdx}` : ''}`;

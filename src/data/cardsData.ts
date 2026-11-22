@@ -19752,11 +19752,6 @@ export const initialCardsData: CardsDataSchema = {
               "area": "firstUnitInStraightLine"
             }
           ],
-          "range": [
-            1,
-            3
-          ],
-          "rangeText": "1-3",
           "straightLine": true,
           "target": "direction",
           "targetText": "Choose a direction. Hits first unit in a straight line",
