@@ -30,8 +30,8 @@ export interface VersionInfo {
 
 export const LOCAL_VERSION: VersionInfo = { gameVersion: GAME_VERSION, buildId: BUILD_ID };
 
-/** How the version is shown to players, e.g. "v0.1.0 (3fa9c21b04de)". */
-export const formatVersion = (v: VersionInfo = LOCAL_VERSION): string => `v${v.gameVersion} (${v.buildId})`;
+/** How the version is shown to players, e.g. "v0.1.0 (Build ID: 3fa9c21b04de)". */
+export const formatVersion = (v: VersionInfo = LOCAL_VERSION): string => `v${v.gameVersion} (Build ID: ${v.buildId})`;
 
 /**
  * Whether another copy of the game can play against this one. Both the published version and the build fingerprint
