@@ -204,6 +204,27 @@ const PRESET_DECKS = [
       'starburst_wizard', 'starburst_wizard', 'starburst_wizard',
       'anima_magi', 'anima_magi'
     ]
+  },
+  {
+    id: 'preset_insalata_speciale_di_michel',
+    name: 'Insalata speciale di Michel',
+    cardIds: [
+      'lightning_plant', 'lightning_plant', 'lightning_plant',
+      'noxious_plant', 'noxious_plant', 'noxious_plant',
+      'plant_knight', 'plant_knight', 'plant_knight',
+      'plant_mage', 'plant_mage', 'plant_mage',
+      'plant_lasher', 'plant_lasher', 'plant_lasher',
+      'seed_bombardier', 'seed_bombardier', 'seed_bombardier',
+      'spore_mystic', 'spore_mystic',
+      'elder_pine_treant', 'elder_pine_treant',
+      'lumbering_treeback', 'lumbering_treeback', 'lumbering_treeback',
+      'surveying_sage', 'surveying_sage',
+      'blood_sage', 'blood_sage', 'blood_sage',
+      'archivist_sage', 'archivist_sage',
+      'fateweaver_sage', 'fateweaver_sage',
+      'carapace_crusher', 'carapace_crusher', 'carapace_crusher',
+      'jaw_plant', 'jaw_plant', 'jaw_plant'
+    ]
   }
 ];
 
