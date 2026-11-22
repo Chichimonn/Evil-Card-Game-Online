@@ -15,6 +15,22 @@ const withEmailLinks = (text: string): React.ReactNode =>
     )
   );
 
+// ~~text~~ is shown struck through (e.g. the prize spots that are gone)
+const STRUCK = /~~(.+?)~~/;
+const withMarkup = (text: string): React.ReactNode =>
+  text.split(STRUCK).map((part, i) =>
+    i % 2 === 1 ? (
+      <s key={i} className="text-stone-500 decoration-2">
+        {part}
+      </s>
+    ) : (
+      <React.Fragment key={i}>{withEmailLinks(part)}</React.Fragment>
+    )
+  );
+
+// A heading: a short line ending in ":", maybe followed by a note in brackets (e.g. "The Prize: (1 already claimed!)")
+const HEADING = /^([^\n]{1,40}:)\s*(\([^\n]{1,60}\))?$/;
+
 /**
  * The news pop-up on the main screen (see data/news.ts): its picture across the top, its title under it, then its text.
  * It stays until it's closed (the X, the Close button, Escape, or a click outside it).
@@ -33,7 +49,11 @@ export const NewsModal: React.FC<{ news: NewsItem; onClose: () => void }> = ({ n
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [news.id]);
 
-  const paragraphs = news.body.split(/\n\s*\n/).map((p) => p.trim()).filter(Boolean);
+  // {claimed} and {left}: the prize spots claimed so far and those still open (see data/news.ts)
+  const claimed = news.prize?.claimed ?? 0;
+  const left = Math.max(0, (news.prize?.slots ?? 0) - claimed);
+  const body = news.body.replace(/\{claimed\}/g, String(claimed)).replace(/\{left\}/g, String(left));
+  const paragraphs = body.split(/\n\s*\n/).map((p) => p.trim()).filter(Boolean);
 
   return (
     <div
@@ -72,17 +92,19 @@ export const NewsModal: React.FC<{ news: NewsItem; onClose: () => void }> = ({ n
             <h2 id="news-title" className="font-title text-2xl text-amber-300 leading-tight">
               {news.title}
             </h2>
-            {paragraphs.map((p, i) =>
-              /^[^\n]{1,40}:$/.test(p) ? (
+            {paragraphs.map((p, i) => {
+              const heading = p.match(HEADING);
+              return heading ? (
                 <h3 key={i} className="font-title text-lg text-stone-100 mt-1 leading-tight">
-                  {p}
+                  {heading[1]}
+                  {heading[2] && <span className="ml-2 text-sm font-bold text-amber-300">{heading[2]}</span>}
                 </h3>
               ) : (
                 <p key={i} className="text-sm leading-snug text-stone-300 whitespace-pre-line">
-                  {withEmailLinks(p)}
+                  {withMarkup(p)}
                 </p>
-              )
-            )}
+              );
+            })}
           </div>
         </div>
 

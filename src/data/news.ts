@@ -4,26 +4,34 @@
  *
  * image: a picture in public/assets/news (until it's added there, a plain panel with the title shows instead).
  * body: paragraphs separated by a blank line. A paragraph that ends in ":" on its own (e.g. "The Challenge:") is shown
- * as a heading. An email address in the text becomes a link that opens the player's email app.
+ * as a heading, and so is one that ends in ":" followed by a note in brackets (e.g. "The Prize: ({claimed} already
+ * claimed!)", the note shown smaller beside the heading). An email address in the text becomes a link that opens the
+ * player's email app.
+ *
+ * In the text, ~~like this~~ is shown struck through, and {claimed} and {left} are replaced by the numbers below.
+ * prize: the challenge's prize spots (slots) and how many have been claimed so far: update claimed as players win
+ * ({left} is slots - claimed, so the two always add up).
  */
 export interface NewsItem {
   id: string;
   title: string;
   image: string;
   body: string;
+  prize?: { slots: number; claimed: number };
 }
 
 export const CURRENT_NEWS: NewsItem = {
   id: 'captains-challenge-wave-50',
   title: "Captain's Challenge: Wave 50",
   image: '/assets/news/captains-challenge-wave-50.png',
+  prize: { slots: 10, claimed: 1 },
   body: `Thank you sincerely for being among the first players to playtest EVIL Card Game! As part of the recent updates, I have added a single-player endless mode to the game. The computer opponent- well, let's just say it still has lots of learning to do. Your job will be to teach it a lesson. 
 
 The Challenge:
 
 Defeat the endless waves piloted by this hapless buffoon up to wave 50. After making it this far, email proof to adamcd@rogers.com in the form of a video or valid combat logs, along with 1. Your prefered name, 2. Your occupation, and 3. Your favourite 1-3 card type(s).
 
-The Prize:
+The Prize: ({claimed} already claimed!)
 
-The first 10 different people to do this will be featured as cards in our upcoming "Captain's Mode", where your EVIL Cards will be given a new objective to defend their most powerful unit. Those players who claim victory will have the chance to fight alongside named characters in the story (to come!) as captains. Stay tuned for more updates!`
+The next ~~10~~ {left} different people to do this will be featured as cards in our upcoming "Captain's Mode", where your EVIL Cards will be given a new objective to defend their most powerful unit. Those players who claim victory will have the chance to fight alongside named characters in the story (to come!) as captains. Stay tuned for more updates!`
 };
