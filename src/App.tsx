@@ -2420,6 +2420,62 @@ export default function App() {
   //   'self.gainsArmourFirstTimeEachTurn' useAbility (e.g. Self-Contained Formation: the first armour it gains on its
   //   turn grants a free use of a 1AP promoted ability, as a granted provider for this turn)
   const lastArmourRef = useRef<{ id: string; armour: number } | null>(null);
+  // A free promoted ability offered on gaining armour (e.g. Self-Contained Formation): the provider it is used through,
+  // and the promoted abilities it may be, for a unit whose passive hasn't triggered yet this turn (null otherwise)
+  const getArmourFreeUse = (u: BattlefieldUnit) => {
+    for (const p of getUnitPassives(u)) {
+      if (p.trigger !== 'self.gainsArmourFirstTimeEachTurn') continue;
+      const key = p.id || p.name;
+      const use: any = (p.effects || []).find((e: any) => e.type === 'useAbility');
+      if (!use) continue;
+      const provider: CardAbility = {
+        id: `${key}_free_use`,
+        name: p.name,
+        cost: 0,
+        text: p.text,
+        limits: { oncePerTurn: true },
+        effects: [{ ...use, free: true }]
+      } as CardAbility;
+      const options = getQualifyingPromotedAbilities(provider, u.promotedCards, u).filter(
+        (q) => canUseAbilityThisTurn(u, q.ability).allowed
+      );
+      if (options.length === 0) return null;
+      return { key, provider, options };
+    }
+    return null;
+  };
+  // ...and whether it is about to trigger: the unit hasn't used it this turn and is gaining armour
+  const isArmourFreeUsePending = (u: BattlefieldUnit, armourAfter: number) => {
+    if (armourAfter <= u.armour) return false;
+    const free = getArmourFreeUse(u);
+    return Boolean(free && u.passiveTurnMarks?.[free.key] !== turnCount);
+  };
+  // The turn waits for that free ability when the armour used the unit's last AP: it ends once all of it is done
+  const armourFreeUseEndTurnRef = useRef(false);
+  useEffect(() => {
+    if (!armourFreeUseEndTurnRef.current) return;
+    if (!activeTurnUnit || gamePhase !== 'playing') {
+      armourFreeUseEndTurnRef.current = false;
+      return;
+    }
+    if (
+      activeAbility ||
+      multiStageState ||
+      providerChain ||
+      cardChoicePrompt ||
+      anyPopupOpen ||
+      popupQueue.length > 0 ||
+      pendingFreeMove ||
+      pendingRabbleMove ||
+      pendingMomentumCharge ||
+      pendingAttackReplayHex ||
+      isTurnTransitioning
+    ) {
+      return;
+    }
+    armourFreeUseEndTurnRef.current = false;
+    if (activeTurnUnit.currentAp <= 0) switchTurn(false);
+  });
   useEffect(() => {
     if (!activeTurnUnit || !activeTurnUnitHex || activeTurnUnit.owner !== activePlayer || gamePhase !== 'playing') {
       lastArmourRef.current = activeTurnUnit ? { id: activeTurnUnit.instanceId, armour: activeTurnUnit.armour } : null;
@@ -2430,6 +2486,7 @@ export default function App() {
     const marks = u.passiveTurnMarks || {};
     const patch: Partial<BattlefieldUnit> = {};
     const notes: string[] = [];
+    let armourFreeUse: ReturnType<typeof getArmourFreeUse> = null;
     getUnitPassives(u).forEach((p) => {
       const key = p.id || p.name;
       if (p.trigger === 'self.usesThirdAbilityOfTurn' && marks[key] !== turnCount && getAbilitiesUsedThisTurn(u) >= 3) {
@@ -2442,20 +2499,9 @@ export default function App() {
       }
       const prevArmour = lastArmourRef.current?.id === u.instanceId ? lastArmourRef.current.armour : u.armour;
       if (p.trigger === 'self.gainsArmourFirstTimeEachTurn' && marks[key] !== turnCount && u.armour > prevArmour) {
-        const use: any = (p.effects || []).find((e: any) => e.type === 'useAbility');
         patch.passiveTurnMarks = { ...(patch.passiveTurnMarks || marks), [key]: turnCount };
-        if (use) {
-          const provider: CardAbility = {
-            id: `${key}_free_use`,
-            name: p.name,
-            cost: 0,
-            text: p.text,
-            limits: { oncePerTurn: true },
-            effects: [{ ...use, free: true }]
-          } as CardAbility;
-          patch.grantedAbilities = [...(patch.grantedAbilities || u.grantedAbilities || []), provider];
-          notes.push(`${p.name}: you may use a ${use.filter?.cost ?? 1}AP promoted ability for free (under its card)`);
-        }
+        const free = getArmourFreeUse(u);
+        if (free) armourFreeUse = free;
       }
     });
     // Critical Forecast: the chosen ability was just used for the first time this turn
@@ -2526,6 +2572,33 @@ export default function App() {
     if (Object.keys(patch).length === 0) return;
     setUnitsOnBoard((prev) => (prev[hex]?.instanceId === u.instanceId ? { ...prev, [hex]: { ...prev[hex], ...patch } } : prev));
     if (notes.length > 0) showNotification(`✨ ${u.card.name}: ${notes.join(' • ')}.`);
+    // "The first time this unit gains armour each turn, it may use a 1AP ability from among the promoted units for free"
+    // (e.g. Self-Contained Formation): chosen now, before anything else, from the promoted cards' abilities (or none).
+    // With no AP left, the turn ends once the free ability is done (or declined).
+    // (set inside the loop above, which TypeScript can't follow)
+    const freeUseNow = armourFreeUse as ReturnType<typeof getArmourFreeUse>;
+    if (freeUseNow) {
+      const { provider, options } = freeUseNow;
+      if (u.currentAp <= 0) armourFreeUseEndTurnRef.current = true;
+      askCardChoice(
+        {
+          title: provider.name,
+          message: `${u.card.name} gained armour: use one of these abilities from its promoted cards for free?`,
+          options: [
+            ...options.map((q) => ({ label: `${q.ability.name} (${q.cardName})`, value: q.ability.id })),
+            { label: "Don't use one", value: 'cancel' }
+          ]
+        },
+        (value) => {
+          const chosen = options.find((q) => q.ability.id === value);
+          if (!chosen) {
+            showNotification(`${provider.name}: no ability used.`);
+            return;
+          }
+          handlePromotedAbilitySelect(chosen.ability, provider);
+        }
+      );
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTurnUnit, activeTurnUnitHex, turnCount]);
 
@@ -4511,6 +4584,8 @@ export default function App() {
     let multiRecoil = 0;
     // Hits landed across all targets (for "per hit" effects like Bloodrush)
     let multiHitsLanded = 0;
+    // (damage dealt to enemy targets, for the ability's own heal below)
+    let multiEnemyDamage = 0;
     const multiFirstHeal = getFirstAttackHealPerHit(activeTurnUnit);
 
     targets.forEach((hex) => {
@@ -4722,6 +4797,7 @@ export default function App() {
       Object.assign(nextBoard, settled.units);
       const dealt = exec.hitResults.reduce((sum, h) => sum + h.damage, 0);
       multiHitsLanded += exec.hitResults.length;
+      if (!isFriendlyTarget) multiEnemyDamage += dealt;
       if (!isFriendlyTarget) {
         // (its own armour goes first, before any a surrounding unit shares with it)
         const ownArmourLostHere = Math.min(startArmour, Math.max(0, usable.total - exec.finalArmour));
@@ -4779,6 +4855,23 @@ export default function App() {
       const c = nextBoard[activeTurnUnitHex];
       nextBoard[activeTurnUnitHex] = { ...c, damageCounters: Math.max(0, c.damageCounters - multiHeal) };
       summaries.push(`${multiFirstHeal!.name} healed ${Math.min(multiHeal, c.damageCounters)}`);
+    }
+    // The attack's own self heal, once per use however many targets it hit (e.g. Overgrowth Spores: "This unit heals 5
+    // damage"), as for a single target: { amount: 'totalDamageDealt' } heals the damage dealt, { if: 'damageDealt' }
+    // only if it dealt any
+    const ownHealEff: any = ability.effects?.find((e: any) => e.type === 'heal' && e.target === 'self');
+    const ownHeal =
+      !ownHealEff || (ownHealEff.if === 'damageDealt' && multiEnemyDamage <= 0)
+        ? 0
+        : ownHealEff.amount === 'totalDamageDealt'
+        ? multiEnemyDamage
+        : typeof ownHealEff.amount === 'number'
+        ? ownHealEff.amount
+        : 0;
+    if (ownHeal > 0 && nextBoard[activeTurnUnitHex]) {
+      const c = nextBoard[activeTurnUnitHex];
+      nextBoard[activeTurnUnitHex] = { ...c, damageCounters: Math.max(0, c.damageCounters - ownHeal) };
+      summaries.push(`${activeTurnUnit.card.name} healed ${Math.min(ownHeal, c.damageCounters)}`);
     }
     const multiSelfDmg = getAbilitySelfDamage(ability) + multiRecoil;
     if (multiRecoil > 0) summaries.push(`${multiRecoil} damage dealt back to ${activeTurnUnit.card.name}`);
@@ -12401,8 +12494,11 @@ export default function App() {
     // An armour ability may trigger a scry (e.g. Tactician's Ledger); if so, the scry ends the turn when needed
     const ledgerScry = afterArmourAbilityUsed(activeTurnUnit, ability, endsTurn ? 0 : newAp);
 
+    // (e.g. Self-Contained Formation: the armour gained now offers a free promoted ability first; the turn ends after it)
+    const freeUseFirst = !endsTurn && isArmourFreeUsePending(activeTurnUnit, armourAfter(activeTurnUnit.armour));
+
     // Automatically end turn when actions cannot be taken or ability ends turn
-    if (!ledgerScry && (endsTurn || (cost > 0 && newAp <= 0))) {
+    if (!ledgerScry && !freeUseFirst && (endsTurn || (cost > 0 && newAp <= 0))) {
       switchTurn(false);
     }
   };
