@@ -41,7 +41,7 @@ export const LOADING_MESSAGES: string[] = [
   "Recommending anger management to Cutthroat Assassin...",
   "Trying really hard to break Prismatic Mage's diamond...",
   "Pressing F11 on most computers to maximize the screen...",
-  "Stroking Boastful Champion's Ego...",
+  "Stroking Boastful Champion's ego...",
   "Tightening the laces on Nimbus Lancer’s wing boots…",
   "Gifting Feverish Manifestation a lump of coal for the holidays…",
   "Trying to find a second hat for Animus Twin…",

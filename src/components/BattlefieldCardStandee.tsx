@@ -2,6 +2,20 @@ import React from 'react';
 import { CardItem, CardAbility } from '../types/card';
 import { PlayerId } from '../types/game';
 import { useProcessedArt } from '../utils/artHalo';
+import { unitCost } from '../game/endless';
+
+/**
+ * How big a unit's standee stands, by its threat level (the cards that go into it: see unitCost): Threat 1 (basic
+ * units, tokens) 0.9x, Threat 2 (promoted) 1x, Threat 3 (Fusion 2, Tribute 2) 1.1x, Threat 4 or more 1.2x.
+ */
+export function getStandeeScale(card: CardItem): number {
+  const threat = card.type === 'token' ? 1 : Math.max(1, Math.min(4, unitCost(card)));
+  return 0.8 + threat * 0.1;
+}
+
+// The art is laid out at this many times its on-board size and shrunk back down, so the board's zoom and 3D tilt
+// shrink a large picture instead of stretching a small one (which looks fuzzy)
+const ART_SUPERSAMPLE = 2;
 
 interface BattlefieldCardStandeeProps {
   card: CardItem;
@@ -103,7 +117,7 @@ export const BattlefieldCardStandee: React.FC<BattlefieldCardStandeeProps> = ({
         className="w-[140px] h-[170px] relative flex flex-col items-center justify-end pointer-events-none"
         style={{
           transformOrigin: '50% 100%',
-          transform: `rotateZ(${-boardYaw}deg) rotateX(${-(boardPitch - 75)}deg)`,
+          transform: `rotateZ(${-boardYaw}deg) rotateX(${-(boardPitch - 75)}deg) scale(${getStandeeScale(card)})`,
           transformStyle: 'preserve-3d',
           WebkitFontSmoothing: 'antialiased',
           backfaceVisibility: 'hidden'
@@ -135,23 +149,30 @@ export const BattlefieldCardStandee: React.FC<BattlefieldCardStandeeProps> = ({
               : ''
           }`}
           style={{
-            transform: 'translateZ(0)',
             backfaceVisibility: 'hidden',
             WebkitBackfaceVisibility: 'hidden'
           }}
         >
           {art.status === 'pending' ? null : art.status === 'ready' ? (
-            <img
-              src={art.src}
-              alt={card.name}
-              className="w-full h-full object-contain object-bottom pointer-events-none select-none"
+            // (no will-change or translateZ here: those freeze the art as a picture at its first size, which the board's
+            // zoom then stretches; and smooth scaling, not "optimize-contrast", so shrinking the art doesn't make it grainy)
+            <div
+              className="absolute bottom-0 left-1/2 pointer-events-none"
               style={{
-                imageRendering: '-webkit-optimize-contrast',
-                WebkitBackfaceVisibility: 'hidden',
-                transform: 'translateZ(0)',
-                willChange: 'transform'
+                width: `${ART_SUPERSAMPLE * 100}%`,
+                height: `${ART_SUPERSAMPLE * 100}%`,
+                transform: `translateX(-50%) scale(${1 / ART_SUPERSAMPLE})`,
+                transformOrigin: '50% 100%'
               }}
-            />
+            >
+              <img
+                src={art.src}
+                alt={card.name}
+                decoding="async"
+                className="w-full h-full object-contain object-bottom pointer-events-none select-none"
+                style={{ imageRendering: 'auto', WebkitBackfaceVisibility: 'hidden' }}
+              />
+            </div>
           ) : (
             <div className="w-full h-full flex flex-col items-center justify-center bg-stone-900/95 border-2 border-stone-700/80 rounded-lg p-2 text-center">
               <span className="text-sm font-serif font-bold text-stone-200 leading-tight line-clamp-2">

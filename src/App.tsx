@@ -74,7 +74,8 @@ import {
   FusionCombination,
   getSealedReinforceHexes,
   countUnmetTributeSlots,
-  getForcedPromotionDamage
+  getForcedPromotionDamage,
+  isBasicMaterialUnit
 } from './utils/reinforceRules';
 import {
   isImmuneToKnockback,
@@ -3118,7 +3119,7 @@ export default function App() {
     return Object.entries(unitsOnBoard)
       .filter(([hexId, u]) => {
         if (u.owner !== activePlayer || u.card.isWall) return false;
-        const isBasic = u.card.basic !== false && (u.card.basic || u.card.reinforce?.mode === 'basic' || !u.card.reinforce);
+        const isBasic = isBasicMaterialUnit(u);
         if (!isBasic) return false;
         const rowNum = parseInt(hexId.slice(1), 10);
         return activePlayer === 'player1' ? (rowNum >= 1 && rowNum <= 3) : (rowNum >= 4 && rowNum <= 6);
@@ -3143,7 +3144,7 @@ export default function App() {
     const friendlyBasics = Object.entries(unitsOnBoard)
       .filter(([hexId, u]) => {
         if (u.owner !== activePlayer || u.card.isWall) return false;
-        const isBasic = u.card.basic !== false && (u.card.basic || u.card.reinforce?.mode === 'basic' || !u.card.reinforce);
+        const isBasic = isBasicMaterialUnit(u);
         if (!isBasic) return false;
         const rowNum = parseInt(hexId.slice(1), 10);
         return isP1 ? rowNum >= 1 && rowNum <= 3 : rowNum >= 4 && rowNum <= 6;
@@ -3222,7 +3223,7 @@ export default function App() {
       const requiredTributeCount = card.reinforce?.count || 2;
       const friendlyBasics = Object.entries(unitsOnBoard).filter(([hexId, u]) => {
         if (u.owner !== player || u.card.isWall) return false;
-        const isB = u.card.basic !== false && (u.card.basic || u.card.reinforce?.mode === 'basic' || !u.card.reinforce);
+        const isB = isBasicMaterialUnit(u);
         if (!isB) return false;
         const rowNum = parseInt(hexId.slice(1), 10);
         return player === 'player1' ? rowNum >= 1 && rowNum <= 3 : rowNum >= 4 && rowNum <= 6;
@@ -17555,7 +17556,7 @@ export default function App() {
                           const reqCount = card.reinforce?.count || 2;
                           const friendlyBasicCount = Object.entries(unitsOnBoard).filter(([hexId, u]) => {
                             if (u.owner !== activePlayer || u.card.isWall) return false;
-                            const isB = u.card.basic !== false && (u.card.basic || u.card.reinforce?.mode === 'basic' || !u.card.reinforce);
+                            const isB = isBasicMaterialUnit(u);
                             if (!isB) return false;
                             const rowNum = parseInt(hexId.slice(1), 10);
                             return isP1 ? (rowNum >= 1 && rowNum <= 3) : (rowNum >= 4 && rowNum <= 6);

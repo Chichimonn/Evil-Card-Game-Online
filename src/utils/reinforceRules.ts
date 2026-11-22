@@ -35,6 +35,15 @@ export function getSealedReinforceHexes(
 }
 
 // Check if a unit matches a requirement string (e.g. "Knight", "Assassin", "Sage", "Fighter", "Plunderer")
+/**
+ * Whether a unit on the board can be used as Fusion material or a Tribute sacrifice: a basic unit, and not a token (a
+ * token, e.g. a Stone Wall's Obstructing Wall or a summoned Toadstool, is never material).
+ */
+export function isBasicMaterialUnit(u: BattlefieldUnit): boolean {
+  if (u.card.type === 'token' || u.card.isWall) return false;
+  return u.card.basic !== false && Boolean(u.card.basic || u.card.reinforce?.mode === 'basic' || !u.card.reinforce);
+}
+
 export function unitMatchesRequirement(unit: BattlefieldUnit, reqString: string): boolean {
   if (!unit || !unit.card || !reqString) return false;
   const token = reqString.trim().toLowerCase();
@@ -198,7 +207,7 @@ export function checkFusionMaterials(
     .filter(([hexId, u]) => {
       if (u.owner !== activePlayer || u.card.isWall) return false;
       if (u.statuses?.includes('cannot_promote_or_fuse')) return false;
-      const isBasic = u.card.basic !== false && (u.card.basic || u.card.reinforce?.mode === 'basic' || !u.card.reinforce);
+      const isBasic = isBasicMaterialUnit(u);
       if (!isBasic) return false;
 
       const rowNum = parseInt(hexId.slice(1), 10);
