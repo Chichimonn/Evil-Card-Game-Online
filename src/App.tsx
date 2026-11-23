@@ -2866,8 +2866,19 @@ export default function App() {
   };
 
   // Ability Range Hexes (Range indicator showing reachable tiles for the ability)
+  // "Then, use a ... from among the promoted cards against the target" (e.g. Gemstone Hammer): while the borrowed ability
+  // is being used, the only tile it may be used on is the provider's target's (wherever that is, whatever the borrowed
+  // ability's own range). null when no such ability is being used; '' when its target is gone (or was never set).
+  const lockedChainTargetHex = useMemo((): string | null => {
+    const chain = providerChain;
+    if (!chain?.spec.afterOwnHit || !activeAbility?.inProviderChain || activeAbility.id === `${chain.parent.id}__own_hit`) return null;
+    if (!chain.targetInstanceId) return '';
+    return Object.keys(unitsOnBoard).find((h) => unitsOnBoard[h].instanceId === chain.targetInstanceId) || '';
+  }, [providerChain, activeAbility, unitsOnBoard]);
+
   const abilityRangeHexes = useMemo(() => {
     if (!activeAbility) return [];
+    if (lockedChainTargetHex !== null) return lockedChainTargetHex ? [lockedChainTargetHex] : [];
     const sourceHex = lockedAssist ? lockedAssist.unitHex : activeTurnUnitHex;
     if (!sourceHex) return [];
 
@@ -3134,11 +3145,13 @@ export default function App() {
     });
 
   const validAttackHexes = useMemo(() => {
+    // (a borrowed ability locked to its provider's target, e.g. Gemstone Hammer's: only that target)
+    if (lockedChainTargetHex !== null) return lockedChainTargetHex ? [lockedChainTargetHex] : [];
     const targetsTile = isAbilityTargetingAnyTile(activeAbility) || Boolean(multiStageTargetInfo?.isTileTarget);
     if (targetsTile) return rawValidAttackHexes;
     const attacker = activeTurnUnitHex ? unitsOnBoard[activeTurnUnitHex] : null;
     return filterTargetableHexes(activeAbility, rawValidAttackHexes, attacker, activeTurnUnitHex, Boolean(multiStageTargetInfo));
-  }, [rawValidAttackHexes, activeAbility, multiStageTargetInfo, unitsOnBoard, activePlayer, activeTurnUnitHex]);
+  }, [rawValidAttackHexes, activeAbility, multiStageTargetInfo, unitsOnBoard, activePlayer, activeTurnUnitHex, lockedChainTargetHex]);
 
   // Promote and Fusion Target Calculations
   const selectedCardForReinforce = selectedHandIndex !== null ? activeHand[selectedHandIndex] : null;
@@ -6976,6 +6989,11 @@ export default function App() {
     }
 
     // Case 3: Executing Ability on target (Unit or Tile)
+    // (a borrowed ability locked to its provider's target, e.g. Gemstone Hammer's: that tile only)
+    if (activeAbility && lockedChainTargetHex !== null && hexId !== lockedChainTargetHex) {
+      showNotification(`${providerChain?.parent.name}: ${activeAbility.name} can only be used against ${providerChain?.targetName || 'its target'}.`);
+      return;
+    }
     // Using abilities on a target in range places damage counters, creates tokens, moves units, and spends AP
     // A straight-line ability's paths are set (its six lines): clicking anywhere along one of them is clicking that
     // line's target (the nearest unit it can hit there), when it has one, without having to click the unit itself
@@ -12550,6 +12568,11 @@ export default function App() {
       const executable: CardAbility = (promoted as any).isOwnHitStep
         ? { ...built, id: `${parent.id}__own_hit`, name: parent.name, promotedAbilityId: undefined }
         : built;
+      // "...against the target" (e.g. Gemstone Hammer): with no target from the provider's own hit, it isn't used
+      if (chain.spec.afterOwnHit && !(promoted as any).isOwnHitStep && !chain.targetInstanceId) {
+        endProviderChain(`${parent.name} ended: ${promoted.name} can only be used against its target.`);
+        return;
+      }
       // A repeat of the same attack (e.g. Overload Gemstone's second use) fires at the locked target by itself
       if (chain.spec.autoTargetRepeats && chain.targetInstanceId) {
         const targetHex = Object.keys(unitsOnBoard).find((h) => unitsOnBoard[h].instanceId === chain.targetInstanceId);
