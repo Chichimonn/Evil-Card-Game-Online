@@ -24,10 +24,12 @@ import { useCardImages } from '../context/CardImageContext';
  * box lights up around its edge on hover and presses in when clicked (an ability that can't be used now is dimmed).
  * Its other actions (Move, Draw, Assist, abilities granted to it) are more boxes of the same kind under the card's own.
  *
- * The card shown is its saved card image (drawn when the game loads, as everywhere else the card is shown), over the
- * card drawn live, which is kept, unseen, to find where its boxes are and to show the unit's AP on its badge. Each
- * printed ability's button then shows its own part of the image, so that part lights up, dims, presses in and swells.
- * Until its image is ready (or with custom art, which the saved image doesn't have) the live card is shown instead.
+ * Underneath is the card's saved image (drawn when the game loads, as everywhere else the card is shown). Over it, the
+ * card drawn live shows only its own working parts, each hiding its printed copy on the image: the boxes and text of its
+ * text section (the ability boxes that light up, dim, press in and swell, under the buttons) and, for the unit taking
+ * its turn, its AP badge (the unit's AP now). Everything else of it is unseen (see LIVE_OVER_IMAGE_CSS): its art, name
+ * bar, background, frame and border are the image's, which shows round and behind its boxes. Until its image is ready
+ * (or with custom art, which the saved image doesn't have) the whole live card is shown instead.
  *
  * The printed abilities' buttons are see-through layers over the card's own ability boxes (found by their data-box
  * marker, the passives' boxes first, then the abilities' in order), for the clicks. The light itself is drawn on the box's
@@ -89,6 +91,21 @@ interface Props {
 }
 
 type BoxRect = { left: number; top: number; width: number; height: number };
+
+// The CSS zoom an element is drawn at: its own and all its parents' together
+const effectiveZoom = (el: Element | null): number => {
+  let z = 1;
+  for (let e: Element | null = el; e; e = e.parentElement) z *= parseFloat(getComputedStyle(e).zoom) || 1;
+  return z;
+};
+
+// The live card over the card's image (see above): unseen but for its text section's boxes and text, and its AP badge
+// for the unit taking its turn (the text section has no background of its own)
+const LIVE_OVER_IMAGE_CSS = `
+.focus-live-over-image { visibility: hidden; }
+.focus-live-over-image [data-card-text] { visibility: visible; }
+.focus-live-over-image.focus-live-ap [title^="Action Points:"] { visibility: visible; }
+`;
 
 // The light around a box: on hover, and (stronger) while it's the ability being used
 const HOVER_GLOW = '0 0 0 3px rgba(252, 211, 77, 1), 0 0 18px rgba(252, 211, 77, 0.75)';
@@ -190,6 +207,20 @@ export const FocusCardPanel: React.FC<Props> = ({
   // The card face's fitted text size and spacing (read from it once fitted), for the extra boxes
   const [textFit, setTextFit] = useState<React.CSSProperties>({});
 
+  // The zoom the live card is laid out at, made the same as the card images': they're drawn at the page's own zoom
+  // (#root's), and a card's text is fitted (its size, so where its lines break) to the zoom it's laid out at, so at any
+  // other zoom (e.g. the game's size for a smaller screen) its boxes wouldn't line up with the image under them. It's
+  // drawn at the panel's size all the same (see scale). The card is drawn again when this changes, to fit its text anew.
+  const [cardZoom, setCardZoom] = useState(1);
+  useLayoutEffect(() => {
+    const frame = frameRef.current;
+    if (!frame) return;
+    const pageZoom = effectiveZoom(document.getElementById('root'));
+    const here = effectiveZoom(frame);
+    const next = here > 0 ? pageZoom / here : 1;
+    setCardZoom((prev) => (Math.abs(prev - next) < 0.001 ? prev : next));
+  });
+
   // The card scaled to the panel's width
   useLayoutEffect(() => {
     const el = frameRef.current;
@@ -277,7 +308,7 @@ export const FocusCardPanel: React.FC<Props> = ({
 
   // The light, dimming and press on the card's own ability boxes (drawn under their text, see above)
   useEffect(() => {
-    if (!interactive || faceImage) return;
+    if (!interactive) return;
     const touched: HTMLElement[] = [];
     abilities.forEach((_, i) => {
       const box = boxesRef.current[passiveCount + i];
@@ -285,7 +316,10 @@ export const FocusCardPanel: React.FC<Props> = ({
       const layer = box.querySelector<HTMLElement>(':scope > [data-box-bg]') || box;
       const st = abilityStates[i];
       layer.style.boxShadow = pressed === i ? PRESSED_GLOW : st.active ? ACTIVE_GLOW : hovered === i && st.usable ? HOVER_GLOW : '';
-      box.style.opacity = st.usable || st.active ? '' : '0.5';
+      // (over the card's image it's darkened instead: a see-through box would show its printed copy under it)
+      const dim = !(st.usable || st.active);
+      box.style.opacity = dim && !faceImage ? '0.5' : '';
+      box.style.filter = dim && faceImage ? 'brightness(0.5)' : '';
       box.style.transform = pressed === i ? 'scale(0.97)' : '';
       box.style.transition = 'transform 100ms, opacity 150ms';
       layer.style.transition = 'box-shadow 120ms';
@@ -300,6 +334,7 @@ export const FocusCardPanel: React.FC<Props> = ({
       touched.forEach((el) => {
         el.style.boxShadow = '';
         el.style.opacity = '';
+        el.style.filter = '';
         el.style.transform = '';
         el.classList.remove('slow-pulse-soft');
         el.style.animationDelay = '';
@@ -307,6 +342,7 @@ export const FocusCardPanel: React.FC<Props> = ({
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [interactive, rects, hovered, pressed, stateKey, card.id, pulseKey, faceImage]);
+
 
   // The unit's AP as it is now, on the card's own AP badge (its number; amber once some is spent), while its options are
   // being picked; the printed number comes back after
@@ -320,8 +356,6 @@ export const FocusCardPanel: React.FC<Props> = ({
     number.textContent = String(currentAp);
     number.style.color = currentAp < card.ap ? '#fcd34d' : '';
     badge.title = `Action Points: ${currentAp} of ${card.ap} left this turn`;
-    // (shown over the card's image, the live card around it unseen)
-    badge.style.visibility = 'visible';
     // (the unit taking its turn: its AP swells gently, in step with the suggested abilities)
     badge.classList.add('slow-pulse-soft');
     badge.style.animationDelay = String(pulseInStep().animationDelay);
@@ -331,9 +365,8 @@ export const FocusCardPanel: React.FC<Props> = ({
       badge.classList.remove('slow-pulse-soft');
       badge.style.animationDelay = '';
       badge.title = `Action Points: ${card.ap}`;
-      badge.style.visibility = '';
     };
-  }, [currentAp, card.id, card.ap, rects, faceImage]);
+  }, [currentAp, card.id, card.ap, rects]);
 
   // The extra boxes are the card's own (CardAbilityBox: the shared off-black surface), at its fitted text size; the area
   // under the card takes the card's border colour round it
@@ -422,7 +455,7 @@ export const FocusCardPanel: React.FC<Props> = ({
   return (
     <div className="w-full flex flex-col gap-1.5">
       {/* (the gentle swell of the options worth a look) */}
-      <style>{SLOW_PULSE_SOFT_CSS}</style>
+      <style>{SLOW_PULSE_SOFT_CSS + LIVE_OVER_IMAGE_CSS}</style>
       <div className="w-full flex flex-col shadow-2xl rounded-xl">
         <div ref={frameRef} className="relative w-full aspect-[5/7] overflow-visible select-none">
           <div className={`absolute inset-0 overflow-hidden bg-black ${actions.length > 0 ? 'rounded-t-xl' : 'rounded-xl'}`}>
@@ -431,16 +464,20 @@ export const FocusCardPanel: React.FC<Props> = ({
             )}
             <div
               ref={cardRef}
-              className="absolute top-0 left-0 pointer-events-none"
+              className={`absolute top-0 left-0 pointer-events-none ${faceImage ? 'focus-live-over-image' : ''} ${
+                faceImage && turnUnit ? 'focus-live-ap' : ''
+              }`}
               style={{
-                transform: `scale(${scale})`,
+                // (laid out at the card images' zoom, drawn at the panel's size)
+                zoom: cardZoom,
+                transform: `scale(${scale / cardZoom})`,
                 transformOrigin: 'top left',
                 width: `${CARD_FACE_WIDTH}px`,
                 height: '1050px',
-                visibility: faceImage ? 'hidden' : undefined
               }}
             >
               <CardView
+                key={`${card.id}@${cardZoom}`}
                 card={card}
                 customArtUrl={customArtUrl}
                 scale={1}
@@ -487,18 +524,6 @@ export const FocusCardPanel: React.FC<Props> = ({
               const rect = rects[passiveCount + i];
               if (!rect) return null;
               const st = abilityStates[i];
-              const faceStyle: React.CSSProperties = faceImage
-                ? {
-                    backgroundImage: `url(${faceImage})`,
-                    backgroundSize: `${CARD_FACE_WIDTH * scale}px ${1050 * scale}px`,
-                    backgroundPosition: `${-rect.left}px ${-rect.top}px`,
-                    boxShadow: pressed === i ? PRESSED_GLOW : st.active ? ACTIVE_GLOW : hovered === i && st.usable ? HOVER_GLOW : undefined,
-                    filter: st.usable || st.active ? undefined : 'brightness(0.5)',
-                    transform: pressed === i ? 'scale(0.97)' : undefined,
-                    transition: 'transform 100ms, filter 150ms, box-shadow 120ms',
-                    ...(isPulsing(ability.id) ? pulseStyleFor(`printed:${ability.id}`) : {})
-                  }
-                : {};
               return (
                 <button
                   key={ability.id || i}
@@ -517,10 +542,8 @@ export const FocusCardPanel: React.FC<Props> = ({
                     onHoverAbility?.(null);
                   }}
                   title={st.usable ? `${ability.name} (${st.cost} AP)` : `${ability.name}: ${st.why}`}
-                  className={`absolute rounded-lg ${faceImage ? '' : 'bg-transparent'} ${st.usable ? 'cursor-pointer' : 'cursor-not-allowed'} ${
-                    faceImage && isPulsing(ability.id) ? 'slow-pulse-soft' : ''
-                  }`}
-                  style={{ left: rect.left, top: rect.top, width: rect.width, height: rect.height, ...faceStyle }}
+                  className={`absolute rounded-lg bg-transparent ${st.usable ? 'cursor-pointer' : 'cursor-not-allowed'}`}
+                  style={{ left: rect.left, top: rect.top, width: rect.width, height: rect.height }}
                 />
               );
             })}
