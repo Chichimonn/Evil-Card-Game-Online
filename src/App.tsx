@@ -1167,6 +1167,8 @@ export default function App() {
 
     resetMatchRecord();
     setUnitsOnBoard({});
+    // (a new match's tiles start unscorched: nothing carries over from the last one)
+    setScorchedTiles({});
     setSelectedHandIndex(null);
     setDraggedHandIndex(null);
     setSelectedHex(null);

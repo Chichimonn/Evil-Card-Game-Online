@@ -9850,7 +9850,7 @@ export const initialCardsData: CardsDataSchema = {
           "id": "shocking_lashes",
           "name": "Shocking Lashes",
           "cost": 1,
-          "text": "Deals 3 damage to up to 2 different surrounding targets.",
+          "text": "Deals 4 damage to up to 2 different surrounding targets.",
           "isMultiStage": true,
           "target": "enemyUnit",
           "targetCount": {
@@ -9865,7 +9865,7 @@ export const initialCardsData: CardsDataSchema = {
           "effects": [
             {
               "type": "damage",
-              "amount": 3,
+              "amount": 4,
               "hits": 1
             }
           ],
@@ -9882,10 +9882,10 @@ export const initialCardsData: CardsDataSchema = {
           "target": "direction",
           "range": [
             1,
-            3
+            5
           ],
-          "rangeText": "3",
-          "targetText": "straight line, first unit within 3",
+          "rangeText": "5",
+          "targetText": "straight line, first unit within 5",
           "effects": [
             {
               "type": "damage",
@@ -14225,7 +14225,7 @@ export const initialCardsData: CardsDataSchema = {
           "id": "grim_shot",
           "name": "Grim Shot",
           "cost": 1,
-          "text": "Deals 4 damage.",
+          "text": "Deals 5 damage.",
           "range": [
             1,
             3
@@ -14235,7 +14235,7 @@ export const initialCardsData: CardsDataSchema = {
           "effects": [
             {
               "type": "damage",
-              "amount": 4,
+              "amount": 5,
               "hits": 1
             }
           ]

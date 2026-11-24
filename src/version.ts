@@ -18,7 +18,7 @@
  * rules difference never match even if GAME_VERSION wasn't bumped. The dev server makes it when it starts, so restart
  * it after editing to get the new fingerprint.
  */
-export const GAME_VERSION = '0.7.5';
+export const GAME_VERSION = '0.7.6';
 
 declare const __BUILD_ID__: string;
 export const BUILD_ID: string = typeof __BUILD_ID__ === 'string' ? __BUILD_ID__ : 'unknown';

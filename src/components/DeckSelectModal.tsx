@@ -10,7 +10,7 @@ import { DECK_SIZE } from '../utils/deckText';
 export interface SelectableDeck {
   id: string;
   name: string;
-  category: 'active' | 'saved' | 'preset';
+  category: 'saved' | 'preset';
   cardCount: number;
   cardList: CardItem[];
   isValid: boolean;
@@ -25,40 +25,7 @@ export function buildSelectableDecks(
   const presetList: SelectableDeck[] = [];
   const map = new Map<string, SelectableDeck>();
 
-  // 1. Active deck from Deckbuilder
-  try {
-    const activeStr = localStorage.getItem('evil_cg_active_deck');
-    if (activeStr) {
-      const active = JSON.parse(activeStr);
-      if (active.cards && Array.isArray(active.cards) && active.cards.length > 0) {
-        const cardList: CardItem[] = [];
-        active.cards.forEach((entry: { id: string; quantity: number }) => {
-          const card = cardsById.get(resolveCardId(entry.id));
-          if (card) {
-            for (let i = 0; i < entry.quantity; i++) cardList.push(card);
-          }
-        });
-
-        // (only a full deck can be played: exactly 40 cards, as saving one needs)
-        if (cardList.length === DECK_SIZE) {
-          const deck: SelectableDeck = {
-            id: 'active_deck',
-            name: active.name || 'Current Active Deck',
-            category: 'active',
-            cardCount: cardList.length,
-            cardList,
-            isValid: true
-          };
-          customList.push(deck);
-          map.set(deck.id, deck);
-        }
-      }
-    }
-  } catch {
-    // ignore
-  }
-
-  // 2. Saved custom decks from Deckbuilder
+  // 1. Saved custom decks from Deckbuilder
   try {
     const savedStr = localStorage.getItem('evil_cg_saved_decks');
     if (savedStr) {
@@ -93,7 +60,7 @@ export function buildSelectableDecks(
     // ignore
   }
 
-  // 3. Preset Starter Decks
+  // 2. Preset Starter Decks
   PRESET_DECKS.forEach((preset) => {
     const cardList: CardItem[] = [];
     preset.cardIds.forEach((id) => {
@@ -301,7 +268,7 @@ export const DeckSelectModal: React.FC<DeckSelectModalProps> = ({
               <optgroup label="Your Custom Decks">
                 {customDecks.map((deck) => (
                   <option key={deck.id} value={deck.id}>
-                    {deck.name}{deck.category === 'active' ? ' • [Active]' : ''}
+                    {deck.name}
                   </option>
                 ))}
               </optgroup>
