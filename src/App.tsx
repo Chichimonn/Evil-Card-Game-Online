@@ -89,6 +89,7 @@ import {
 } from './utils/knockbackRules';
 import { KnockbackChoiceModal } from './components/KnockbackChoiceModal';
 import { ChoiceModal } from './components/ChoiceModal';
+import { CardChoiceModal } from './components/CardChoiceModal';
 import {
   getAbilityApCost,
   getApSpent,
@@ -370,6 +371,15 @@ const HoveredStandeeCardPreview: React.FC<{
   );
 };
 
+type CardChoicePromptData = {
+  title: string;
+  message: string;
+  options: { label: string; value: string; card?: CardItem; hex?: string }[];
+  player?: PlayerId;
+  // 'tile' | 'unit': the options with a hex are chosen by clicking them on the board (highlighted there)
+  board?: 'tile' | 'unit';
+};
+
 export default function App() {
   const { cardImages } = useCardImages();
   const [cardsData, setCardsData] = useState(initialCardsData);
@@ -454,6 +464,12 @@ export default function App() {
   const [draggedUnitHex, setDraggedUnitHex] = useState<string | null>(null);
   const [activeAbility, setActiveAbility] = useState<CardAbility | null>(null);
   const [multiStageState, setMultiStageState] = useState<MultiStageState | null>(null);
+  // "Place the target on an empty tile surrounding this unit" (e.g. Drag and Drop): the unit chosen, while the tile to
+  // place it on is being clicked on the board (the empty tiles around the unit using it are the only targets)
+  const [dropCarry, setDropCarry] = useState<{ instanceId: string; name: string } | null>(null);
+  useEffect(() => {
+    setDropCarry(null);
+  }, [activeAbility, activeTurnUnitHex]);
   // A number for each ability use: it goes up whenever a different ability (or the same one again, after being put down)
   // is being targeted, so all the damage one use deals shares a number (e.g. Scorching Tempo: "damages the same unit with
   // a second ability in a turn"; see markDamageDealtByActiveUnit)
@@ -822,15 +838,17 @@ export default function App() {
   // Choosing the same target replays the click as a normal attack; a different one goes to a target pick.
   const [splitHitPrompt, setSplitHitPrompt] = useState<{ hexId: string; abilityName: string; targetName: string; candidates: string[] } | null>(null);
   // A choice a card asks for mid-ability (e.g. which attack Roar of the Pride's unit uses, Critical Forecast's ability)
-  const [cardChoicePrompt, setCardChoicePrompt] = useState<{ title: string; message: string; options: { label: string; value: string }[]; player?: PlayerId } | null>(null);
+  // An option may be a card (card: the choice shows the cards themselves, e.g. Reassemble's discard), or a tile or unit
+  // on the board (hex: with board set, the choice is made by clicking it there, e.g. Reassemble's tile); others are buttons
+  const [cardChoicePrompt, setCardChoicePrompt] = useState<CardChoicePromptData | null>(null);
   const cardChoiceCallbackRef = useRef<((value: string) => void) | null>(null);
   // (a choice asked while another is open waits its turn, e.g. several Reassembles, or Spirits' Protection after a loot)
   // (player: who answers it, when that isn't the player taking the turn, e.g. Reassemble on the opponent's turn)
-  const cardChoiceQueueRef = useRef<{ prompt: { title: string; message: string; options: { label: string; value: string }[]; player?: PlayerId }; onChoose: (value: string) => void }[]>([]);
+  const cardChoiceQueueRef = useRef<{ prompt: CardChoicePromptData; onChoose: (value: string) => void }[]>([]);
   // Choices scheduled to be asked shortly (e.g. Spirits' Protection once the attack's damage has rendered)
   const deferredChoicesRef = useRef(0);
   const askCardChoice = (
-    prompt: { title: string; message: string; options: { label: string; value: string }[]; player?: PlayerId },
+    prompt: CardChoicePromptData,
     onChoose: (value: string) => void
   ) => {
     if (cardChoiceCallbackRef.current) {
@@ -1585,7 +1603,8 @@ export default function App() {
             title: `${p.name} (${unit.owner === 'player1' ? 'Player 1' : 'Player 2'})`,
             message: `${unit.card.name} was targeted by a melee attack. Choose the empty tile around it to create ${tokenDef.name} on.`,
             player: unit.owner,
-            options: tiles.map((t) => ({ label: t, value: t }))
+            board: 'tile',
+            options: tiles.map((t) => ({ label: t, value: t, hex: t }))
           },
           (spot) => {
             if (unitsOnBoardRef.current[spot]) {
@@ -2236,7 +2255,7 @@ export default function App() {
         message: rises
           ? `${card.name} died. Discard a card to reinforce it again from your graveyard for free, with ${damage} damage on it?`
           : `${card.name} died. You may discard a card, but it isn't a Skeleton, so it won't be reinforced.`,
-        options: [...hand.map((c, i) => ({ label: `Discard ${c.name}`, value: String(i) })), { label: "Don't discard", value: DECLINE }]
+        options: [...hand.map((c, i) => ({ label: `Discard ${c.name}`, value: String(i), card: c })), { label: "Don't discard", value: DECLINE }]
       },
       (v) => {
         const discarded = v === DECLINE ? undefined : hand[parseInt(v, 10)];
@@ -2258,9 +2277,11 @@ export default function App() {
           return;
         }
         const board = unitsOnBoardRef.current;
-        const tiles = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H'].map((c) => `${c}${backRow}`).filter((h) => !board[h]);
+        // (not a tile its owner can't Reinforce onto, e.g. in range 1 of an enemy Sealed Gate)
+        const sealed = getSealedReinforceHexes(owner, board);
+        const tiles = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H'].map((c) => `${c}${backRow}`).filter((h) => !board[h] && !sealed.has(h));
         if (tiles.length === 0) {
-          showNotification(`Reassemble: there's no empty tile on your back row, so ${card.name} stays in the graveyard.`);
+          showNotification(`Reassemble: there's no empty tile on your back row it can be reinforced on, so ${card.name} stays in the graveyard.`);
           next();
           return;
         }
@@ -2299,7 +2320,13 @@ export default function App() {
         else
           setTimeout(() =>
             askCardChoice(
-              { title: `Reassemble: ${card.name}`, message: 'Choose an empty tile on your back row.', options: tiles.map((t) => ({ label: t, value: t })), player: owner },
+              {
+                title: `Reassemble: ${card.name}`,
+                message: `Choose the empty tile on your back row to reinforce ${card.name} on.`,
+                options: tiles.map((t) => ({ label: t, value: t, hex: t })),
+                player: owner,
+                board: 'tile'
+              },
               place
             )
           );
@@ -2622,7 +2649,9 @@ export default function App() {
     if (!unit || unit.owner !== activePlayer || isUnitMovementDisabled(unit)) return [];
     // Magical Omnipresence: 1 move per turn limit
     if (!canOmnipresenceUnitMove(unit)) return [];
-    if (unit.currentAp < getUniversalMoveCost(unit, unitsOnBoard)) return [];
+    // (a free move waiting to be taken, e.g. Talon Swoop's, needs no AP: the unit may have none left)
+    const isFreeMove = Boolean(pendingFreeMove && pendingFreeMove.unitInstanceId === unit.instanceId);
+    if (!isFreeMove && unit.currentAp < getUniversalMoveCost(unit, unitsOnBoard)) return [];
     if (activeAbility) return []; // Suppress movement tiles while targeting an ability
 
     let moveHexes: string[] = [];
@@ -2665,7 +2694,7 @@ export default function App() {
       if (!moveHexes.includes(h) && canAttachOnto(unit, unitsOnBoard[h])) moveHexes.push(h);
     });
     return moveHexes;
-  }, [isMovingMode, activeTurnUnitHex, unitsOnBoard, activePlayer, activeAbility, pendingRabbleMove, turnCount]);
+  }, [isMovingMode, activeTurnUnitHex, unitsOnBoard, activePlayer, activeAbility, pendingRabbleMove, turnCount, pendingFreeMove]);
 
   const handleUniversalMoveClick = () => {
     // (an interrupting readied ability, e.g. Ready Spell, is the only thing the reacting unit may do)
@@ -2876,8 +2905,14 @@ export default function App() {
     return Object.keys(unitsOnBoard).find((h) => unitsOnBoard[h].instanceId === chain.targetInstanceId) || '';
   }, [providerChain, activeAbility, unitsOnBoard]);
 
+  const dropSpots = useMemo(
+    () => (dropCarry && activeTurnUnitHex ? getSurroundingHexes(activeTurnUnitHex).filter((h) => !unitsOnBoard[h]) : null),
+    [dropCarry, activeTurnUnitHex, unitsOnBoard]
+  );
+
   const abilityRangeHexes = useMemo(() => {
     if (!activeAbility) return [];
+    if (dropSpots) return dropSpots;
     if (lockedChainTargetHex !== null) return lockedChainTargetHex ? [lockedChainTargetHex] : [];
     const sourceHex = lockedAssist ? lockedAssist.unitHex : activeTurnUnitHex;
     if (!sourceHex) return [];
@@ -3145,13 +3180,15 @@ export default function App() {
     });
 
   const validAttackHexes = useMemo(() => {
+    // (the tile to place a chosen unit on, e.g. Drag and Drop: the empty tiles around the unit using it)
+    if (dropSpots) return dropSpots;
     // (a borrowed ability locked to its provider's target, e.g. Gemstone Hammer's: only that target)
     if (lockedChainTargetHex !== null) return lockedChainTargetHex ? [lockedChainTargetHex] : [];
     const targetsTile = isAbilityTargetingAnyTile(activeAbility) || Boolean(multiStageTargetInfo?.isTileTarget);
     if (targetsTile) return rawValidAttackHexes;
     const attacker = activeTurnUnitHex ? unitsOnBoard[activeTurnUnitHex] : null;
     return filterTargetableHexes(activeAbility, rawValidAttackHexes, attacker, activeTurnUnitHex, Boolean(multiStageTargetInfo));
-  }, [rawValidAttackHexes, activeAbility, multiStageTargetInfo, unitsOnBoard, activePlayer, activeTurnUnitHex, lockedChainTargetHex]);
+  }, [rawValidAttackHexes, activeAbility, multiStageTargetInfo, unitsOnBoard, activePlayer, activeTurnUnitHex, lockedChainTargetHex, dropSpots]);
 
   // Promote and Fusion Target Calculations
   const selectedCardForReinforce = selectedHandIndex !== null ? activeHand[selectedHandIndex] : null;
@@ -3271,6 +3308,11 @@ export default function App() {
   };
 
   // Assist Deployment Hexes: Unoccupied tiles on active player's back row (Row 1 for P1, Row 6 for P2)
+  const boardChoiceHexes = (kind: 'tile' | 'unit'): string[] =>
+    cardChoicePrompt?.board === kind && isMyDecision(cardChoicePrompt.player ?? activePlayer)
+      ? cardChoicePrompt.options.map((o) => o.hex).filter((h): h is string => Boolean(h))
+      : [];
+
   const assistDeployHexes = useMemo(() => {
     if (!pendingAssistDeployment) return [];
     const isP1 = activePlayer === 'player1';
@@ -3388,7 +3430,7 @@ export default function App() {
   // Asks the player to discard one of these cards (the cost is already known to be payable)
   const askDiscard = (owner: PlayerId, cards: CardItem[], title: string, why: string) => {
     askCardChoice(
-      { title, message: `${why}: discard a card.`, options: cards.map((c, i) => ({ label: c.name, value: String(i) })), player: owner },
+      { title, message: `${why}: discard a card.`, options: cards.map((c, i) => ({ label: `Discard ${c.name}`, value: String(i), card: c })), player: owner },
       (v) => {
         const card = cards[parseInt(v, 10)];
         if (!card) return;
@@ -6871,6 +6913,13 @@ export default function App() {
   }, [selectedHandIndex, abilityReinforcePending, pendingAssistDeployment]);
 
   const handleHexClick = (hexId: string) => {
+    // A choice of a tile or unit on the board (e.g. Reassemble's tile, Spirits' Protection's tile): click it
+    if (cardChoicePrompt?.board && isMyDecision(cardChoicePrompt.player ?? activePlayer)) {
+      const picked = cardChoicePrompt.options.find((o) => o.hex === hexId);
+      if (picked) answerCardChoice(picked.value);
+      else showNotification(`${cardChoicePrompt.title}: click a highlighted ${cardChoicePrompt.board === 'unit' ? 'unit' : 'tile'}.`);
+      return;
+    }
     if (attackKnockbackPrompt) {
       showNotification(`Choose whether ${attackKnockbackPrompt.abilityName} applies knockback first.`);
       return;
@@ -7007,6 +7056,10 @@ export default function App() {
       : (validAttackHexes.includes(hexId) || (abilityRangeHexes.includes(hexId) && isAbilityTargetingAnyTile(activeAbility)));
 
     if (activeAbility && !isTargetLegal) {
+      if (dropCarry) {
+        showNotification(`${activeAbility.name}: click a highlighted empty tile around ${activeTurnUnit?.card.name || 'this unit'} to place ${dropCarry.name} on.`);
+        return;
+      }
       if (multiStageTargetInfo) {
         showNotification(multiStageTargetInfo.promptMessage);
         return;
@@ -7049,6 +7102,38 @@ export default function App() {
       const cost = getAbilityApCost(activeAbility);
       if (activeTurnUnit.currentAp < cost) {
         showNotification(`Not enough AP to use ${activeAbility.name} (Requires ${cost} AP, has ${activeTurnUnit.currentAp} AP).`);
+        return;
+      }
+
+      // The tile for a chosen unit (e.g. Drag and Drop): it's placed there
+      if (dropCarry) {
+        const carriedHex = Object.keys(unitsOnBoard).find((h) => unitsOnBoard[h].instanceId === dropCarry.instanceId);
+        const ability = activeAbility;
+        const caster = activeTurnUnit;
+        const casterHex = activeTurnUnitHex;
+        const carriedName = dropCarry.name;
+        setDropCarry(null);
+        setActiveAbility(null);
+        if (!carriedHex || unitsOnBoard[hexId]) {
+          showNotification(`${ability.name}: ${carriedName} can't be placed there.`);
+          return;
+        }
+        const newAp = Math.max(0, caster.currentAp - cost);
+        const nextCounts = recordAbilityUse(caster.usedTurnCounts || {}, ability);
+        setUnitsOnBoard((prev) => {
+          const from = Object.keys(prev).find((h) => prev[h].instanceId === dropCarry.instanceId);
+          const next = { ...prev };
+          if (next[casterHex]) next[casterHex] = { ...next[casterHex], currentAp: newAp, usedTurnCounts: nextCounts };
+          if (!from || next[hexId]) return next;
+          const u = next[from];
+          delete next[from];
+          next[hexId] = { ...u, hexId };
+          return next;
+        });
+        playCardDrawSound();
+        showNotification(`${caster.card.name} used ${ability.name}: placed ${carriedName} on ${hexId}. (${cost} AP spent, ${newAp} AP remaining).`);
+        appendLog('move', `${carriedName} placed on ${hexId} (${ability.name})`);
+        if (cost > 0 && newAp <= 0) switchTurn(false);
         return;
       }
 
@@ -7127,7 +7212,7 @@ export default function App() {
 
       // Subcase 3.006: "Place the target on an empty tile surrounding this unit" (e.g. Drag and Drop, melee, can target
       // friendly): { type: 'place', unit: 'target' (any unit) | 'friendlyTarget', tile: 'chosenEmptySurroundingSelf' }.
-      // The tile is chosen from a list.
+      // The unit is clicked, then the tile, on the board (see dropCarry).
       const dropEff: any = activeAbility.effects?.find(
         (e: any) => e.type === 'place' && (e.unit === 'friendlyTarget' || e.unit === 'target') && e.tile === 'chosenEmptySurroundingSelf'
       );
@@ -7149,34 +7234,8 @@ export default function App() {
           showNotification(`${carried.card.name} is immune to non-damage effects right now, so it can't be placed.`);
           return;
         }
-        const ability = activeAbility;
-        const caster = activeTurnUnit;
-        askCardChoice(
-          {
-            title: ability.name,
-            message: `Choose the empty tile around ${caster.card.name} to place ${carried.card.name} on.`,
-            options: spots.map((h) => ({ label: h, value: h }))
-          },
-          (dest) => {
-            const newAp = Math.max(0, caster.currentAp - cost);
-            const nextCounts = recordAbilityUse(caster.usedTurnCounts || {}, ability);
-            setUnitsOnBoard((prev) => {
-              const from = Object.keys(prev).find((h) => prev[h].instanceId === carried.instanceId);
-              const next = { ...prev };
-              if (next[casterHex]) next[casterHex] = { ...next[casterHex], currentAp: newAp, usedTurnCounts: nextCounts };
-              if (!from || next[dest]) return next;
-              const u = next[from];
-              delete next[from];
-              next[dest] = { ...u, hexId: dest };
-              return next;
-            });
-            playCardDrawSound();
-            showNotification(`${caster.card.name} used ${ability.name}: placed ${carried.card.name} on ${dest}. (${cost} AP spent, ${newAp} AP remaining).`);
-            appendLog('move', `${carried.card.name} placed on ${dest} (${ability.name})`);
-            if (cost > 0 && newAp <= 0) switchTurn(false);
-          }
-        );
-        setActiveAbility(null);
+        setDropCarry({ instanceId: carried.instanceId, name: carried.card.name });
+        showNotification(`${activeAbility.name}: click a highlighted empty tile around ${activeTurnUnit.card.name} to place ${carried.card.name} on.`);
         return;
       }
 
@@ -12268,7 +12327,7 @@ export default function App() {
         {
           title: ability.name,
           message: 'Choose a card from your graveyard to return to your hand.',
-          options: picks.map(({ c, i }) => ({ label: c.name, value: String(i) }))
+          options: picks.map(({ c, i }) => ({ label: `Return ${c.name}`, value: String(i), card: c }))
         },
         (value) => {
           const idx = parseInt(value, 10);
@@ -14968,7 +15027,8 @@ export default function App() {
         {
           title: prerogative.name,
           message: `Choose an enemy unit. Its passives have no effect this turn.`,
-          options: enemies.map((u) => ({ label: `${u.card.name} (${u.hexId})`, value: u.instanceId }))
+          board: 'unit',
+          options: enemies.map((u) => ({ label: `${u.card.name} (${u.hexId})`, value: u.instanceId, hex: u.hexId }))
         },
         (enemyId) => {
           setUnitsOnBoard((prev) => {
@@ -15947,6 +16007,15 @@ export default function App() {
         const pickQ = choices[Math.floor(random() * choices.length)];
         turn.failed.add(`${activeAbility.id}:${pickQ.ability.id}`);
         handlePromotedAbilitySelect(pickQ.ability, activeAbility);
+        return;
+      }
+      // (the tile to place the unit it chose on, e.g. Drag and Drop: any of the empty tiles around it)
+      if (dropSpots) {
+        if (dropSpots.length === 0) {
+          setActiveAbility(null);
+          return;
+        }
+        handleHexClick(dropSpots[Math.floor(random() * dropSpots.length)]);
         return;
       }
       const legal = isStraightLineAbility(activeAbility)
@@ -16957,12 +17026,44 @@ export default function App() {
         />
       )}
       {cardChoicePrompt && isMyDecision(cardChoicePrompt.player ?? activePlayer) && (
-        <ChoiceModal
-          title={cardChoicePrompt.title}
-          message={cardChoicePrompt.message}
-          options={cardChoicePrompt.options.map((o, i) => ({ ...o, primary: i === 0 }))}
-          onChoose={answerCardChoice}
-        />
+        cardChoicePrompt.board ? (
+          <div className="fixed top-20 left-1/2 -translate-x-1/2 z-[65] flex flex-col items-center gap-2 px-5 py-3 rounded-xl bg-stone-900/95 border-2 border-amber-400/90 shadow-[0_15px_40px_rgba(0,0,0,0.9)] max-w-lg text-center select-none animate-in fade-in">
+            <div className="text-amber-300 font-mono font-bold text-sm uppercase tracking-wider">{cardChoicePrompt.title}</div>
+            <p className="text-sm text-stone-200">
+              {cardChoicePrompt.message} <span className="text-amber-200 font-semibold">Click a highlighted {cardChoicePrompt.board === 'unit' ? 'unit' : 'tile'} on the board.</span>
+            </p>
+            {cardChoicePrompt.options.some((o) => !o.hex) && (
+              <div className="flex flex-wrap gap-2 justify-center">
+                {cardChoicePrompt.options
+                  .filter((o) => !o.hex)
+                  .map((o) => (
+                    <button
+                      key={o.value}
+                      onClick={() => answerCardChoice(o.value)}
+                      className="py-1.5 px-4 rounded-lg font-bold text-xs uppercase tracking-wide bg-stone-700 hover:bg-stone-600 text-stone-100 cursor-pointer"
+                    >
+                      {o.label}
+                    </button>
+                  ))}
+              </div>
+            )}
+          </div>
+        ) : cardChoicePrompt.options.some((o) => o.card) ? (
+          <CardChoiceModal
+            title={cardChoicePrompt.title}
+            message={cardChoicePrompt.message}
+            options={cardChoicePrompt.options}
+            customArtMap={customArtMap}
+            onChoose={answerCardChoice}
+          />
+        ) : (
+          <ChoiceModal
+            title={cardChoicePrompt.title}
+            message={cardChoicePrompt.message}
+            options={cardChoicePrompt.options.map((o, i) => ({ ...o, primary: i === 0 }))}
+            onChoose={answerCardChoice}
+          />
+        )
       )}
       {splitHitPrompt && (
         <ChoiceModal
@@ -17460,7 +17561,9 @@ export default function App() {
                     activeTurnUnitHex={abilityReinforcePending ? null : activeTurnUnitHex}
                     validMoveHexes={validMoveHexes}
                     validAttackHexes={
-                      providerChain?.targetInstanceId && activeAbility?.inProviderChain
+                      cardChoicePrompt?.board === 'unit'
+                        ? boardChoiceHexes('unit')
+                        : providerChain?.targetInstanceId && activeAbility?.inProviderChain
                         ? validAttackHexes.filter((h) => unitsOnBoard[h]?.instanceId === providerChain.targetInstanceId)
                         : validAttackHexes
                     }
@@ -17488,7 +17591,7 @@ export default function App() {
                       if (card && !activeTurnUnit) setFocusCard({ card, owner });
                     }}
                     momentumChargeHex={pendingMomentumCharge?.nextHex || pendingRabbleMove?.throughHex}
-                    assistDeployHexes={assistDeployHexes}
+                    assistDeployHexes={cardChoicePrompt?.board === 'tile' ? boardChoiceHexes('tile') : assistDeployHexes}
                     scorchedTiles={scorchedTiles}
                     sealedReinforceHexes={Array.from(sealedReinforceHexes)}
                   />

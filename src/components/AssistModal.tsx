@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from 'react';
 import { CardItem, CardAbility } from '../types/card';
-import { CardArtFallback } from './CardArtFallback';
 import { CardPreview } from './CardPreview';
 import { X, Sparkles, ChevronLeft, ArrowRight } from 'lucide-react';
 
@@ -118,9 +117,6 @@ export const AssistModal: React.FC<AssistModalProps> = ({
                     className="flex items-center justify-between p-3 rounded-xl bg-stone-900/90 border border-stone-700/80 hover:border-amber-400 hover:bg-amber-950/30 transition-all cursor-pointer group shadow-md"
                   >
                     <div className="flex items-center gap-3 min-w-0">
-                      <div className="w-12 h-16 rounded-md overflow-hidden shrink-0 border border-stone-700 bg-stone-950 relative">
-                        <CardArtFallback card={card} />
-                      </div>
                       <div className="flex flex-col min-w-0">
                         <div className="flex items-center gap-2 flex-wrap">
                           <strong className="text-stone-100 font-serif font-bold text-sm truncate">
