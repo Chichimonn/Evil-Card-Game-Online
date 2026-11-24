@@ -13930,8 +13930,8 @@ export const initialCardsData: CardsDataSchema = {
         {
           "id": "hair_puller",
           "name": "Hair Puller",
-          "cost": 2,
-          "text": "Deals 1 damage. Heal up to 8 damage from this unit (this attack must have a target).",
+          "cost": 1,
+          "text": "Deals 1 damage. Heal up to 8 damage from this unit. Use only once per turn.",
           "effects": [
             {
               "type": "damage",
@@ -13946,7 +13946,10 @@ export const initialCardsData: CardsDataSchema = {
           ],
           "tags": [
             "melee"
-          ]
+          ],
+          "limits": {
+            "oncePerTurn": true
+          }
         }
       ],
       "classTags": [
@@ -14163,8 +14166,8 @@ export const initialCardsData: CardsDataSchema = {
         {
           "id": "hair_yank",
           "name": "Hair Yank",
-          "cost": 2,
-          "text": "Deals 1 damage. Heal up to 10 damage from this unit (this attack must have a target).",
+          "cost": 1,
+          "text": "Deals 1 damage. Heal up to 10 damage from this unit. Use only once per turn.",
           "effects": [
             {
               "type": "damage",
@@ -14179,7 +14182,10 @@ export const initialCardsData: CardsDataSchema = {
           ],
           "tags": [
             "melee"
-          ]
+          ],
+          "limits": {
+            "oncePerTurn": true
+          }
         }
       ],
       "classTags": [
