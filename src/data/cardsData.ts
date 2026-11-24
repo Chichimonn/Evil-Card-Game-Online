@@ -355,6 +355,7 @@ export const initialCardsData: CardsDataSchema = {
         {
           "id": "shade_step",
           "name": "Shade Step",
+          "tagNote": "Empty Tile Target",
           "cost": 1,
           "range": [1, 3],
           "target": "emptyTile",
@@ -524,6 +525,7 @@ export const initialCardsData: CardsDataSchema = {
         {
           "id": "powder_charge",
           "name": "Powder Charge",
+          "tagNote": "Tile Target",
           "cost": 2,
           "range": [1, 2],
           "target": "tile",
@@ -664,6 +666,7 @@ export const initialCardsData: CardsDataSchema = {
         {
           "id": "reinforce_structure",
           "name": "Reinforce Structure",
+          "tagNote": "Only Target an Obstructing Wall",
           "cost": 1,
           "range": [1, 1],
           "target": "obstructingWall",
@@ -753,6 +756,7 @@ export const initialCardsData: CardsDataSchema = {
         {
           "id": "broaden_search",
           "name": "Broaden Search",
+          "tagNote": "Targets Friendly Unit",
           "cost": 1,
           "tags": [
             "assist"
@@ -1118,6 +1122,7 @@ export const initialCardsData: CardsDataSchema = {
         {
           "id": "greatcleave",
           "name": "Greatcleave",
+          "tagNote": "Target up to 3 Surrounding Enemy Units",
           "cost": 1,
           "tags": [
             "melee",
@@ -1457,6 +1462,7 @@ export const initialCardsData: CardsDataSchema = {
         {
           "id": "exploding_fireball",
           "name": "Exploding Fireball",
+          "tagNote": "Tile Target",
           "cost": 2,
           "tags": ["assist"],
           "range": [1, 3],
@@ -1548,6 +1554,7 @@ export const initialCardsData: CardsDataSchema = {
         {
           "id": "roiling_whirlpool",
           "name": "Roiling Whirlpool",
+          "tagNote": "Tile Target",
           "cost": 2,
           "tags": [
             "assist"
@@ -1622,6 +1629,7 @@ export const initialCardsData: CardsDataSchema = {
         {
           "id": "stone_wall",
           "name": "Stone Wall",
+          "tagNote": "Empty Tile Target",
           "cost": 1,
           "tags": [
             "assist"
@@ -2399,6 +2407,7 @@ export const initialCardsData: CardsDataSchema = {
         {
           "id": "realm_warp",
           "name": "Realm Warp",
+          "tagNote": "Empty Tile Target",
           "isMultiStage": true,
           "cost": 1,
           "tags": [
@@ -2874,6 +2883,7 @@ export const initialCardsData: CardsDataSchema = {
         {
           "id": "tactical_swap",
           "name": "Tactical Swap",
+          "tagNote": "Targets Friendly Unit",
           "isMultiStage": true,
           "cost": 1,
           "text": "Swap positions with the target unit.",
@@ -3009,6 +3019,7 @@ export const initialCardsData: CardsDataSchema = {
         {
           "id": "nexus_displacement",
           "name": "Nexus Displacement",
+          "tagNote": "Targets 1 Other Friendly Unit and 1 Enemy Unit",
           "isMultiStage": true,
           "cost": 3,
           "text": "Each target swaps tile position with the other (place them each on the tile the other currently occupies).",
@@ -3207,6 +3218,7 @@ export const initialCardsData: CardsDataSchema = {
         {
           "id": "ley_rupture",
           "name": "Ley-Rupture",
+          "tagNote": "Tile Target",
           "cost": 2,
           "text": "Deals 6 damage to units on the target tile and 4 damage to all units on tiles directly behind it in a straight line (up to the board edge).",
           "effects": [
@@ -3761,6 +3773,7 @@ export const initialCardsData: CardsDataSchema = {
         {
           "id": "vanish",
           "name": "Vanish",
+          "tagNote": "Empty Tile Target",
           "cost": 1,
           "text": "Place this unit on the target tile. This unit cannot be targeted during your opponent's next turn. This unit's turn ends.",
           "effects": [
@@ -4349,6 +4362,7 @@ export const initialCardsData: CardsDataSchema = {
         {
           "id": "earthshaking_stomp",
           "name": "Earthshaking Stomp",
+          "tagNote": "Tile Target",
           "cost": 2,
           "text": "Deals 9 damage to all enemy units on or surrounding the target tile.",
           "effects": [
@@ -4637,6 +4651,7 @@ export const initialCardsData: CardsDataSchema = {
         {
           "id": "spirit_away",
           "name": "Spirit Away",
+          "tagNote": "Empty Tile Target",
           "isMultiStage": true,
           "cost": 2,
           "text": "Choose up to 1 unit target within range 1 of this unit (friendly or enemy). Move this unit to the target tile. Then, if a unit was targeted, you may place it on an empty tile surrounding this unit.",
@@ -4724,6 +4739,7 @@ export const initialCardsData: CardsDataSchema = {
         {
           "id": "swooping_pounce",
           "name": "Swooping Pounce",
+          "tagNote": "Can Target Friendly",
           "isMultiStage": true,
           "cost": 2,
           "text": "Move this unit to an empty tile surrounding the target. Then, if the target is an enemy, deals 10 damage.",
@@ -4969,6 +4985,7 @@ export const initialCardsData: CardsDataSchema = {
         {
           "id": "acidic_bile",
           "name": "Acidic Bile",
+          "tagNote": "Tile Target",
           "cost": 2,
           "text": "Deals 6 damage to units on the target tile and 4 damage to all surrounding enemy units. This attack bypasses armour.",
           "effects": [
@@ -5351,6 +5368,7 @@ export const initialCardsData: CardsDataSchema = {
         {
           "id": "starburst",
           "name": "Starburst",
+          "tagNote": "Tile Target",
           "cost": 2,
           "text": "Deals 8 damage to units on the target tile and 5 damage to units on each of the three tiles after it that form a straight line in the opposite direction from this unit.",
           "effects": [
@@ -5473,6 +5491,7 @@ export const initialCardsData: CardsDataSchema = {
         {
           "id": "rain_of_arrows",
           "name": "Rain of Arrows",
+          "tagNote": "Tile Target",
           "cost": 3,
           "text": "Deals 2 damage to all units on the target tile or a tile surrounding it. Hits three times.",
           "effects": [
@@ -5648,6 +5667,7 @@ export const initialCardsData: CardsDataSchema = {
         {
           "id": "steel_cyclone",
           "name": "Steel Cyclone",
+          "tagNote": "Tile Target, Hits All in Path",
           "cost": 3,
           "text": "Deals 3 damage. Hits 7 times.",
           "effects": [
@@ -6213,6 +6233,7 @@ export const initialCardsData: CardsDataSchema = {
         {
           "id": "boarding_hook",
           "name": "Boarding Hook",
+          "tagNote": "Targets Unit",
           "isMultiStage": true,
           "cost": 2,
           "text": "Place the target on the closest empty tile surrounding this unit (if there is more than one closest empty tile, choose one), then deal 6 damage.",
@@ -6412,6 +6433,7 @@ export const initialCardsData: CardsDataSchema = {
         {
           "id": "runic_vanish",
           "name": "Runic Vanish",
+          "tagNote": "Empty Tile Target",
           "cost": 2,
           "text": "Move this unit to the target tile. This unit gains 2 armour and cannot be targeted by enemy react effects until the end of your opponent's next turn.",
           "effects": [
@@ -6511,6 +6533,7 @@ export const initialCardsData: CardsDataSchema = {
         {
           "id": "human_cannonball",
           "name": "Human Cannonball",
+          "tagNote": "Tile Target",
           "cost": 2,
           "text": "Deals 8 damage to units on the target tile and 4 damage to units on all surrounding tiles. This unit gains 3 armour, but it cannot move until the end of your opponent's next turn.",
           "effects": [
@@ -6613,6 +6636,7 @@ export const initialCardsData: CardsDataSchema = {
         {
           "id": "rainbow_geyser",
           "name": "Rainbow Geyser",
+          "tagNote": "Tile Target",
           "cost": 2,
           "text": "Deals 8 damage to units on the target tile, then that tile becomes scorched until the end of your opponent's next turn.",
           "effects": [
@@ -7042,6 +7066,7 @@ export const initialCardsData: CardsDataSchema = {
         {
           "id": "bananarang",
           "name": "Bananarang",
+          "tagNote": "Tile Target",
           "cost": 1,
           "usesPath": true,
           "pathLength": 3,
@@ -7254,6 +7279,7 @@ export const initialCardsData: CardsDataSchema = {
         {
           "id": "arcane_lightning_bolt",
           "name": "Arcane Lightning Bolt",
+          "tagNote": "Tile Target",
           "cost": 3,
           "text": "Deals 16 damage to units on the target tile and 7 damage to each enemy unit surrounding it.",
           "effects": [
@@ -8172,7 +8198,7 @@ export const initialCardsData: CardsDataSchema = {
           "effects": [{ "type": "armour", "target": "self", "upTo": 1 }], "script": null }
       ],
       "abilities": [
-        { "id": "jade_burst", "name": "Jade Burst", "cost": 1, "range": [1, 3], "rangeText": "1-3", "target": "tile",
+        { "id": "jade_burst", "name": "Jade Burst", "tagNote": "Tile Target", "cost": 1, "range": [1, 3], "rangeText": "1-3", "target": "tile",
           "targetText": "targets tile", "limits": { "oncePerTurn": true },
           "text": "Deals 4 damage to enemy units on the target tile and 3 damage to enemy units surrounding it. Use only once per turn.",
           "effects": [
@@ -8730,6 +8756,7 @@ export const initialCardsData: CardsDataSchema = {
         {
           "id": "seed_bomb",
           "name": "Seed Bomb",
+          "tagNote": "Tile Target",
           "cost": 1,
           "tags": [],
           "range": [
@@ -8891,7 +8918,7 @@ export const initialCardsData: CardsDataSchema = {
         { "id": "jaw_snap", "name": "Jaw Snap", "cost": 1, "tags": ["melee"], "limits": { "oncePerTurn": true },
           "text": "Deals 10 damage. Use only once per turn.",
           "effects": [{ "type": "damage", "amount": 10, "hits": 1 }] },
-        { "id": "trees_bounty", "name": "Tree's Bounty", "cost": 1, "tags": ["melee", "assist"], "target": "anyUnit", "targetText": "friendly or enemy",
+        { "id": "trees_bounty", "name": "Tree's Bounty", "tagNote": "Friendly or Enemy Target", "cost": 1, "tags": ["melee", "assist"], "target": "anyUnit", "targetText": "friendly or enemy",
           "text": "If the target is an enemy, deals 6 damage. If the target is a friendly, it heals 3 damage.",
           "effects": [
             { "type": "damage", "amount": 6, "hits": 1, "if": "target.isEnemy" },
@@ -8985,6 +9012,7 @@ export const initialCardsData: CardsDataSchema = {
         {
           "id": "lava_pillar",
           "name": "Lava Pillar",
+          "tagNote": "Tile Target",
           "cost": 3,
           "tags": [],
           "range": [
@@ -9025,7 +9053,7 @@ export const initialCardsData: CardsDataSchema = {
           "text": "This unit moves up to 3 tiles within the same row. It may move over units this way, and doing so deals 8 damage to each of those units. This ability must leave this unit alone on its tile. Use only once per turn.",
           "effects": [{ "type": "move", "target": "self", "distance": { "min": 1, "max": 3 }, "path": { "sameRow": true, "directionChanges": "any" },
             "mayMoveOverUnits": true, "damageToUnitsMovedOver": 8, "finalTileMustBeEmpty": true }] },
-        { "id": "soothing_sap", "name": "Soothing Sap", "cost": 1, "tags": ["melee", "assist"], "target": "friendlyUnit", "targetText": "friendly target",
+        { "id": "soothing_sap", "name": "Soothing Sap", "tagNote": "Friendly Target", "cost": 1, "tags": ["melee", "assist"], "target": "friendlyUnit", "targetText": "friendly target",
           "limits": { "oncePerTurn": true },
           "text": "Heal 5 damage from the target. Use only once per turn.",
           "effects": [{ "type": "heal", "target": "friendlyTarget", "amount": 5 }] }
@@ -9080,6 +9108,7 @@ export const initialCardsData: CardsDataSchema = {
         {
           "id": "whiteout_disappearance",
           "name": "Whiteout Disappearance",
+          "tagNote": "Empty Tile Target",
           "cost": 1,
           "tags": [
             "inspiring"
@@ -9198,6 +9227,7 @@ export const initialCardsData: CardsDataSchema = {
         {
           "id": "napalm_spray",
           "name": "Napalm Spray",
+          "tagNote": "Tile Target",
           "cost": 1,
           "tags": [
             "inspiring"
@@ -9253,6 +9283,7 @@ export const initialCardsData: CardsDataSchema = {
         {
           "id": "mushroom_sprouting",
           "name": "Mushroom Sprouting",
+          "tagNote": "Empty Tile Target",
           "cost": 1,
           "tags": [],
           "range": [
@@ -9964,6 +9995,7 @@ export const initialCardsData: CardsDataSchema = {
         {
           "id": "blink_dash",
           "name": "Blink Dash",
+          "tagNote": "Empty Tile Target",
           "cost": 1,
           "text": "Place this unit on the target tile (ignoring units in the way).",
           "range": [
@@ -10128,6 +10160,7 @@ export const initialCardsData: CardsDataSchema = {
         {
           "id": "electrify_puddle",
           "name": "Electrify Puddle",
+          "tagNote": "Tile Target",
           "cost": 1,
           "text": "Deals 3 damage to all units on the target tile and all units on surrounding tiles (including this one). Use only once per turn.",
           "range": [
@@ -10197,6 +10230,7 @@ export const initialCardsData: CardsDataSchema = {
         {
           "id": "shadow_phase",
           "name": "Shadow Phase",
+          "tagNote": "Empty Tile Target",
           "cost": 1,
           "text": "Place this unit on the target tile (ignoring units in the way).",
           "range": [
@@ -10771,6 +10805,7 @@ export const initialCardsData: CardsDataSchema = {
         {
           "id": "thunderstep",
           "name": "Thunderstep",
+          "tagNote": "Empty Tile Target",
           "cost": 1,
           "text": "Place this unit on the target tile (ignoring units in the way). If you place this unit directly behind an enemy, deal 2 damage to that enemy.",
           "range": [
@@ -11701,6 +11736,7 @@ export const initialCardsData: CardsDataSchema = {
         {
           "id": "set_ablaze",
           "name": "Set Ablaze",
+          "tagNote": "Tile Target",
           "cost": 1,
           "text": "Create a Raging Bonfire token on the target tile (It is a token with 12HP, 0AP, and Passive- Blazing Fixture). Use only once per turn.",
           "range": [
@@ -11902,6 +11938,7 @@ export const initialCardsData: CardsDataSchema = {
         {
           "id": "creatures_of_night",
           "name": "Creatures of Night",
+          "tagNote": "Tile Target",
           "cost": 1,
           "text": "Create a Freak token on the target tile (It is a token with 12HP, 2AP, Passive- Mindless, and Explode). Use only if you have 2 or fewer Freak tokens in play.",
           "range": [
@@ -12032,6 +12069,7 @@ export const initialCardsData: CardsDataSchema = {
         {
           "id": "super_jump",
           "name": "Super Jump",
+          "tagNote": "Empty Tile Target",
           "cost": 3,
           "text": "Place this unit on the target tile. Then, deals damage equal to twice the number of tiles travelled to all surrounding units.",
           "range": [
@@ -12293,6 +12331,7 @@ export const initialCardsData: CardsDataSchema = {
         {
           "id": "beating_sun",
           "name": "Beating Sun",
+          "tagNote": "Tile Target",
           "cost": 1,
           "text": "Deals 3 damage to all units on or surrounding the target tile.",
           "range": [
@@ -12400,6 +12439,7 @@ export const initialCardsData: CardsDataSchema = {
         {
           "id": "toxic_drizzle",
           "name": "Toxic Drizzle",
+          "tagNote": "Tile Target",
           "cost": 1,
           "text": "Deals 4 damage to all units on or surrounding the target tile.",
           "range": [
@@ -12421,6 +12461,7 @@ export const initialCardsData: CardsDataSchema = {
         {
           "id": "smothering_drop",
           "name": "Smothering Drop",
+          "tagNote": "Empty Tile Target",
           "cost": 2,
           "text": "Place this unit on the target tile. Deal 6 damage to all surrounding enemy units and apply knockback 1 to each.",
           "target": "emptyTile",
@@ -12598,6 +12639,7 @@ export const initialCardsData: CardsDataSchema = {
         {
           "id": "overgrowth_spores",
           "name": "Overgrowth Spores",
+          "tagNote": "Up to 2 Targets",
           "cost": 2,
           "text": "Deals 5 damage. This unit heals 5 damage.",
           "target": "enemyUnit",
@@ -12793,6 +12835,7 @@ export const initialCardsData: CardsDataSchema = {
         {
           "id": "total_eclipse",
           "name": "Total Eclipse",
+          "tagNote": "Tile Target",
           "cost": 2,
           "text": "Deals 5 damage to all units on or surrounding the target tile. Then, armour up to 3.",
           "range": [
@@ -12977,6 +13020,7 @@ export const initialCardsData: CardsDataSchema = {
         {
           "id": "lightning_bolt",
           "name": "Lightning Bolt",
+          "tagNote": "Tile Target",
           "cost": 2,
           "text": "Deals 11 damage to units on the target tile and 5 damage to each enemy unit surrounding it.",
           "range": [
@@ -13647,6 +13691,7 @@ export const initialCardsData: CardsDataSchema = {
         {
           "id": "colossal_hedgehog",
           "name": "Colossal Hedgehog",
+          "tagNote": "3 Tile Targets, Each Surrounding at Least 1 Other",
           "cost": 2,
           "text": "Deals 3 damage to units on all target tiles. Hits three times.",
           "target": "tile",
@@ -13835,6 +13880,7 @@ export const initialCardsData: CardsDataSchema = {
         {
           "id": "shadow_emergence",
           "name": "Shadow Emergence",
+          "tagNote": "Targets Empty Tile Behind an Enemy Unit",
           "cost": 1,
           "text": "Place this unit on the target tile. Use only as the second action in a turn.",
           "range": [
@@ -14242,6 +14288,7 @@ export const initialCardsData: CardsDataSchema = {
         {
           "id": "deathly_barrage",
           "name": "Deathly Barrage",
+          "tagNote": "Tile Target",
           "cost": 2,
           "text": "Deals 3 damage to all units on or surrounding the target tile. Hits twice.",
           "range": [
@@ -14888,21 +14935,22 @@ export const initialCardsData: CardsDataSchema = {
         {
           "id": "twisting_beam",
           "name": "Twisting Beam",
+          "tagNote": "Each Direction Different Than Previous",
           "cost": 1,
-          "text": "Deals 3 damage to all units on the path.",
+          "text": "Deals 4 damage to all units on the path.",
           "usesPath": true,
           "range": [
             1,
-            3
+            4
           ],
-          "rangeText": "3",
+          "rangeText": "4",
           "target": "tile",
-          "targetText": "path, never the same direction twice",
+          "targetText": "path, each direction different than previous",
           "pathRule": "noSameDirectionTwice",
           "effects": [
             {
               "type": "damage",
-              "amount": 3,
+              "amount": 4,
               "hits": 1,
               "area": "allUnitsOnPath"
             }
@@ -15391,6 +15439,7 @@ export const initialCardsData: CardsDataSchema = {
         {
           "id": "bonemerang",
           "name": "Bonemerang",
+          "tagNote": "Tile Target",
           "cost": 1,
           "text": "Deals 3 damage to each unit on the path (including the unit on the target tile, if there is one). Hits twice. Use only once each turn.",
           "usesPath": true,
@@ -15790,6 +15839,7 @@ export const initialCardsData: CardsDataSchema = {
         {
           "id": "laser_artillery",
           "name": "Laser Artillery",
+          "tagNote": "Up to 3 Tile Targets, None Surrounding Another",
           "cost": 2,
           "text": "Deals 4 damage to each unit on a target tile. Then, hits again for 3 damage.",
           "range": [
@@ -15818,6 +15868,7 @@ export const initialCardsData: CardsDataSchema = {
         {
           "id": "focused_barrage",
           "name": "Focused Barrage",
+          "tagNote": "Tile Target",
           "cost": 3,
           "text": "Deals 4 damage to the first unit on the path. Hits 5 times. Each time a hit kills a unit, the next one hits the next unit on the path instead (if there is one).",
           "usesPath": true,
@@ -15878,6 +15929,7 @@ export const initialCardsData: CardsDataSchema = {
         {
           "id": "treble_trauma",
           "name": "Treble Trauma",
+          "tagNote": "Tile Target",
           "cost": 1,
           "text": "Deals 4 damage to all units on the path.",
           "usesPath": true,
@@ -15989,6 +16041,7 @@ export const initialCardsData: CardsDataSchema = {
         {
           "id": "necrotic_breath",
           "name": "Necrotic Breath",
+          "tagNote": "Tile Target",
           "cost": 2,
           "text": "Deals 13 damage to the first unit on the path.",
           "usesPath": true,
@@ -16591,6 +16644,7 @@ export const initialCardsData: CardsDataSchema = {
         {
           "id": "wind_javelins",
           "name": "Wind Javelins",
+          "tagNote": "Tile Target, Hits First Unit on Path",
           "cost": 1,
           "text": "This attack deals 1 damage less for each time it was previously used this turn. Deals 7 damage.",
           "usesPath": true,
@@ -16758,6 +16812,7 @@ export const initialCardsData: CardsDataSchema = {
         {
           "id": "chain_lantern_combo",
           "name": "Chain-Lantern Combo",
+          "tagNote": "Tile Target",
           "cost": 2,
           "text": "Deals 3 damage to all units surrounding this one. Scorch each tile where a unit was dealt damage this way. Then, deals 6 damage to all units on the path.",
           "usesPath": true,
@@ -17032,7 +17087,7 @@ export const initialCardsData: CardsDataSchema = {
           "name": "Galvanic Harmony",
           "trigger": "static",
           "optional": true,
-          "text": "If this unit has no cards under it, it may attach to a friendly unit with exactly 2 promoted cards of different types. While this card is attached to a unit, that unit's AP is set to 1 more than the AP printed on that unit when it takes a turn. This effect does not stack. Attaching ends your turn.",
+          "text": "If this unit has no cards under it, it may move under a friendly unit with exactly 2 promoted cards that do not share any types. If it does, attach it to that unit. While this card is attached to a unit, that unit starts its turn with +1 AP. This effect does not stack.",
           "effects": [
             {
               "type": "attach",
@@ -17101,7 +17156,7 @@ export const initialCardsData: CardsDataSchema = {
           "name": "Echoing Harmony",
           "trigger": "static",
           "optional": true,
-          "text": "If this unit has no cards under it, it may attach to a friendly unit with exactly 2 promoted cards that are of the same type or have a word in common in their names. While this card is attached to a unit, once during each of that unit's turns, after it uses a 1AP attack, it may use that attack again for free, except it deals 2 damage less on the first hit (to a minimum of 1). This effect does not stack. Attaching ends your turn.",
+          "text": "If this unit has no cards under it, it may move under a friendly unit with exactly 2 promoted cards that share at least 1 type. If it does, attach it to that unit. While this card is attached to a unit, once during each of that unit's turns, after it uses a 1AP attack, it may use that attack again for free, except it deals 2 damage less on the first hit (to a minimum of 1). This effect does not stack.",
           "effects": [
             {
               "type": "attach",
@@ -17182,7 +17237,7 @@ export const initialCardsData: CardsDataSchema = {
           "name": "Agile Harmony",
           "trigger": "static",
           "optional": true,
-          "text": "If this unit has no cards under it, it may attach to a friendly unit with exactly 2 promoted cards. While this card is attached to a unit, once during each of that unit's turns, that unit may place itself on an empty surrounding tile for free. This effect does not stack. Attaching ends your turn.",
+          "text": "If this unit has no cards under it, it may move under a friendly unit with exactly 2 promoted cards. If it does, attach it to that unit. While this card is attached to a unit, once during each of that unit's turns, that unit may place itself on an empty surrounding tile for free. This effect does not stack.",
           "effects": [
             {
               "type": "attach",
@@ -17252,7 +17307,7 @@ export const initialCardsData: CardsDataSchema = {
           "name": "Fortifying Harmony",
           "trigger": "static",
           "optional": true,
-          "text": "If this unit has no cards under it, it may attach to a friendly unit with exactly 1 promoted card. While this card is attached to a unit, that unit has 6 more HP. This effect does not stack. Attaching ends your turn.",
+          "text": "If this unit has no cards under it, it may move under a friendly unit with exactly 1 promoted card. If it does, attach it to that unit. While this card is attached to a unit, that unit has 6 more HP. This effect does not stack.",
           "effects": [
             {
               "type": "attach",
@@ -17317,7 +17372,7 @@ export const initialCardsData: CardsDataSchema = {
           "name": "Bountiful Harmony",
           "trigger": "static",
           "optional": true,
-          "text": "If this unit has no cards under it, it may attach to a friendly unit with Tribute 2. While this card is attached to a unit, once during each of that unit's turns, when it kills an enemy non-token unit, draw 1 card. This effect does not stack. Attaching ends your turn.",
+          "text": "If this unit has no cards under it, it may move under a friendly unit with Tribute 2. If it does, attach it to that unit. While this card is attached to a unit, once during each of that unit's turns, when it kills an enemy non-token unit, draw 1 card. This effect does not stack.",
           "effects": [
             {
               "type": "attach",
@@ -17383,7 +17438,7 @@ export const initialCardsData: CardsDataSchema = {
           "name": "Mending Harmony",
           "trigger": "static",
           "optional": true,
-          "text": "If this unit has no cards under it, it may attach to a friendly unit with Tribute 3. While this card is attached to a unit, at the end of each of your turns, if that unit is damaged and was not healed this turn, it heals 1 damage. This effect does not stack. Attaching ends your turn.",
+          "text": "If this unit has no cards under it, it may move under a friendly unit with Tribute 3. If it does, attach it to that unit. While this card is attached to a unit, at the end of each of your turns, if that unit is damaged and was not healed this turn, it heals 2 damage. This effect does not stack.",
           "effects": [
             {
               "type": "attach",
@@ -17397,7 +17452,7 @@ export const initialCardsData: CardsDataSchema = {
                 {
                   "type": "heal",
                   "target": "attachedUnit",
-                  "amount": 1,
+                  "amount": 2,
                   "trigger": "ownerTurnEnd",
                   "if": "attachedUnit.isDamaged && !attachedUnit.healedThisTurn"
                 }
@@ -17448,7 +17503,7 @@ export const initialCardsData: CardsDataSchema = {
           "name": "Prescient Harmony",
           "trigger": "static",
           "optional": true,
-          "text": "If this unit has no cards under it, it may attach to a friendly unit with exactly 3 promoted cards. While this card is attached to a unit, at the start of each of your turns, look at the top card of your deck. You may put it on the bottom of your deck. This effect does not stack. Attaching ends your turn.",
+          "text": "If this unit has no cards under it, it may move under a friendly unit with exactly 3 promoted cards. If it does, attach it to that unit. While this card is attached to a unit, at the start of each of your turns, look at the top card of your deck. You may put it on the bottom of your deck. This effect does not stack.",
           "effects": [
             {
               "type": "attach",
@@ -17610,6 +17665,7 @@ export const initialCardsData: CardsDataSchema = {
         {
           "id": "solar_nova",
           "name": "Solar Nova",
+          "tagNote": "Tile Target",
           "cost": 1,
           "tags": [
             "inspiring"
@@ -17991,6 +18047,7 @@ export const initialCardsData: CardsDataSchema = {
         {
           "id": "muster_rations",
           "name": "Muster Rations",
+          "tagNote": "Targets Friendly Unit",
           "cost": 1,
           "tags": [
             "assist"
@@ -18613,7 +18670,7 @@ export const initialCardsData: CardsDataSchema = {
       "reinforce": {
         "mode": "basic"
       },
-      "hp": 16,
+      "hp": 18,
       "ap": 2,
       "art": "art/lunar_vigilante.png",
       "passives": [
@@ -18637,11 +18694,11 @@ export const initialCardsData: CardsDataSchema = {
           "id": "glowing_fists",
           "name": "Glowing Fists",
           "cost": 1,
-          "text": "Deals 4 damage. If this unit is armoured, deals an additional 2 damage.",
+          "text": "Deals 5 damage. If this unit is armoured, deals an additional 2 damage.",
           "effects": [
             {
               "type": "damage",
-              "amount": 4,
+              "amount": 5,
               "hits": 1,
               "modifiers": [
                 {
@@ -18658,6 +18715,7 @@ export const initialCardsData: CardsDataSchema = {
         {
           "id": "moonlight_ward",
           "name": "Moonlight Ward",
+          "tagNote": "Targets Friendly Unit",
           "cost": 1,
           "tags": [
             "assist"
@@ -18797,6 +18855,7 @@ export const initialCardsData: CardsDataSchema = {
         {
           "id": "drag_and_drop",
           "name": "Drag and Drop",
+          "tagNote": "Can Target Friendly",
           "cost": 1,
           "text": "Place the target on an empty tile surrounding this unit. Use only once per turn.",
           "effects": [
@@ -19154,6 +19213,7 @@ export const initialCardsData: CardsDataSchema = {
         {
           "id": "meteor_hammer",
           "name": "Meteor Hammer",
+          "tagNote": "Tile Target",
           "cost": 1,
           "text": "Deals 4 damage to all units on the path. Use only once per turn.",
           "effects": [
@@ -19210,6 +19270,7 @@ export const initialCardsData: CardsDataSchema = {
         {
           "id": "sandwich_lob",
           "name": "Sandwich Lob",
+          "tagNote": "Can Target Friendly",
           "cost": 1,
           "text": "Deals 3 damage. Then, if the target is friendly, that unit heals 6 damage.",
           "effects": [
@@ -19235,6 +19296,7 @@ export const initialCardsData: CardsDataSchema = {
         {
           "id": "chart_the_field",
           "name": "Chart the Field",
+          "tagNote": "Tile Target",
           "cost": 2,
           "tags": [
             "assist"
@@ -19408,6 +19470,7 @@ export const initialCardsData: CardsDataSchema = {
         {
           "id": "green_fortitude",
           "name": "Green Fortitude",
+          "tagNote": "Friendly Target",
           "cost": 1,
           "text": "Heal 3 damage from the target. Use only once per turn.",
           "effects": [
@@ -19522,6 +19585,7 @@ export const initialCardsData: CardsDataSchema = {
         {
           "id": "heat_distortion",
           "name": "Heat Distortion",
+          "tagNote": "Empty Tile Target",
           "cost": 1,
           "text": "Place this unit on the target tile. If this unit is on a scorched tile, this ability has Range 1-4 instead.",
           "effects": [

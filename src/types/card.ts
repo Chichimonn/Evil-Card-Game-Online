@@ -44,7 +44,11 @@ export interface CardAbility {
   range?: number[];
   rangeText?: string;
   target?: string;
+  // Read by the targeting rules (e.g. "empty tile target"); not shown on the card
   targetText?: string;
+  // The rest of the ability's tag line as the card text gives it (e.g. "Tile Target", "Can Target Friendly"): shown on
+  // the card as a chip after its range, for anything the other chips don't already say
+  tagNote?: string;
   targetCount?: string | number | Record<string, unknown>;
   straightLine?: boolean;
   isMultiStage?: boolean;

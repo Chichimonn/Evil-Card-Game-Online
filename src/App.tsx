@@ -11942,6 +11942,9 @@ export default function App() {
       showNotification(`Not enough AP to use ${ability.name} (Requires ${cost} AP, has ${activeTurnUnit.currentAp} AP).`);
       return;
     }
+    // Choosing an ability leaves move mode (e.g. turned back on by itself after a move, see moveRunRef): otherwise it
+    // would come back once the ability is used, instead of the ability being selected again (see abilityRunRef)
+    setIsMovingMode(false);
     // An ability that takes effect as soon as it's activated (no target): an enemy's readied ability (e.g. Ready
     // Spell) may interrupt it now. Targeted ones are offered on their target click.
     const isImmediateUse =

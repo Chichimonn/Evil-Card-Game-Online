@@ -4,6 +4,7 @@ import { BattlefieldUnit } from '../types/game';
 import {
   CardView,
   CardAbilityBox,
+  CARD_BOX_TINT,
   alignCardBoxes,
   readCardTextFit,
   CARD_TEXT_CLASS,
@@ -344,6 +345,30 @@ export const FocusCardPanel: React.FC<Props> = ({
   }, [interactive, rects, hovered, pressed, stateKey, card.id, pulseKey, faceImage]);
 
 
+  // Over the card's image, each box's coloured layer reaches a few card pixels past the printed box under it on every
+  // side, so a slight misalignment (e.g. from the browser being zoomed in or out) doesn't show the printed one's edges.
+  // The text on it stays where it is.
+  useLayoutEffect(() => {
+    if (!faceImage) return;
+    const root = cardRef.current;
+    if (!root) return;
+    const COVER = 3;
+    const layers = Array.from(root.querySelectorAll<HTMLElement>('[data-card-text] [data-box-bg]'));
+    const apply = () =>
+      layers.forEach((layer) => {
+        const w = layer.offsetWidth;
+        const h = layer.offsetHeight;
+        if (w > 0 && h > 0) layer.style.transform = `scale(${1 + (2 * COVER) / w}, ${1 + (2 * COVER) / h})`;
+      });
+    apply();
+    // (again once the text has been fitted, which can resize the boxes)
+    const timers = [250, 1200, 2500].map((ms) => setTimeout(apply, ms));
+    return () => {
+      timers.forEach(clearTimeout);
+      layers.forEach((layer) => (layer.style.transform = ''));
+    };
+  }, [faceImage, card.id, rects]);
+
   // The unit's AP as it is now, on the card's own AP badge (its number; amber once some is spent), while its options are
   // being picked; the printed number comes back after
   const currentAp = turnUnit ? turnUnit.currentAp : null;
@@ -410,7 +435,7 @@ export const FocusCardPanel: React.FC<Props> = ({
           transition: 'transform 100ms, opacity 150ms'
         }}
       >
-        <CardAbilityBox ability={asAbility(a)} costLabel={a.cost ?? null} frameStyle={{ boxShadow: glow, transition: 'box-shadow 120ms' }} />
+        <CardAbilityBox ability={asAbility(a)} fill={CARD_BOX_TINT} costLabel={a.cost ?? null} frameStyle={{ boxShadow: glow, transition: 'box-shadow 120ms' }} />
       </button>
     );
   };

@@ -25,7 +25,7 @@ import { getRequirementsList, unitMatchesRequirement } from './reinforceRules';
  *   place         once each of its turns, place itself on an empty surrounding tile for free
  *   modifyMaxHp   { amount: 6 }                      it has 6 more HP
  *   draw          { amount: 1, trigger: 'attachedUnit.killsEnemyNonToken' }  once each of its turns
- *   heal          { amount: 1, trigger: 'ownerTurnEnd' }   if damaged and not healed this turn
+ *   heal          { amount: 2, trigger: 'ownerTurnEnd' }   if damaged and not healed this turn
  *   scry          { amount: 1, trigger: 'ownerTurnStart' } look at the top card; you may put it on the bottom
  */
 

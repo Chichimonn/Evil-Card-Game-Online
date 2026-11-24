@@ -14,7 +14,7 @@ export const LOADING_MESSAGES: string[] = [
   "Polishing Sentinel Knight's very cool brimmed helmet...",
   "Telling Greatsword Knight that his sword is very big...",
   "Reminding Shade Assassin not to startle the guests...",
-  "Convinving Combat Cook make me dinner tonight...",
+  "Convincing Combat Cook make me dinner tonight...",
   "Reshelving Archivist Sage's hard copies...",
   "Gathering firewood for Happy Camper to use...",
   "Topping up Powder Keg Plunderer's powder kegs...",

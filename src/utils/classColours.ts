@@ -5,11 +5,12 @@ import { CardItem } from '../types/card';
  * Each class's colour on a card face: a dark shade of a hue on the rainbow, different enough from its neighbours to tell
  * apart (neighbouring hues also alternate lighter and darker), dark enough that white text reads over it (the top half
  * of the name sits on it). It is the card's border: the edge all the way round the face. Everything read on the card
- * (the bar behind the name and type line, the passive and ability boxes) is one dark surface, CARD_SURFACE_COLOUR, on
- * every card.
+ * (the bar behind the name and type line, the passive and ability boxes) is that colour with CARD_SURFACE_COLOUR laid well
+ * over it.
  *
- * A card of several classes (e.g. Flaming Mage) isn't one mixed colour: it fades from one class's colour to the
- * other's across the card, left to right. A card with no class tag takes the classes its reinforce requirement names (Promote a Knight,
+ * Every card is two colours side by side (see getCardSplit), fading from one to the other across a gentle, even wavy
+ * line down the card: a card of several classes (e.g. Flaming Mage) its first two classes' colours, a card of one class
+ * (or none) its colour and a shade of it. A card with no class tag takes the classes its reinforce requirement names (Promote a Knight,
  * Fusion: 2 Mages and/or Fighters, Tribute 2: At least 1 Flaming); a card with none of those has a plain grey border.
  */
 
@@ -83,6 +84,30 @@ export const CLASS_COLOURS: Record<string, string> = Object.fromEntries(
   CLASS_ORDER.map((c, i) => [c, toHex(LIGHTNESS[i % 2], CHROMA, START_HUE + (i * 360) / CLASS_ORDER.length)])
 );
 
+// Classes given a colour of their own rather than their place on the rainbow
+Object.assign(CLASS_COLOURS, {
+  Fighter: '#4b3526', // plain dark brown
+  Flaming: '#c8261c', // a bright, hot red
+  Wildcat: '#c08a2e', // cheetah gold
+  Lancer: '#8d939a', // light silver
+  Solar: '#e3901f', // a bright yellow-orange
+  Lightning: '#c4a512', // electric yellow
+  Ooze: '#4a4f92', // blue-purple (its second colour keeps some green)
+  Plant: '#23883a', // a vibrant green (with a brighter one)
+  Drakeling: '#8a5b3d', // dull copper
+  Ghost: '#3b8a9c', // a lighter, ectoplasm blue
+  Knight: '#3d4757', // grey, with a strong pull of the steel blue
+  Lunar: '#3d2a72', // deep purple
+  Assassin: '#5e0f16' // dark, blood red
+});
+
+// A one-class card's second colour, where it isn't just a shade of the first (see shadeOf)
+const CLASS_SECOND_COLOURS: Record<string, string> = {
+  Wildcat: '#7e5a26', // the darker tan of the spots
+  Ooze: '#2f7462', // a murky green, under the blue-purple
+  Plant: '#62b52b' // a bright, lime-leaning green
+};
+
 /** The classes that colour a card (see the module comment). */
 export function getColourClasses(card: CardItem): string[] {
   const known = (words: string[]) => [...new Set(words.filter((w) => w in CLASS_COLOURS))];
@@ -95,7 +120,7 @@ export function getColourClasses(card: CardItem): string[] {
  * How far in (card pixels: the face is 750 wide) a single colour fades from the off-black at the card's edges (the
  * CARD_EDGE_COLOUR) to its full colour.
  */
-export const CARD_EDGE_FADE = 80;
+export const CARD_EDGE_FADE = 130;
 
 /**
  * Which edges of the area being filled are the card's own edges, so fade in from black there. A card face: all four.
@@ -104,21 +129,91 @@ export const CARD_EDGE_FADE = 80;
  */
 export type CardFillEdges = { top?: boolean; bottom?: boolean; sides?: boolean };
 
+// Mixes two #rrggbb colours (t: 0 is a, 1 is b)
+const mix = (a: string, b: string, t: number): string => {
+  const pa = [1, 3, 5].map((i) => parseInt(a.slice(i, i + 2), 16));
+  const pb = [1, 3, 5].map((i) => parseInt(b.slice(i, i + 2), 16));
+  return '#' + pa.map((v, i) => Math.round(v + (pb[i] - v) * t).toString(16).padStart(2, '0')).join('');
+};
+
+// The grey's shade, for a card with no class: a much lighter grey, so its split shows plainly
+const NEUTRAL_CARD_SHADE = '#8a837c';
+
+// A colour's shade, the second colour of a one-class card: lighter for a dark colour, darker for a light one
+const shadeOf = (c: string): string => {
+  const [r, g, b] = [1, 3, 5].map((i) => parseInt(c.slice(i, i + 2), 16) / 255);
+  const luminance = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+  return luminance > 0.35 ? mix(c, '#000000', 0.3) : mix(c, '#ffffff', 0.22);
+};
+
+// The split's wavy line: how far it sways either side (card pixels: the face is 750 by 1050), how many times it
+// sways back and forth down the card, and how wide the fade from one colour to the other is across it
+const SPLIT_SWAY = 52;
+const SPLIT_WAVES = 3;
+const SPLIT_FADE = 340;
+// (drawn as strips this tall, each fading across at its own height)
+const SPLIT_STRIP = 6;
+const splitCache = new Map<string, string>();
+
+/**
+ * The card's two colours side by side, as a CSS background image (drawn the size of the card face, 750 by 1050): the
+ * first on the left fading into the second on the right, the middle of the fade following a gentle, even wavy line down
+ * the card (three sways each way). It's drawn as thin strips across the card, each a fade between the two colours
+ * centred on the line at its height. Its colours: the card's first two classes', or for a card of one class (or none),
+ * its colour and a shade of it.
+ */
+export function getCardSplit(card: CardItem): string {
+  const classes = getColourClasses(card);
+  const [left, right] =
+    classes.length > 1
+      ? [CLASS_COLOURS[classes[0]], CLASS_COLOURS[classes[1]]]
+      : classes.length === 1
+      ? [CLASS_COLOURS[classes[0]], CLASS_SECOND_COLOURS[classes[0]] || shadeOf(CLASS_COLOURS[classes[0]])]
+      : [NEUTRAL_CARD_COLOUR, NEUTRAL_CARD_SHADE];
+  const key = `${left},${right}`;
+  const cached = splitCache.get(key);
+  if (cached) return cached;
+  const W = 750;
+  const H = 1050;
+  const defs: string[] = [];
+  const strips: string[] = [];
+  for (let i = 0, y = 0; y < H; i++, y += SPLIT_STRIP) {
+    const mid = y + SPLIT_STRIP / 2;
+    const x = W / 2 + SPLIT_SWAY * Math.sin((2 * Math.PI * SPLIT_WAVES * mid) / H);
+    defs.push(
+      `<linearGradient id='g${i}' gradientUnits='userSpaceOnUse' x1='${(x - SPLIT_FADE / 2).toFixed(1)}' x2='${(x + SPLIT_FADE / 2).toFixed(1)}' y1='0' y2='0'>` +
+        `<stop offset='0' stop-color='${left}'/><stop offset='1' stop-color='${right}'/></linearGradient>`
+    );
+    // (each a pixel taller than its step, so no gap shows between them)
+    strips.push(`<rect y='${y}' width='${W}' height='${SPLIT_STRIP + 1}' fill='url(#g${i})'/>`);
+  }
+  const svg =
+    `<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 ${W} ${H}' preserveAspectRatio='none' shape-rendering='crispEdges'>` +
+    `<defs>${defs.join('')}</defs>${strips.join('')}</svg>`;
+  // (its quote marks and brackets escaped too: the card image capture, html-to-image, reads each url(...) in a style
+  // only up to its first quote mark, so the picture's own quotes (and brackets, e.g. url(#g0)) would cut it short, and
+  // the saved card images would show the plain colour)
+  const encoded = encodeURIComponent(svg).replace(/'/g, '%27').replace(/\(/g, '%28').replace(/\)/g, '%29');
+  const url = `url("data:image/svg+xml,${encoded}")`;
+  splitCache.set(key, url);
+  return url;
+}
+
 /**
  * The card's border as CSS: what's behind everything read on the card. It fades inward from the off-black at the card's
- * edges (CARD_EDGE_FADE) to its colour: a single colour (a class's, or the grey of a card with no class), or for a card
- * of several classes, the fade across the card, left to right, between its classes' colours (the edge fade laid over it).
+ * edges (CARD_EDGE_FADE) to its colours, split down the card (see getCardSplit; the edge fade laid over it).
  */
 export function getCardFill(card: CardItem, edges: CardFillEdges = { top: true, bottom: true, sides: true }): CSSProperties {
   const colours = getColourClasses(card).map((c) => CLASS_COLOURS[c]);
   const f = CARD_EDGE_FADE;
-  // The edge fade (on top), then the classes' fade across the card when it has several (under it)
+  // The edge fade (on top), then the card's colours (under it)
   const layers = [
     edges.sides && `linear-gradient(to right, ${CARD_EDGE_COLOUR} 0px, transparent ${f}px, transparent calc(100% - ${f}px), ${CARD_EDGE_COLOUR} 100%)`,
     edges.top && `linear-gradient(to bottom, ${CARD_EDGE_COLOUR} 0px, transparent ${f}px)`,
     edges.bottom && `linear-gradient(to top, ${CARD_EDGE_COLOUR} 0px, transparent ${f}px)`,
-    colours.length > 1 && `linear-gradient(to right, ${colours.join(', ')})`
+    getCardSplit(card)
   ].filter(Boolean);
   const base = colours[0] || NEUTRAL_CARD_COLOUR;
-  return layers.length ? { backgroundColor: base, backgroundImage: layers.join(', ') } : { backgroundColor: base };
+  // (every layer the size of the area filled: the colours' split stretched to it)
+  return { backgroundColor: base, backgroundImage: layers.join(', '), backgroundSize: '100% 100%', backgroundRepeat: 'no-repeat' };
 }
