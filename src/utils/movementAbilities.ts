@@ -191,13 +191,17 @@ export function getMoveThroughPassive(
   damageEnemiesOnly?: boolean;
   // What happens to/for the unit on the tile moved onto, before this unit moves off it again (see applyMoveOntoUnit)
   onMoveOntoUnit?: any[];
-  // "...if it is on a tile with another unit on it, that unit moves with it" (e.g. Hidden Strings): moving onto a unit
+  // "...if it is on a tile with another unit on it, that unit moves with it" (a carriesUnitOnTile passive): moving onto a unit
   // picks it up (like Engulf) instead of landing around it
   carriesUnit?: boolean;
+  // "If this unit moves over another unit, apply knockback 1 to that unit in a direction of your choice. Then, if that
+  // unit did not move this way, move this unit to an empty surrounding tile" (e.g. Hidden Strings): pushed off the tile,
+  // the unit moved onto leaves it to this one
+  knocksBackMovedOver?: boolean;
 } | null {
   if (!unit) return null;
   for (const p of getUnitPassives(unit)) {
-    // "This unit may move over other units. If this unit would end its turn while it is not alone on its tile, [...],
+    // "This unit may move over other units. If this unit moves over another unit, [...],
     // then move this unit to an empty surrounding tile for free" (the ghosts, Aerial Apex, Rabble Rouse):
     // { type: 'modifyMove', moveOverUnits: 'any' | 'enemy', relocateToEmptySurroundingTile: true, onMoveOntoUnit: [...] }.
     // Only one unit fits on a tile here, so a move onto a unit resolves its effects at once and then lands on an empty
@@ -214,7 +218,8 @@ export function getMoveThroughPassive(
         everyMove: true,
         anyUnit: over.moveOverUnits === 'any',
         onMoveOntoUnit: over.onMoveOntoUnit || [],
-        carriesUnit: Boolean(over.carriesUnitOnTile)
+        carriesUnit: Boolean(over.carriesUnitOnTile),
+        knocksBackMovedOver: Boolean(over.knockbackUnitMovedOver)
       };
     }
     // "When moving, this unit ignores other units and obstacles... must end its turn alone on its tile" (e.g. Aerial

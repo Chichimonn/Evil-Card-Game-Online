@@ -1336,7 +1336,7 @@ export default function App() {
 
   // Check victory condition (Rule 8)
   const checkVictory = (currentUnits: Record<string, BattlefieldUnit>) => {
-    // (a unit being carried, e.g. by Hidden Strings, is still its owner's)
+    // (a unit being carried, by a carriesUnitOnTile passive, is still its owner's)
     const units = Object.values(currentUnits).flatMap((u) => (u.carriedUnit ? [u, u.carriedUnit.unit] : [u]));
     const p1Units = units.filter((u) => u.owner === 'player1' && !u.card.isWall && u.card.type !== 'token');
     const p2Units = units.filter((u) => u.owner === 'player2' && !u.card.isWall && u.card.type !== 'token');
@@ -1641,7 +1641,7 @@ export default function App() {
     });
   };
 
-  // Puts down the unit the unit on carrierHex is carrying (e.g. Hidden Strings): on the last empty tile it left, else an
+  // Puts down the unit the unit on carrierHex is carrying (a carriesUnitOnTile passive): on the last empty tile it left, else an
   // empty tile around it. With no empty tile, it stays carried.
   const putDownCarriedUnit = (board: Record<string, BattlefieldUnit>, carrierHex: string): Record<string, BattlefieldUnit> => {
     const carrier = board[carrierHex];
@@ -1845,7 +1845,7 @@ export default function App() {
     if (!hex || path.length === 0) return board;
     const { newDirections, log } = logMoveDirections(board[hex], fromHex, path, turnCount);
     let mover = { ...board[hex], moveDirectionLog: log };
-    // A unit carrying another (e.g. Hidden Strings) remembers the last empty tile it left, to put that unit down there
+    // A unit carrying another (a carriesUnitOnTile passive) remembers the last empty tile it left, to put that unit down there
     if (mover.carriedUnit && fromHex) {
       const left = [fromHex, ...path.slice(0, -1)].filter((h) => h !== hex && !board[h]);
       if (left.length > 0) mover = { ...mover, carriedUnit: { ...mover.carriedUnit, lastLeftHex: left[left.length - 1] } };
@@ -1948,7 +1948,7 @@ export default function App() {
     turnStartKeyRef.current += 1;
     const nextTurnKey = turnStartKeyRef.current;
     setUnitsOnBoard((prevUnits) => {
-      // A unit carrying another (e.g. Hidden Strings) puts it down on the last empty tile it left
+      // A unit carrying another (a carriesUnitOnTile passive) puts it down on the last empty tile it left
       Object.keys(prevUnits).forEach((h) => {
         if (prevUnits[h]?.carriedUnit) prevUnits = putDownCarriedUnit(prevUnits, h);
       });
@@ -2353,7 +2353,7 @@ export default function App() {
     const reassembling: BattlefieldUnit[] = [];
     const dropped: { hex: string; unit: BattlefieldUnit }[] = [];
     Object.entries(prev).forEach(([id, p]) => {
-      // (a unit carrying another that leaves play, e.g. Hidden Strings, puts it down where it was)
+      // (a unit carrying another that leaves play, a carriesUnitOnTile passive, puts it down where it was)
       if (!now[id] && p.unit.carriedUnit) dropped.push(p);
       if (now[id] || leftPlayAliveRef.current.has(id)) return;
       if (getDeathBlast(p.unit, p.hex, unitsOnBoard).length > 0) blasts.push(p);
@@ -5117,10 +5117,56 @@ export default function App() {
     }
   };
 
-  const resolveChargeFlightExecution = () => {
+  // "This unit may move over other units. If this unit moves over another unit, [effects], then move this unit to an
+  // empty surrounding tile for free" (the ghosts, Aerial Apex) on a move of more than 1 tile (e.g. Treasure Trail,
+  // Spitfire Landing): each unit on hexes gets the passive's effects (its damage, and e.g. armour, loot, turn denial), as
+  // on a 1-tile move onto it. Returns the board (the defeated removed), the mover with its own effects, and the loot.
+  const resolveMoveOverPassive = (
+    board: Record<string, BattlefieldUnit>,
+    mover: BattlefieldUnit,
+    hexes: string[],
+    passive: NonNullable<ReturnType<typeof getMoveThroughPassive>>
+  ) => {
+    const next = { ...board };
+    let m = mover;
+    let loot = 0;
+    const notes: string[] = [];
+    const events: DamageEvent[] = [];
+    const defeated: BattlefieldUnit[] = [];
+    for (const h of hexes) {
+      const u = next[h];
+      if (!u || u.instanceId === mover.instanceId) continue;
+      const onto = applyMoveOntoUnit(m, u, passive.onMoveOntoUnit, lastTurnUnitIds, passive.name, TURN_DENIED);
+      m = onto.mover;
+      loot += onto.loot;
+      notes.push(...onto.notes);
+      let other = onto.other;
+      const dmg = !passive.damageEnemiesOnly || u.owner !== mover.owner ? passive.damage : 0;
+      if (dmg > 0) {
+        const absorbed = Math.min(other.armour, dmg);
+        const counters = other.damageCounters + dmg - absorbed;
+        if (counters >= other.card.hp) {
+          delete next[h];
+          defeated.push(other);
+          notes.push(`${dmg} damage to ${u.card.name} (defeated)`);
+          continue;
+        }
+        other = { ...other, armour: other.armour - absorbed, damageCounters: counters, tookDamageThisTurn: true };
+        notes.push(`${dmg} damage to ${u.card.name}`);
+        events.push({ hexId: h, damagedUnitOwner: u.owner, damageAmount: dmg, nonAttack: true, instanceId: u.instanceId });
+      }
+      next[h] = other;
+    }
+    return { board: next, mover: m, loot, notes, events, defeated };
+  };
+
+  // landHex: where a path that ends on a unit lands (around it), once chosen
+  const resolveChargeFlightExecution = (landHex?: string) => {
     if (!multiStageState || !activeTurnUnit || !activeTurnUnitHex) return;
     const { ability, targets, casterHex } = multiStageState;
-    const spec = getChargeFlightSpec(ability);
+    const spec = getChargeFlightSpec(ability, unitsOnBoard[casterHex]);
+    // A passive that lets it move over units (e.g. Pirate's Curse, using Treasure Trail)
+    const overPassive = spec.passOver ? getMoveThroughPassive(activeTurnUnit, turnCount) : null;
 
     // Validate path legality
     const check = validateChargeFlightPath(casterHex, targets, spec, unitsOnBoard);
@@ -5152,9 +5198,34 @@ export default function App() {
       return;
     }
 
-    const finalHex = targets[targets.length - 1];
+    // Ending on a unit it may move over: its passive's effects, then it lands on an empty tile around it, clicked on the
+    // board
+    if (unitsOnBoard[pathEnd] && overPassive && !landHex) {
+      const landing = getSurroundingHexes(pathEnd).filter((h) => !unitsOnBoard[h] || h === casterHex);
+      if (landing.length === 0) {
+        showNotification(`${ability.name}: there's no empty tile around ${unitsOnBoard[pathEnd].card.name} to land on.`);
+        return;
+      }
+      askCardChoice(
+        {
+          title: overPassive.name,
+          message: `${activeTurnUnit.card.name} moves over ${unitsOnBoard[pathEnd].card.name}: choose the empty tile around it to land on.`,
+          player: activePlayer,
+          board: 'tile',
+          options: landing.map((h) => ({ label: h, value: h, hex: h }))
+        },
+        (land) => resolveChargeFlightExecution(land)
+      );
+      return;
+    }
+
+    const finalHex = landHex && unitsOnBoard[pathEnd] ? landHex : targets[targets.length - 1];
     const intermediateTiles = targets.slice(0, -1);
     const damageAmount = spec.damage; // Configurable variable (default 8)
+    // The passive's effects on each unit moved over (and the one ended on)
+    const overHexes = targets.filter((h) => unitsOnBoard[h]);
+    const overRes = overPassive && overHexes.length > 0 ? resolveMoveOverPassive(unitsOnBoard, activeTurnUnit, overHexes, overPassive) : null;
+    const pathMover = overRes ? overRes.mover : activeTurnUnit;
 
     // Damage all units moved over
     const passThroughLogs: string[] = [];
@@ -5221,7 +5292,7 @@ export default function App() {
       isImmuneToScorchDamage(activeTurnUnit);
     const wasScorched = isTileScorched(finalHex, unitsOnBoard, scorchedTiles);
 
-    let currentArmour = activeTurnUnit.armour;
+    let currentArmour = pathMover.armour;
     let currentDamageCounters = activeTurnUnit.damageCounters;
     let isDefeatedByScorch = false;
 
@@ -5236,9 +5307,18 @@ export default function App() {
       isDefeatedByScorch = currentDamageCounters >= activeTurnUnit.card.hp;
     }
 
+    if (overRes) sendToGraveyard(overRes.defeated);
     setUnitsOnBoard((prev) => {
-      const next = { ...prev };
+      let next = { ...prev };
       delete next[casterHex];
+      if (overRes) {
+        overHexes.forEach((h) => {
+          if (overRes.board[h]) next[h] = overRes.board[h];
+          else delete next[h];
+        });
+        if (overRes.events.length > 0) next = applyDamageEventsAndPassives(overRes.events, next);
+        if (overRes.defeated.length > 0) checkVictory(next);
+      }
 
       if (isDefeatedByScorch) {
         if (activeTurnUnit.card.type !== 'token') {
@@ -5247,7 +5327,7 @@ export default function App() {
         }
       } else {
         next[finalHex] = {
-          ...activeTurnUnit,
+          ...pathMover,
           hexId: finalHex,
           currentAp: newAp,
           usedTurnCounts: newCounts,
@@ -5259,7 +5339,9 @@ export default function App() {
           ...(wasScorched && !isImmuneToScorch ? { tookDamageThisTurn: true } : {})
         };
       }
-      return isDefeatedByScorch ? next : applyMoveTriggers(next, activeTurnUnit.instanceId, targets, casterHex);
+      return isDefeatedByScorch
+        ? next
+        : applyMoveTriggers(next, activeTurnUnit.instanceId, finalHex !== targets[targets.length - 1] ? [...targets, finalHex] : targets, casterHex);
     });
 
     playCardDrawSound();
@@ -5280,6 +5362,8 @@ export default function App() {
     setActiveTurnUnitHex(finalHex);
     setSelectedHex(finalHex);
 
+    if (overRes && overRes.notes.length > 0) passThroughLogs.push(`${overPassive!.name}: ${overRes.notes.join('; ')}`);
+    if (finalHex !== targets[targets.length - 1]) passThroughLogs.push(`landed on ${finalHex}`);
     const logSummary = passThroughLogs.length > 0 ? passThroughLogs.join(', ') : 'No units moved over';
     showNotification(
       `🏇 ${activeTurnUnit.card.name} executed ${ability.name}! Path: ${targets.join(' → ')} (${targets.length} tiles). ${logSummary}.`
@@ -5288,7 +5372,10 @@ export default function App() {
     // Once-per-attack rules if it hit anything (Steal Plate, Perfect Form)
     applyMultiStepAttackerHooks(activeTurnUnit);
 
-    if (newAp <= 0) {
+    // (a loot from the passive comes after the move, e.g. Pirate's Curse; the turn waits for it)
+    if (overRes && overRes.loot > 0) {
+      triggerLoot(activeTurnUnit.owner, overRes.loot, overPassive!.name, activeTurnUnit.card.name, { unitHex: finalHex, afterAp: newAp });
+    } else if (newAp <= 0) {
       switchTurn(false);
     }
   };
@@ -5816,7 +5903,7 @@ export default function App() {
 
     // Charge / Flight path mode: sequential path selection with turn and legality checking
     if (isChargeFlightAbility(ability)) {
-      const spec = getChargeFlightSpec(ability);
+      const spec = getChargeFlightSpec(ability, unitsOnBoard[multiStageState.casterHex]);
       // (a path is carried out with its Confirm button only: clicking its last tile again takes that tile back)
       const res = extendChargeFlightPath(multiStageState.casterHex, targets, hexId, spec, unitsOnBoard);
       if (res.error) {
@@ -10546,7 +10633,95 @@ export default function App() {
       if (trampleAp <= 0) switchTurn(false);
       return;
     }
-    // "When this unit moves, if it is on a tile with another unit on it, that unit moves with it" (e.g. Hidden Strings):
+    // "If this unit moves over another unit, apply knockback 1 to that unit in a direction of your choice. Then, if that
+    // unit did not move this way, move this unit to an empty surrounding tile for free" (e.g. Hidden Strings): the empty
+    // tiles around that unit are clicked on the board to push it to (not the one this unit comes from); this unit then
+    // takes its tile. A unit that can't be pushed (immune, or nowhere to go) is moved over as any ghost does: this unit
+    // lands on an empty tile around it (below).
+    if (unitsOnBoard[toHexId] && moveThrough?.knocksBackMovedOver) {
+      const occupant = unitsOnBoard[toHexId];
+      const pushChoices =
+        isImmuneToKnockback(occupant) || cannotBeMovedByOthers(occupant)
+          ? []
+          : getSurroundingHexes(toHexId).filter((h) => !unitsOnBoard[h] && h !== fromHexId);
+      if (pushChoices.length > 0) {
+        const mover = currentUnit;
+        const moverId = mover.instanceId;
+        const pushedId = occupant.instanceId;
+        const pushAp = mover.currentAp - moveCost;
+        const pushDir = getHexMovementDirection(fromHexId, toHexId);
+        const passiveName = moveThrough.name;
+        setIsMovingMode(false);
+        askCardChoice(
+          {
+            title: passiveName,
+            message: `${mover.card.name} moves over ${occupant.card.name}: choose the tile to knock it back to.`,
+            player: mover.owner,
+            board: 'tile',
+            options: pushChoices.map((h) => ({ label: h, value: h, hex: h }))
+          },
+          (dest) => {
+            const board = unitsOnBoardRef.current;
+            const scorch =
+              !isImmuneToScorchDamage(mover) &&
+              (isTileScorched(fromHexId, board, scorchedTiles) || isTileScorched(toHexId, board, scorchedTiles))
+                ? reduceNonAttackDamage(mover, 4)
+                : 0;
+            const absorbed = Math.min(mover.armour, scorch);
+            const moverDies = mover.damageCounters + scorch - absorbed >= mover.card.hp;
+            setUnitsOnBoard((prev) => {
+              const me = prev[fromHexId];
+              const other = prev[toHexId];
+              if (!me || me.instanceId !== moverId || !other || other.instanceId !== pushedId || prev[dest]) return prev;
+              let next: Record<string, BattlefieldUnit> = { ...prev };
+              delete next[fromHexId];
+              delete next[toHexId];
+              next[dest] = { ...other, hexId: dest };
+              next = applyKnockbackRiders(next, me, pushedId);
+              const moved: BattlefieldUnit = {
+                ...me,
+                hexId: toHexId,
+                currentAp: pushAp,
+                armour: me.armour - absorbed,
+                damageCounters: me.damageCounters + scorch - absorbed,
+                statuses: me.statuses?.filter((s) => s !== MOVE_TAX),
+                movedThisTurn: true,
+                movesThisTurn: (me.movesThisTurn || 0) + 1,
+                movedDirectionsThisTurn: pushDir !== null ? [...(me.movedDirectionsThisTurn || []), pushDir] : me.movedDirectionsThisTurn,
+                tilesMovedThisTurn: (me.tilesMovedThisTurn || 0) + 1,
+                usedTurnCounts: isFreeMove ? me.usedTurnCounts : countUniversalMove(me.usedTurnCounts)
+              };
+              if (moverDies) {
+                sendToGraveyard([moved]);
+                checkVictory(next);
+                return next;
+              }
+              next[toHexId] = moved;
+              return applyMoveTriggers(next, moverId, [toHexId], fromHexId);
+            });
+            setActiveAbility(null);
+            if (isFreeMove) setPendingFreeMove(null);
+            playCardDrawSound();
+            appendLog('move', `${occupant.card.name} knocked back to ${dest} (${passiveName}); ${mover.card.name} moved to ${toHexId}`);
+            if (moverDies) {
+              setActiveTurnUnitHex(null);
+              setSelectedHex(null);
+              showNotification(`${mover.card.name} took ${scorch} scorched tile damage and was defeated!`);
+              switchTurn(false);
+              return;
+            }
+            setActiveTurnUnitHex(toHexId);
+            setSelectedHex(toHexId);
+            showNotification(
+              `🎭 ${mover.card.name}'s ${passiveName}: knocked ${occupant.card.name} back to ${dest} and moved to ${toHexId}${scorch > 0 ? ` (took ${scorch} scorched tile damage)` : ''}.`
+            );
+            if (pushAp <= 0) switchTurn(false);
+          }
+        );
+        return;
+      }
+    }
+    // "When this unit moves, if it is on a tile with another unit on it, that unit moves with it" (a carriesUnitOnTile passive, no card has one now):
     // like Engulf, moving onto a unit picks it up (out of play while carried, one at a time); it is put down on the last
     // empty tile this unit left when the turn ends. A unit that can't move isn't picked up (this unit lands around it).
     if (
@@ -11322,7 +11497,8 @@ export default function App() {
     }
   };
     // Resolves area abilities (Exploding Fireball, Whirlwind Execution, Acidic Bile, etc.) from card data
-    const executeAreaAbility = (ability: CardAbility, targetHex: string, extra?: { path?: string[]; targetHexes?: string[] }) => {
+    // landHex: where a straight-line move that ends on a unit lands (around it), once chosen (e.g. Aerial Apex)
+    const executeAreaAbility = (ability: CardAbility, targetHex: string, extra?: { path?: string[]; targetHexes?: string[]; landHex?: string }) => {
     if (!activeTurnUnit || !activeTurnUnitHex) return;
     const cost = getAbilityApCost(ability);
 
@@ -11337,11 +11513,44 @@ export default function App() {
       const path = extra.path;
       const dest = path[path.length - 1];
       const flier = getMoveThroughPassive(activeTurnUnit, turnCount);
+      // A passive that lets it move over units on every move (the ghosts, Aerial Apex): it may move over them, and end
+      // on one (its effects, then it lands on an empty tile around it, clicked on the board)
+      const overPassive = flier?.everyMove && flier.throughUnits ? flier : null;
+      const passable = (u: BattlefieldUnit) => Boolean(overPassive && (overPassive.anyUnit || u.owner !== activeTurnUnit.owner));
       // ...or the move itself ignores units in the way (e.g. Ride the Gale)
-      const flies = Boolean(flier?.everyMove && flier.anyUnit) || Boolean(getSelfStraightLineMove(ability)?.ignoreUnits);
+      const ignoresUnits = Boolean(getSelfStraightLineMove(ability)?.ignoreUnits);
       const over = path.slice(0, -1).filter((h) => board[h]);
-      if (board[dest] || (over.length > 0 && !flies)) {
-        showNotification(`${ability.name}: the move must end on an empty tile${flies ? '' : ', with no units in the way'}.`);
+      const destUnit = board[dest];
+      const landsOnUnit = Boolean(destUnit && passable(destUnit));
+      if ((destUnit && !landsOnUnit) || over.some((h) => !ignoresUnits && !passable(board[h]))) {
+        showNotification(`${ability.name}: the move must end on an empty tile${overPassive || ignoresUnits ? '' : ', with no units in the way'}.`);
+        return;
+      }
+      if (landsOnUnit && !extra?.landHex) {
+        if (isUnitMovementDisabled(activeTurnUnit)) {
+          showNotification(getMoveBlockedMessage(activeTurnUnit));
+          return;
+        }
+        const landing = getSurroundingHexes(dest).filter((h) => !board[h] || h === casterHex);
+        if (landing.length === 0) {
+          showNotification(`${ability.name}: there's no empty tile around ${destUnit!.card.name} to land on.`);
+          return;
+        }
+        askCardChoice(
+          {
+            title: overPassive!.name,
+            message: `${activeTurnUnit.card.name} moves over ${destUnit!.card.name}: choose the empty tile around it to land on.`,
+            player: activePlayer,
+            board: 'tile',
+            options: landing.map((h) => ({ label: h, value: h, hex: h }))
+          },
+          (land) => executeAreaAbility(ability, targetHex, { ...extra, landHex: land })
+        );
+        return;
+      }
+      const landHex = landsOnUnit && extra?.landHex ? extra.landHex : dest;
+      if (landsOnUnit && board[landHex] && landHex !== casterHex) {
+        showNotification(`${ability.name}: ${landHex} isn't empty any more.`);
         return;
       }
       if (isUnitMovementDisabled(activeTurnUnit)) {
@@ -11350,32 +11559,30 @@ export default function App() {
       }
       board = { ...board };
       delete board[casterHex];
-      board[dest] = {
+      let movedUnit: BattlefieldUnit = {
         ...activeTurnUnit,
-        hexId: dest,
+        hexId: landHex,
         movedThisTurn: true,
         movesThisTurn: (activeTurnUnit.movesThisTurn || 0) + 1,
         tilesMovedThisTurn: (activeTurnUnit.tilesMovedThisTurn || 0) + path.length
       };
-      if (flies && flier?.everyMove && flier.anyUnit && flier.damage > 0) {
-        over.forEach((h) => {
-          const u = board[h];
-          if (!u || u.owner === activeTurnUnit.owner) return;
-          const absorbed = Math.min(u.armour, flier.damage);
-          const counters = u.damageCounters + flier.damage - absorbed;
-          if (counters >= u.card.hp) {
-            delete board[h];
-            moveDefeated.push(u);
-          } else {
-            board[h] = { ...u, armour: u.armour - absorbed, damageCounters: counters, tookDamageThisTurn: true };
-          }
-        });
+      // The passive's effects on each unit moved over, and the one ended on (e.g. Aerial Apex: 3 damage to enemies)
+      let passiveNote = '';
+      const overHexes = path.filter((h) => board[h]);
+      if (overPassive && overHexes.length > 0) {
+        const r = resolveMoveOverPassive(board, movedUnit, overHexes, overPassive);
+        board = r.events.length > 0 ? applyDamageEventsAndPassives(r.events, r.board) : r.board;
+        movedUnit = r.mover;
+        moveDefeated.push(...r.defeated);
+        if (r.notes.length > 0) passiveNote = ` (${overPassive.name}: ${r.notes.join('; ')})`;
+        if (r.loot > 0) triggerLoot(activeTurnUnit.owner, r.loot, overPassive.name, activeTurnUnit.card.name);
       }
+      board[landHex] = movedUnit;
       moveNote = ` Moved ${path.length} tile(s) to ${dest}${
-        flies && over.length > 0 ? ` over ${over.map((h) => unitsOnBoard[h].card.name).join(', ')}` : ''
-      }.`;
+        over.length > 0 || landsOnUnit ? ` over ${overHexes.map((h) => unitsOnBoard[h].card.name).join(', ')}` : ''
+      }${landsOnUnit ? `, landing on ${landHex}` : ''}${passiveNote}.`;
       // (moving sets off move triggers, e.g. Lock-Step, damage for moving)
-      board = applyMoveTriggers(board, activeTurnUnit.instanceId, path, casterHex);
+      board = applyMoveTriggers(board, activeTurnUnit.instanceId, landsOnUnit ? [...path, landHex] : path, casterHex);
       casterHex = Object.keys(board).find((h) => board[h].instanceId === activeTurnUnit.instanceId) || dest;
       if (!board[casterHex]) {
         // The move itself destroyed it (e.g. damage for moving)

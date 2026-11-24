@@ -16,12 +16,18 @@ import { getCardFill } from '../utils/classColours';
 import { SLOW_PULSE_SOFT_CSS, pulseInStep } from './GameLogPanel';
 import { getAbilityApCost } from '../utils/promotedAbilities';
 import { canUseAbilityThisTurn } from '../utils/turnLimits';
+import { useCardImages } from '../context/CardImageContext';
 
 /**
  * The match's one big card: the card in focus (a hand card hovered, a unit on the board, or the unit taking the turn),
  * drawn live as the card itself. For the unit taking the turn, the abilities printed on it are its buttons: each one's
  * box lights up around its edge on hover and presses in when clicked (an ability that can't be used now is dimmed).
  * Its other actions (Move, Draw, Assist, abilities granted to it) are more boxes of the same kind under the card's own.
+ *
+ * The card shown is its saved card image (drawn when the game loads, as everywhere else the card is shown), over the
+ * card drawn live, which is kept, unseen, to find where its boxes are and to show the unit's AP on its badge. Each
+ * printed ability's button then shows its own part of the image, so that part lights up, dims, presses in and swells.
+ * Until its image is ready (or with custom art, which the saved image doesn't have) the live card is shown instead.
  *
  * The printed abilities' buttons are see-through layers over the card's own ability boxes (found by their data-box
  * marker, the passives' boxes first, then the abilities' in order), for the clicks. The light itself is drawn on the box's
@@ -168,6 +174,9 @@ export const FocusCardPanel: React.FC<Props> = ({
 }) => {
   const frameRef = useRef<HTMLDivElement>(null);
   const cardRef = useRef<HTMLDivElement>(null);
+  // The card's saved image (see above)
+  const { cardImages } = useCardImages();
+  const faceImage = customArtUrl ? undefined : cardImages[card.id];
   const [scale, setScale] = useState(0.45);
   // The card's ability boxes: where they're drawn (for the click layers), and the elements (for the light)
   const [rects, setRects] = useState<BoxRect[]>([]);
@@ -268,7 +277,7 @@ export const FocusCardPanel: React.FC<Props> = ({
 
   // The light, dimming and press on the card's own ability boxes (drawn under their text, see above)
   useEffect(() => {
-    if (!interactive) return;
+    if (!interactive || faceImage) return;
     const touched: HTMLElement[] = [];
     abilities.forEach((_, i) => {
       const box = boxesRef.current[passiveCount + i];
@@ -297,7 +306,7 @@ export const FocusCardPanel: React.FC<Props> = ({
       });
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [interactive, rects, hovered, pressed, stateKey, card.id, pulseKey]);
+  }, [interactive, rects, hovered, pressed, stateKey, card.id, pulseKey, faceImage]);
 
   // The unit's AP as it is now, on the card's own AP badge (its number; amber once some is spent), while its options are
   // being picked; the printed number comes back after
@@ -311,6 +320,8 @@ export const FocusCardPanel: React.FC<Props> = ({
     number.textContent = String(currentAp);
     number.style.color = currentAp < card.ap ? '#fcd34d' : '';
     badge.title = `Action Points: ${currentAp} of ${card.ap} left this turn`;
+    // (shown over the card's image, the live card around it unseen)
+    badge.style.visibility = 'visible';
     // (the unit taking its turn: its AP swells gently, in step with the suggested abilities)
     badge.classList.add('slow-pulse-soft');
     badge.style.animationDelay = String(pulseInStep().animationDelay);
@@ -320,8 +331,9 @@ export const FocusCardPanel: React.FC<Props> = ({
       badge.classList.remove('slow-pulse-soft');
       badge.style.animationDelay = '';
       badge.title = `Action Points: ${card.ap}`;
+      badge.style.visibility = '';
     };
-  }, [currentAp, card.id, card.ap, rects]);
+  }, [currentAp, card.id, card.ap, rects, faceImage]);
 
   // The extra boxes are the card's own (CardAbilityBox: the shared off-black surface), at its fitted text size; the area
   // under the card takes the card's border colour round it
@@ -414,10 +426,19 @@ export const FocusCardPanel: React.FC<Props> = ({
       <div className="w-full flex flex-col shadow-2xl rounded-xl">
         <div ref={frameRef} className="relative w-full aspect-[5/7] overflow-visible select-none">
           <div className={`absolute inset-0 overflow-hidden bg-black ${actions.length > 0 ? 'rounded-t-xl' : 'rounded-xl'}`}>
+            {faceImage && (
+              <img src={faceImage} alt={card.name} draggable={false} className="absolute inset-0 w-full h-full pointer-events-none" />
+            )}
             <div
               ref={cardRef}
               className="absolute top-0 left-0 pointer-events-none"
-              style={{ transform: `scale(${scale})`, transformOrigin: 'top left', width: `${CARD_FACE_WIDTH}px`, height: '1050px' }}
+              style={{
+                transform: `scale(${scale})`,
+                transformOrigin: 'top left',
+                width: `${CARD_FACE_WIDTH}px`,
+                height: '1050px',
+                visibility: faceImage ? 'hidden' : undefined
+              }}
             >
               <CardView
                 card={card}
@@ -466,6 +487,18 @@ export const FocusCardPanel: React.FC<Props> = ({
               const rect = rects[passiveCount + i];
               if (!rect) return null;
               const st = abilityStates[i];
+              const faceStyle: React.CSSProperties = faceImage
+                ? {
+                    backgroundImage: `url(${faceImage})`,
+                    backgroundSize: `${CARD_FACE_WIDTH * scale}px ${1050 * scale}px`,
+                    backgroundPosition: `${-rect.left}px ${-rect.top}px`,
+                    boxShadow: pressed === i ? PRESSED_GLOW : st.active ? ACTIVE_GLOW : hovered === i && st.usable ? HOVER_GLOW : undefined,
+                    filter: st.usable || st.active ? undefined : 'brightness(0.5)',
+                    transform: pressed === i ? 'scale(0.97)' : undefined,
+                    transition: 'transform 100ms, filter 150ms, box-shadow 120ms',
+                    ...(isPulsing(ability.id) ? pulseStyleFor(`printed:${ability.id}`) : {})
+                  }
+                : {};
               return (
                 <button
                   key={ability.id || i}
@@ -484,8 +517,10 @@ export const FocusCardPanel: React.FC<Props> = ({
                     onHoverAbility?.(null);
                   }}
                   title={st.usable ? `${ability.name} (${st.cost} AP)` : `${ability.name}: ${st.why}`}
-                  className={`absolute rounded-lg bg-transparent ${st.usable ? 'cursor-pointer' : 'cursor-not-allowed'}`}
-                  style={{ left: rect.left, top: rect.top, width: rect.width, height: rect.height }}
+                  className={`absolute rounded-lg ${faceImage ? '' : 'bg-transparent'} ${st.usable ? 'cursor-pointer' : 'cursor-not-allowed'} ${
+                    faceImage && isPulsing(ability.id) ? 'slow-pulse-soft' : ''
+                  }`}
+                  style={{ left: rect.left, top: rect.top, width: rect.width, height: rect.height, ...faceStyle }}
                 />
               );
             })}

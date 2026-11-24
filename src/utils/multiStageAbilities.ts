@@ -331,7 +331,7 @@ export function getMultiStageTargetInfo(
 
   // Charge / Flight path mode (Mounted Charge, Drake's Flight, and unified charge abilities)
   if (isChargeFlightAbility(ability)) {
-    const spec = getChargeFlightSpec(ability);
+    const spec = getChargeFlightSpec(ability, unitsOnBoard[casterHex]);
     const nextHexes = getNextChargeFlightHexes(casterHex, targets, spec, unitsOnBoard);
     const check = validateChargeFlightPath(casterHex, targets, spec, unitsOnBoard);
     const lengthsStr = spec.possiblePathLengths.join(' or ');

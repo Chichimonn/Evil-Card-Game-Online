@@ -78,7 +78,7 @@ export interface BattlefieldUnit {
   // e.g. the fairies' Harmony passives: cards attached to this unit (out of play, riding on it); see utils/fairyAttachments
   attachedCards?: CardItem[];
   engulfedOwner?: PlayerId; // who controls the engulfed unit when it takes this unit's place (on this unit's death)
-  // e.g. Hidden Strings: the unit this one picked up by moving onto its tile (out of play while carried), and the last
+  // a carriesUnitOnTile passive: the unit this one picked up by moving onto its tile (out of play while carried), and the last
   // empty tile this unit left, where the carried unit is put down when the turn ends (or when this unit leaves play)
   carriedUnit?: { unit: BattlefieldUnit; lastLeftHex?: string; sourceName: string };
   // The directions this unit has moved in on a turn, for "moves in a direction for the first time each turn" (e.g. Conductive Charge)

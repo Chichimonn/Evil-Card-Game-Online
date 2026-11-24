@@ -6,6 +6,7 @@ import {
   getSurroundingHexes
 } from './hexGridMath';
 import { canAttachOnto } from './fairyAttachments';
+import { getMoveThroughPassive } from './movementAbilities';
 
 export interface ChargeFlightSpec {
   possiblePathLengths: number[];
@@ -19,6 +20,10 @@ export interface ChargeFlightSpec {
   noReversal: boolean;
   finalTileMustBeEmpty: boolean;
   mayMoveOverUnits: boolean;
+  // The unit moving may move over units anyway, by its own passive (e.g. Pirate's Curse: "This unit may move over other
+  // units"): any unit, or enemies only (passOverOwner: the mover's owner). Only the path's last tile must still be empty.
+  passOver?: 'any' | 'enemy';
+  passOverOwner?: PlayerId;
   // Every tile of the path stays in this unit's row (e.g. Log Roll: "moves up to 3 tiles within the same row")
   sameRowOnly?: boolean;
   // "Never going in the same direction twice in a row" (e.g. Sky Slither): every step changes direction
@@ -59,7 +64,28 @@ export function isChargeFlightAbility(ability?: CardAbility | null): boolean {
  * Extracts configuration for Charge/Flight abilities.
  * Keeps damage as a configurable variable (defaults to 8 for existing abilities).
  */
-export function getChargeFlightSpec(ability?: CardAbility | null): ChargeFlightSpec {
+// The mover's own passive lets it move over (and land on, then land around) this unit
+const passOverAllows = (spec: ChargeFlightSpec, occupant: BattlefieldUnit | undefined): boolean =>
+  Boolean(occupant) && (spec.passOver === 'any' || (spec.passOver === 'enemy' && occupant!.owner !== spec.passOverOwner));
+
+// A unit on the path blocks it (rather than being moved over)
+const blocksPath = (spec: ChargeFlightSpec, occupant: BattlefieldUnit | undefined): boolean =>
+  Boolean(occupant) &&
+  !spec.mayMoveOverUnits &&
+  !(spec.passOver === 'any' || (spec.passOver === 'enemy' && occupant!.owner !== spec.passOverOwner));
+
+/**
+ * The path rules for this unit's use of the ability (mover): a path on empty tiles only still lets a unit that may move
+ * over units by its own passive (e.g. Ghost Plunderer's Pirate's Curse, using Treasure Trail) move over them.
+ */
+export function getChargeFlightSpec(ability?: CardAbility | null, mover?: BattlefieldUnit | null): ChargeFlightSpec {
+  const spec = getChargeFlightSpecOfAbility(ability);
+  const through = mover ? getMoveThroughPassive(mover, 0) : null;
+  if (spec.mayMoveOverUnits || !through?.everyMove || !through.throughUnits) return spec;
+  return { ...spec, passOver: through.anyUnit ? 'any' : 'enemy', passOverOwner: mover!.owner };
+}
+
+function getChargeFlightSpecOfAbility(ability?: CardAbility | null): ChargeFlightSpec {
   const defaultDamage = 8;
   if (!ability) {
     return {
@@ -288,13 +314,18 @@ export function validateChargeFlightPath(
   if (spec.noSameDirectionTwice && analysis.directions.some((d, i) => i > 0 && areDirectionsEqual(d, analysis.directions[i - 1]))) {
     return { valid: false, reason: 'The path can never go in the same direction twice in a row.' };
   }
-  if (!spec.mayMoveOverUnits && path.slice(0, -1).some((h) => unitsOnBoard[h])) {
+  if (path.slice(0, -1).some((h) => blocksPath(spec, unitsOnBoard[h]))) {
     return { valid: false, reason: 'The path must be on empty tiles.' };
   }
 
   const finalTile = path[path.length - 1];
   // A unit that attaches (e.g. a fairy) may end its move on a friendly unit's tile: it attaches to it
-  if (spec.finalTileMustBeEmpty && unitsOnBoard[finalTile] && !canAttachOnto(unitsOnBoard[casterHex], unitsOnBoard[finalTile])) {
+  if (
+    spec.finalTileMustBeEmpty &&
+    unitsOnBoard[finalTile] &&
+    !canAttachOnto(unitsOnBoard[casterHex], unitsOnBoard[finalTile]) &&
+    !passOverAllows(spec, unitsOnBoard[finalTile])
+  ) {
     const occupant = unitsOnBoard[finalTile];
     return {
       valid: false,
@@ -319,7 +350,7 @@ export function getNextChargeFlightHexes(
   // A path that ends on a unit to attach to (e.g. a fairy) stops there
   const mover = unitsOnBoard[casterHex];
   const attachesAt = (h: string) => canAttachOnto(mover, unitsOnBoard[h]);
-  if (path.length > 0 && !spec.mayMoveOverUnits && unitsOnBoard[path[path.length - 1]]) return [];
+  if (path.length > 0 && blocksPath(spec, unitsOnBoard[path[path.length - 1]])) return [];
 
   const currentTip = path.length === 0 ? casterHex : path[path.length - 1];
   const neighbors = getSurroundingHexes(currentTip);
@@ -355,20 +386,20 @@ export function getNextChargeFlightHexes(
     // "Never the same direction twice in a row" (e.g. Sky Slither)
     if (spec.noSameDirectionTwice && currentAnalysis.directions.length > 0 && !isTurn) continue;
     // A path on empty tiles only (e.g. Zephyr Step), except a last step onto a unit this one attaches to
-    if (!spec.mayMoveOverUnits && unitsOnBoard[cand] && !(attachesAt(cand) && spec.possiblePathLengths.includes(nextLength))) continue;
+    if (blocksPath(spec, unitsOnBoard[cand]) && !(attachesAt(cand) && spec.possiblePathLengths.includes(nextLength))) continue;
 
     // If this candidate would be the maximum length of the path:
     if (nextLength === maxLength) {
       // Must have made all its turns by now
       if (spec.requiredTurns !== null && nextTurnCount < (spec.minTurns ?? spec.requiredTurns)) continue;
       // Final tile must be unoccupied (or a unit this one attaches to)
-      if (spec.finalTileMustBeEmpty && unitsOnBoard[cand] && !attachesAt(cand)) continue;
+      if (spec.finalTileMustBeEmpty && unitsOnBoard[cand] && !attachesAt(cand) && !passOverAllows(spec, unitsOnBoard[cand])) continue;
     }
 
     // If this candidate reaches a possible completion length (e.g. 3 for Drake's Flight which can end at 3 or 4)
     // If it is occupied, it can only be chosen if the path can legally continue further!
     if (spec.possiblePathLengths.includes(nextLength)) {
-      if (unitsOnBoard[cand] && !attachesAt(cand)) {
+      if (unitsOnBoard[cand] && !attachesAt(cand) && !passOverAllows(spec, unitsOnBoard[cand])) {
         // Must be able to take at least one more step to reach a valid empty final tile
         if (nextLength >= maxLength) continue;
       }

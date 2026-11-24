@@ -536,7 +536,7 @@ export const CardView: React.FC<CardViewProps> = ({
           />
         )}
 
-        {/* Fallback procedural art if no art file loads */}
+        {/* "[no art found]" while the card has no art file */}
         {art.status === 'error' && (
           <div className="absolute inset-0">
             <CardArtFallback card={card} />

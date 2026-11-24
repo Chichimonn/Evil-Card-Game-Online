@@ -4491,7 +4491,7 @@ export const initialCardsData: CardsDataSchema = {
           "id": "aerial_apex",
           "name": "Aerial Apex",
           "trigger": "static",
-          "text": "When moving, this unit may move over other units. Moving over an enemy unit this way deals 3 damage to that unit. If this unit would end its turn while it is not alone on its tile, move this unit to an empty surrounding tile for free.",
+          "text": "This unit may move over other units. If this unit moves over another unit, this unit deals all enemy units on its tile 3 damage, then move this unit to an empty surrounding tile for free.",
           "effects": [
             {
               "type": "modifyMove",
@@ -4539,7 +4539,7 @@ export const initialCardsData: CardsDataSchema = {
           "id": "spitfire_landing",
           "name": "Spitfire Landing",
           "cost": 2,
-          "text": "Move up to 3 tiles in a straight line for free, then deal 8 damage to all enemy units surrounding this unit. This ability must leave this unit alone on its tile.",
+          "text": "Move up to 3 tiles in a straight line for free, then deal 6 damage to all enemy units surrounding this unit.",
           "effects": [
             {
               "type": "move",
@@ -4548,12 +4548,11 @@ export const initialCardsData: CardsDataSchema = {
                 "max": 3
               },
               "straightLine": true,
-              "free": true,
-              "finalTileMustBeEmpty": true
+              "free": true
             },
             {
               "type": "damage",
-              "amount": 8,
+              "amount": 6,
               "hits": 1,
               "area": "enemyUnitsSurroundingSelf"
             }
@@ -12648,7 +12647,7 @@ export const initialCardsData: CardsDataSchema = {
           ]
         ]
       },
-      "hp": 23,
+      "hp": 26,
       "ap": 3,
       "art": "art/zigzag_cavalry.png",
       "passives": [
@@ -14357,7 +14356,7 @@ export const initialCardsData: CardsDataSchema = {
           "id": "haunting_clank",
           "name": "Haunting Clank",
           "trigger": "static",
-          "text": "This unit may move over other units. If this unit would end its turn while it is not alone on its tile, move it to an empty surrounding tile for free, then it armours up to 3.",
+          "text": "This unit may move over other units. If this unit moves over another unit, move it to an empty surrounding tile for free, then it armours up to 3.",
           "effects": [
             {
               "type": "modifyMove",
@@ -14440,7 +14439,7 @@ export const initialCardsData: CardsDataSchema = {
           "id": "pirates_curse",
           "name": "Pirate's Curse",
           "trigger": "static",
-          "text": "This unit may move over other units. If this unit would end its turn while it is not alone on its tile, this unit deals the other unit on its tile 4 damage, then move this unit to an empty surrounding tile for free, then you loot 2.",
+          "text": "This unit may move over other units. If this unit moves over another unit, this unit deals the other unit on its tile 4 damage, then move this unit to an empty surrounding tile for free, then you loot 2.",
           "effects": [
             {
               "type": "modifyMove",
@@ -14525,7 +14524,7 @@ export const initialCardsData: CardsDataSchema = {
           "id": "deathly_shiver",
           "name": "Deathly Shiver",
           "trigger": "static",
-          "text": "This unit may move over other units. If this unit would end its turn while it is not alone on its tile, this unit deals the other unit on its tile 6 damage, then move this unit to an empty surrounding tile for free.",
+          "text": "This unit may move over other units. If this unit moves over another unit, this unit deals the other unit on its tile 6 damage, then move this unit to an empty surrounding tile for free.",
           "effects": [
             {
               "type": "modifyMove",
@@ -14611,7 +14610,7 @@ export const initialCardsData: CardsDataSchema = {
           "id": "malicious_haunting",
           "name": "Malicious Haunting",
           "trigger": "static",
-          "text": "This unit may move over other units. If this unit would end its turn while it is not alone on its tile, this unit deals the other unit on its tile 3 damage, armours up to 3, then move this unit to an empty surrounding tile for free.",
+          "text": "This unit may move over other units. If this unit moves over another unit, this unit deals the other unit on its tile 3 damage, armours up to 3, then move this unit to an empty surrounding tile for free.",
           "effects": [
             {
               "type": "modifyMove",
@@ -14694,7 +14693,7 @@ export const initialCardsData: CardsDataSchema = {
           "id": "haunting_cacophony",
           "name": "Haunting Cacophony",
           "trigger": "static",
-          "text": "This unit may move over other units. If this unit would end its turn while it is not alone on its tile, if the other unit on its tile took the last turn, your opponent cannot choose it to take their next turn unless it is their last non-token unit (they must choose a different non-token unit if able). Then, move this unit to an empty surrounding tile for free.",
+          "text": "This unit may move over other units. If this unit moves over another unit, if the other unit on its tile took the last turn, your opponent cannot choose it to take their next turn unless it is their last non-token unit (they must choose a different non-token unit if able). Then, move this unit to an empty surrounding tile for free.",
           "effects": [
             {
               "type": "modifyMove",
@@ -14768,7 +14767,7 @@ export const initialCardsData: CardsDataSchema = {
           "id": "ethereal_guard",
           "name": "Ethereal Guard",
           "trigger": "static",
-          "text": "This unit may move over other units. If this unit would end its turn while it is not alone on its tile, this unit takes 2 damage less from all attacks to a minimum of 1 damage per attack until the end of your opponent's next turn, then move this unit to an empty surrounding tile for free.",
+          "text": "This unit may move over other units. If this unit moves over another unit, this unit takes 2 damage less from all attacks to a minimum of 1 damage per attack until the end of your opponent's next turn, then move this unit to an empty surrounding tile for free.",
           "effects": [
             {
               "type": "modifyMove",
@@ -15663,7 +15662,7 @@ export const initialCardsData: CardsDataSchema = {
           "id": "hidden_strings",
           "name": "Hidden Strings",
           "trigger": "static",
-          "text": "This unit may move over other units. When this unit moves, if it is on a tile with another unit on it, that unit moves with it for free if another unit is not already doing so. If this unit would end its turn while it is not alone on its tile, move this unit to an empty surrounding tile for free.",
+          "text": "This unit may move over other units. If this unit moves over another unit, apply knockback 1 to that unit in a direction of your choice. Then, if that unit did not move this way, move this unit to an empty surrounding tile for free.",
           "effects": [
             {
               "type": "modifyMove",
@@ -15671,7 +15670,10 @@ export const initialCardsData: CardsDataSchema = {
               "moveOverUnits": "any",
               "relocateToEmptySurroundingTile": true,
               "onMoveOntoUnit": [],
-              "carriesUnitOnTile": true
+              "knockbackUnitMovedOver": {
+                "distance": 1,
+                "direction": "chosen"
+              }
             }
           ]
         }
