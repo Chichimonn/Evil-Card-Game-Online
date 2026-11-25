@@ -2,7 +2,19 @@ import { BattlefieldUnit, PlayerId } from '../types/game';
 import { HitExecutionRecord } from './attackLogic';
 import { getUnitPassives } from './unitPassives';
 
-export const SLOW_VENOM_DAMAGE = 4;
+/**
+ * The attacker's "a unit damaged by this unit's attacks ... takes N damage at the start of your opponent's next turn"
+ * passive (e.g. Slow Venom): an applyStatus 'slow_venom' effect with delayedDamage { amount }.
+ */
+function getVenomPassive(attacker: BattlefieldUnit): { amount: number } | null {
+  for (const p of getUnitPassives(attacker)) {
+    const e: any = ((p.effects || []) as any[]).find(
+      (x) => x.type === 'applyStatus' && x.status === 'slow_venom' && typeof x.delayedDamage?.amount === 'number'
+    );
+    if (e) return { amount: e.delayedDamage.amount };
+  }
+  return null;
+}
 
 /**
  * Marks left by the attacker's passives on a unit its attack hit, read from card data:
@@ -39,11 +51,9 @@ export function withAttackStatuses(
   if (!attacker) return next;
   next = withDamageMark(next, attacker, hitResults);
   if (!hitResults.some((h) => h.hpDamage > 0)) return next;
-  const hasVenom = getUnitPassives(attacker).some(
-    (p) => p.id === 'slow_venom' || p.name === 'Slow Venom'
-  );
-  if (!hasVenom || next.statuses?.includes('slow_venom')) return next;
-  return { ...next, statuses: [...(next.statuses || []), 'slow_venom'] };
+  const venom = getVenomPassive(attacker);
+  if (!venom || next.statuses?.includes('slow_venom')) return next;
+  return { ...next, statuses: [...(next.statuses || []), 'slow_venom'], slowVenomDamage: venom.amount };
 }
 
 /** "This turn" marks (Target Acquired) lapse when any turn ends. */
@@ -74,8 +84,9 @@ export function resolveSlowVenom(
 
   for (const [hex, u] of Object.entries(units)) {
     if (u.owner !== player || !u.statuses?.includes('slow_venom')) continue;
-    const absorbed = Math.min(u.armour, SLOW_VENOM_DAMAGE);
-    const counters = u.damageCounters + (SLOW_VENOM_DAMAGE - absorbed);
+    const venomDamage = u.slowVenomDamage ?? 0;
+    const absorbed = Math.min(u.armour, venomDamage);
+    const counters = u.damageCounters + (venomDamage - absorbed);
     if (counters >= u.card.hp) {
       delete updatedUnits[hex];
       defeated.push(u);
@@ -85,9 +96,10 @@ export function resolveSlowVenom(
         ...u,
         armour: u.armour - absorbed,
         damageCounters: counters,
-        statuses: u.statuses.filter((s) => s !== 'slow_venom')
+        statuses: u.statuses.filter((s) => s !== 'slow_venom'),
+        slowVenomDamage: undefined
       };
-      logMessages.push(`${u.card.name} took ${SLOW_VENOM_DAMAGE} Slow Venom damage`);
+      logMessages.push(`${u.card.name} took ${venomDamage} Slow Venom damage`);
     }
   }
 

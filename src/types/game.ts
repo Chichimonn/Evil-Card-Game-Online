@@ -25,6 +25,8 @@ export interface BattlefieldUnit {
   usedOnTargets?: Record<string, string[]>; // abilityId -> target instanceIds hit this turn
   // Units this one attacked this turn from a tile that was not behind them (e.g. Punchline)
   attackedFromFrontIds?: string[];
+  attacksFromBehindThisTurn?: number;
+  slowVenomDamage?: number; // e.g. Slow Venom: the damage this unit takes at the start of its owner's next turn (from the passive that marked it) // attacks this unit made from the tile behind its target this turn (e.g. Inscribed Edge: "the first time ... each turn")
   grantedAbilities?: CardAbility[];
   chosenPassive?: CardPassive | null;
   reflectStance?: ReflectStance | null;

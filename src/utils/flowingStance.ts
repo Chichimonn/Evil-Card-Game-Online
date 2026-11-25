@@ -2,6 +2,7 @@ import { BattlefieldUnit } from '../types/game';
 import { CardAbility } from '../types/card';
 import { getUnitPassives } from './unitPassives';
 import { isHexScorchedNow } from './boardContext';
+import { dealsDamageAsPartOfOwnMovement } from './movementMelee';
 
 /**
  * Returns true if the unit has the Flowing Stance passive.
@@ -12,8 +13,6 @@ export function hasFlowingStancePassive(unit: BattlefieldUnit | null | undefined
   const passives = getUnitPassives(unit);
   return passives.some(
     (p) =>
-      p.id?.toLowerCase() === 'flowing_stance' ||
-      p.name?.toLowerCase().includes('flowing stance') ||
       p.effects?.some(
         (e: any) =>
           e.type === 'modifyRange' &&
@@ -41,8 +40,6 @@ export function hasCephalopodReach(unit: BattlefieldUnit | null | undefined): bo
   const passives = getUnitPassives(unit);
   return passives.some(
     (p) =>
-      p.id?.toLowerCase() === 'cephalopod_reach' ||
-      p.name?.toLowerCase().includes('cephalopod reach') ||
       p.effects?.some(
         (e: any) =>
           e.type === 'modifyRange' &&
@@ -95,14 +92,21 @@ export function getAbilityRangePassiveBonus(unit: BattlefieldUnit | null | undef
   return bonus;
 }
 
-/**
- * Checks whether an ability is considered a melee attack.
- */
-export function isMeleeAttackAbility(ability: CardAbility | null | undefined): boolean {
+/** An ability stated as melee (its Melee tag, or its text saying so). */
+export function isStatedMeleeAbility(ability: CardAbility | null | undefined): boolean {
   if (!ability) return false;
   if (ability.tags?.includes('melee')) return true;
   if (ability.text?.toLowerCase().includes('melee')) return true;
   return false;
+}
+
+/**
+ * Checks whether an ability is considered a melee attack: stated as melee, or dealing damage as part of its user's own
+ * movement or placement (the rules: "is also a melee attack", see dealsDamageAsPartOfOwnMovement). Every other attack is
+ * ranged.
+ */
+export function isMeleeAttackAbility(ability: CardAbility | null | undefined): boolean {
+  return isStatedMeleeAbility(ability) || dealsDamageAsPartOfOwnMovement(ability);
 }
 
 /**
@@ -119,7 +123,9 @@ export function getEffectiveAbilityRange(
   isFlowingStanceApplied: boolean;
   isCephalopodReachApplied: boolean;
 } {
-  const isMelee = isMeleeAttackAbility(ability);
+  // (only an attack stated as melee: a movement attack's reach is its move, "a range or distance used only to move or
+  // place its user does not make it ranged", and isn't lengthened by melee range bonuses)
+  const isMelee = isStatedMeleeAbility(ability);
   let minRange = isMelee ? 1 : 1;
   let maxRange = isMelee ? 1 : 2;
 

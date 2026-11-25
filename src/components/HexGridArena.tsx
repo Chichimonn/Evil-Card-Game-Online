@@ -649,11 +649,11 @@ export const HexGridArena: React.FC<HexGridArenaProps> = ({
                       isFusionSelected={!activeTurnUnitHex && fusionSelectedHexes.includes(hexId)}
                       isTributeSelected={!activeTurnUnitHex && tributeSacrificeHexes.includes(hexId)}
                       hasReflect={Boolean(unit.reflectStance)}
-                      hasFlawlessParry={Boolean(unit.reflectStance?.sourceAbilityName === 'Flawless Parry' || unit.reflectStance?.preventUpTo !== undefined)}
+                      hasFlawlessParry={unit.reflectStance?.preventUpTo !== undefined}
                       bonusRange={unit.bonusRangeThisTurn || 0}
                       hasMoveTax={hasColdFeetEffect(unit, unitsOnBoard) && !unit.movedThisTurn}
                       hasNoxiousBurst={hasNoxiousBurstEffect(unit)}
-                      hasOverloadLock={isLockActive(unit.lockedAbilities?.['overload_gemstone'])}
+                      hasOverloadLock={Object.values(unit.lockedAbilities || {}).some((lock) => isLockActive(lock as any))}
                       hasFlowingStance={isFlowingStanceActive(unit)}
                       hasCannotPromoteOrFuse={Boolean(unit.statuses?.includes('cannot_promote_or_fuse'))}
                       hasCannotMove={Boolean(unit.statuses?.includes('cannot_move'))}

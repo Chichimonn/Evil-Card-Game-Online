@@ -92,10 +92,11 @@ Object.assign(CLASS_COLOURS, {
   Lancer: '#8d939a', // light silver
   Solar: '#e3901f', // a bright yellow-orange
   Lightning: '#c4a512', // electric yellow
-  Ooze: '#4a4f92', // blue-purple (its second colour keeps some green)
+  Ooze: '#455688', // blue-purple, leaning toward its green (its second colour keeps some green)
   Plant: '#23883a', // a vibrant green (with a brighter one)
   Drakeling: '#8a5b3d', // dull copper
   Ghost: '#3b8a9c', // a lighter, ectoplasm blue
+  Nimbus: '#79b8ea', // a bright sky blue, above the clouds (a little whitish, bluer and brighter than Ghost's teal)
   Knight: '#3d4757', // grey, with a strong pull of the steel blue
   Lunar: '#3d2a72', // deep purple
   Assassin: '#5e0f16' // dark, blood red
@@ -104,8 +105,9 @@ Object.assign(CLASS_COLOURS, {
 // A one-class card's second colour, where it isn't just a shade of the first (see shadeOf)
 const CLASS_SECOND_COLOURS: Record<string, string> = {
   Wildcat: '#7e5a26', // the darker tan of the spots
-  Ooze: '#2f7462', // a murky green, under the blue-purple
-  Plant: '#62b52b' // a bright, lime-leaning green
+  Ooze: '#346d6c', // a murky blue-green, under the blue-purple
+  Plant: '#62b52b', // a bright, lime-leaning green
+  Nimbus: '#c3dff4' // a bluish cloud white
 };
 
 /** The classes that colour a card (see the module comment). */

@@ -200,8 +200,6 @@ export function hasGravityPassive(unit: BattlefieldUnit | null | undefined): boo
   const passives = getUnitPassives(unit);
   return passives.some(
     (p) =>
-      p.id?.toLowerCase() === 'gravity' ||
-      p.name?.toLowerCase().includes('gravity') ||
       p.effects?.some(
         (e: any) =>
           e.type === 'increaseMoveCost' &&
@@ -311,7 +309,7 @@ export function applyCannotPromoteOrFuse(
   const eff = ((ability?.effects || []) as any[]).find(
     (e) => e.type === 'cannotBePromotedOrFused'
   );
-  if (!eff && ability?.id !== 'ice_lance') return target;
+  if (!eff) return target;
   return addStatus(target, CANNOT_PROMOTE_OR_FUSE);
 }
 
@@ -427,7 +425,6 @@ export function applySelfReactImmunity(
 /** Abilities that put this unit on the target tile (e.g. Shade Step, Vanish, Runic Vanish). */
 export function isSelfPlacementAbility(ability: CardAbility | null | undefined): boolean {
   if (!ability) return false;
-  if (ability.id === 'shade_step' || ability.id === 'vanish') return true;
   return Boolean(
     ability.effects?.some(
       (e: any) =>
@@ -477,7 +474,6 @@ export function isUnitMovementDisabled(
   // "Then, this unit may no longer move this turn" (Magical Omnipresence, after its placement)
   if (unit.passiveTurnMarks?.omnipresence_placed === getCurrentTurnNumber()) return true;
   if (hasSelfCannotMovePassive(unit)) return true;
-  if (unit.card.id === 'raging_bonfire' || unit.card.id === 'obstructing_wall') return true;
   return false;
 }
 

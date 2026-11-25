@@ -124,9 +124,6 @@ export function hasEsotericPathways(unit: BattlefieldUnit | null | undefined): b
   if (!unit) return false;
   const passives = getUnitPassives(unit);
   return passives.some((p) => {
-    const id = p.id?.toLowerCase() || '';
-    const name = p.name?.toLowerCase() || '';
-    if (id === 'esoteric_pathways' || name.includes('esoteric pathways')) return true;
     return Boolean(p.effects?.some((e: any) => e.type === 'wrapAroundMove'));
   });
 }
@@ -376,9 +373,6 @@ export function hasMagicalOmnipresence(unit: BattlefieldUnit | null | undefined)
   if (!unit) return false;
   const passives = getUnitPassives(unit);
   return passives.some((p) => {
-    const id = p.id?.toLowerCase() || '';
-    const name = p.name?.toLowerCase() || '';
-    if (id === 'magical_omnipresence' || name.includes('magical omnipresence')) return true;
     return Boolean(
       p.effects?.some(
         (e: any) =>

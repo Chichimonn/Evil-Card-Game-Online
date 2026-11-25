@@ -7,9 +7,6 @@ import { CardAbility } from '../types/card';
  */
 export function isFieldNotesAbility(ability: CardAbility | null | undefined): boolean {
   if (!ability) return false;
-  const id = ability.id?.toLowerCase() || '';
-  const name = ability.name?.toLowerCase() || '';
-  if (id === 'field_notes' || name.includes('field notes')) return true;
   if (
     ability.effects?.some(
       (e: any) =>

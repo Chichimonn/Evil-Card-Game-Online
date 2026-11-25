@@ -236,6 +236,12 @@ export const PlayerTurnPanel: React.FC<PlayerTurnPanelProps> = ({
                     const isOpt = isOncePerTurn(passive);
                     const usedCount = getTurnUsageCount(activeTurnUnit, passive.id || passive.name);
                     const isUsedOncePerTurn = isOpt && usedCount >= 1;
+                    // "The first time this unit spends AP to move each turn ... place it on a tile of your choice within
+                    // range 1-2" (e.g. Magical Omnipresence): a modifyMove with firstApMoveBecomesPlace and its placeRange
+                    const placeMove: any = ((passive.effects || []) as any[]).find(
+                      (e: any) => e.type === 'modifyMove' && e.firstApMoveBecomesPlace
+                    );
+                    const placeMoveRange: number = Array.isArray(placeMove?.placeRange) ? Math.max(...placeMove.placeRange) : 0;
                     return (
                       <div
                         key={`passive_${passive.id || passive.name}_${pIdx}`}
@@ -267,12 +273,18 @@ export const PlayerTurnPanel: React.FC<PlayerTurnPanelProps> = ({
                               +{getLeaderOfTheBunchBonusHp(activeTurnUnit, unitsOnBoard)} HP
                             </span>
                           )}
-                          {(passive.id?.toLowerCase() === 'cephalopod_reach' || passive.name?.toLowerCase().includes('cephalopod reach')) && (
-                            <span className="text-[9px] font-mono px-1 py-0.5 rounded font-bold bg-teal-950/80 text-teal-300 border border-teal-600/60" title="Cephalopod Reach: Melee attacks have +1 Range">
-                              +1 Melee Range
-                            </span>
-                          )}
-                          {(passive.id?.toLowerCase() === 'magical_omnipresence' || passive.name?.toLowerCase().includes('magical omnipresence')) && (
+                          {(() => {
+                            // "This unit's melee attacks have Range 1-2" (e.g. Cephalopod Reach): a modifyRange on its melee attacks
+                            const reach: any = ((passive.effects || []) as any[]).find(
+                              (e: any) => e.type === 'modifyRange' && e.appliesTo === 'meleeAttacks' && !e.if && typeof e.amount === 'number'
+                            );
+                            return reach ? (
+                              <span className="text-[9px] font-mono px-1 py-0.5 rounded font-bold bg-teal-950/80 text-teal-300 border border-teal-600/60" title={`${passive.name}: Melee attacks have +${reach.amount} Range`}>
+                                +{reach.amount} Melee Range
+                              </span>
+                            ) : null;
+                          })()}
+                          {placeMove && (
                             <span
                               className={`text-[9px] font-mono px-1 py-0.5 rounded font-bold uppercase ${
                                 activeTurnUnit?.movedThisTurn
@@ -281,11 +293,11 @@ export const PlayerTurnPanel: React.FC<PlayerTurnPanelProps> = ({
                               }`}
                               title={
                                 activeTurnUnit?.movedThisTurn
-                                  ? "Magical Omnipresence: Range 2 Move (1/Turn) - Already used this turn"
-                                  : "Magical Omnipresence: Range 2 Move (1/Turn)"
+                                  ? `${passive.name}: Range ${placeMoveRange} Move (1/Turn) - Already used this turn`
+                                  : `${passive.name}: Range ${placeMoveRange} Move (1/Turn)`
                               }
                             >
-                              {activeTurnUnit?.movedThisTurn ? 'Range 2 Move • 1/Turn ✓' : 'Range 2 Move • 1/Turn'}
+                              {activeTurnUnit?.movedThisTurn ? `Range ${placeMoveRange} Move • 1/Turn ✓` : `Range ${placeMoveRange} Move • 1/Turn`}
                             </span>
                           )}
                           {isOpt && (

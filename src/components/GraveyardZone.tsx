@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { CardItem } from '../types/card';
 import { CardThumbnail } from './CardThumbnail';
 import { CardPreview } from './CardPreview';
@@ -28,7 +28,23 @@ export const GraveyardZone: React.FC<GraveyardZoneProps> = ({
 }) => {
   const [showModal, setShowModal] = useState(false);
   const [isHovered, setIsHovered] = useState(false);
-  const [hoveredCard, setHoveredCard] = useState<CardItem | null>(null);
+  // The card opened from the graveyard, shown big in its own window over it
+  const [openCard, setOpenCard] = useState<CardItem | null>(null);
+  // (Escape closes the open card first, then the graveyard)
+  useEffect(() => {
+    if (!showModal) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
+      if (openCard) setOpenCard(null);
+      else setShowModal(false);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [showModal, openCard]);
+  const closeGraveyard = () => {
+    setOpenCard(null);
+    setShowModal(false);
+  };
   const topCard = cards.length > 0 ? cards[cards.length - 1] : null;
 
   // Group cards for the visual grid
@@ -104,7 +120,7 @@ export const GraveyardZone: React.FC<GraveyardZoneProps> = ({
       {showModal && (
         <div 
           className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-200"
-          onClick={() => setShowModal(false)}
+          onClick={closeGraveyard}
         >
           <div 
             className="w-full max-w-4xl max-h-[85vh] bg-stone-900 border border-stone-800 rounded-2xl shadow-2xl flex flex-col overflow-hidden animate-in zoom-in-95 duration-200"
@@ -118,37 +134,34 @@ export const GraveyardZone: React.FC<GraveyardZoneProps> = ({
                 </div>
                 <div>
                   <h3 className="font-serif font-bold text-lg text-stone-100">{title}</h3>
-                  <p className="text-xs font-mono text-stone-400">{cards.length} total cards removed from play</p>
+                  <p className="text-xs font-mono text-stone-400">
+                    {cards.length} total cards removed from play · click a card to see it in full
+                  </p>
                 </div>
               </div>
               <button
-                onClick={() => setShowModal(false)}
+                onClick={closeGraveyard}
                 className="p-1.5 text-stone-400 hover:text-stone-200 rounded-lg hover:bg-stone-800 transition-colors cursor-pointer"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
-            {/* Modal Cards Grid with Preview Panel */}
-            <div className="flex-1 overflow-hidden flex flex-col md:flex-row bg-stone-900/50">
+            {/* Modal Cards Grid */}
+            <div className="flex-1 overflow-hidden flex flex-col bg-stone-900/50">
               <div className="flex-1 overflow-y-auto p-6 custom-scrollbar">
                 {groupedCards.length === 0 ? (
                   <div className="py-12 text-center text-stone-500 font-mono text-sm">
                     Graveyard is empty
                   </div>
                 ) : (
-                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
+                  <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-5 gap-4">
                     {groupedCards.map(({ card, count }) => (
                       <div 
                         key={`gy-modal-card-${card.id}`}
-                        onMouseEnter={() => {
-                          setHoveredCard(card);
-                          onHoverCard?.(card);
-                        }}
-                        onMouseLeave={() => {
-                          setHoveredCard(null);
-                          onHoverCard?.(null);
-                        }}
+                        onClick={() => setOpenCard(card)}
+                        onMouseEnter={() => onHoverCard?.(card)}
+                        onMouseLeave={() => onHoverCard?.(null)}
                         className="flex flex-col gap-1.5 bg-stone-950 p-2 rounded-xl border border-stone-800 hover:border-sky-500/50 transition-colors group relative cursor-pointer"
                       >
                         <div className="w-full aspect-[5/7] rounded-lg overflow-hidden relative shadow-md">
@@ -172,31 +185,41 @@ export const GraveyardZone: React.FC<GraveyardZoneProps> = ({
                 )}
               </div>
 
-              {/* Modal Card Preview Side Panel */}
-              <div className="w-64 sm:w-72 shrink-0 hidden md:flex flex-col items-center justify-center p-4 bg-stone-950/80 border-t md:border-t-0 md:border-l border-stone-800">
-                {hoveredCard ? (
-                  <div className="flex flex-col items-center justify-center animate-in fade-in zoom-in-95 duration-150">
-                    <CardPreview card={hoveredCard} customArtUrl={customArtMap[hoveredCard.id]} />
-                  </div>
-                ) : (
-                  <div className="flex flex-col items-center justify-center text-center p-4 text-stone-500 font-mono text-xs gap-2 select-none">
-                    <Eye className="w-8 h-8 opacity-40 text-stone-400" />
-                    <p>Hover over any card in the graveyard to preview its full details and abilities</p>
-                  </div>
-                )}
-              </div>
             </div>
 
             {/* Modal Footer */}
             <div className="px-6 py-3 border-t border-stone-800 bg-stone-950 text-right">
               <button
-                onClick={() => setShowModal(false)}
+                onClick={closeGraveyard}
                 className="px-4 py-1.5 text-xs font-mono font-bold bg-stone-800 hover:bg-stone-700 text-stone-200 rounded-lg transition-colors cursor-pointer"
               >
                 Close
               </button>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* The opened card, big in its own window over the graveyard (click anywhere or Escape to go back) */}
+      {showModal && openCard && (
+        <div
+          className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/85 backdrop-blur-sm animate-in fade-in duration-150 cursor-pointer"
+          onClick={() => setOpenCard(null)}
+          title="Click to go back to the graveyard"
+        >
+          <button
+            onClick={() => setOpenCard(null)}
+            className="absolute top-4 right-4 p-2 text-stone-300 hover:text-white rounded-lg bg-stone-900/80 hover:bg-stone-800 border border-stone-700 transition-colors cursor-pointer"
+            aria-label="Back to the graveyard"
+          >
+            <X className="w-5 h-5" />
+          </button>
+          <CardPreview
+            card={openCard}
+            customArtUrl={customArtMap[openCard.id]}
+            // (the page is drawn at 125%, so 68vh is 85% of the window)
+            imageClassName="max-h-[68vh] max-w-[72vw]"
+          />
         </div>
       )}
     </>

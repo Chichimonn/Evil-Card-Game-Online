@@ -13,8 +13,6 @@ export function hasNoxiousBurstPassive(unit: BattlefieldUnit | null | undefined)
   const passives = getUnitPassives(unit);
   return passives.some(
     (p) =>
-      p.id?.toLowerCase() === 'noxious_burst' ||
-      p.name?.toLowerCase().includes('noxious burst') ||
       p.effects?.some(
         (e: any) =>
           e.type === 'loseAP' &&

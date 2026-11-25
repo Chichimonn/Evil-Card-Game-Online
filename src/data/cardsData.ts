@@ -269,6 +269,7 @@ export const initialCardsData: CardsDataSchema = {
           "id": "ready_stance",
           "name": "Ready Stance",
           "cost": 1,
+          "target": "self",
           "tags": [
             "react",
             "inspiring"
@@ -875,6 +876,7 @@ export const initialCardsData: CardsDataSchema = {
           "id": "roast_a_marshmallow",
           "name": "Roast a Marshmallow",
           "cost": 1,
+          "target": "self",
           "limits": {
             "oncePerTurn": true
           },
@@ -1053,7 +1055,7 @@ export const initialCardsData: CardsDataSchema = {
             "melee",
             "inspiring"
           ],
-          "text": "Remove all armour from the target, then deal 7 damage. Then, if no armour was removed this way, deal 5 damage (as an additional hit).",
+          "text": "Remove all armour from the target, then deal 7 damage. Then, if no armour was removed this way, hits again for 5 damage.",
           "effects": [
             {
               "type": "removeArmour",
@@ -1717,19 +1719,17 @@ export const initialCardsData: CardsDataSchema = {
           "range": [1, 3],
           "rangeText": "1-3",
           "target": "unit",
-          "text": "Deals 5 damage. Against an armoured target, deals an additional 2 damage (as a single hit).",
+          "text": "Deals 5 damage. Then, if this attack damaged armour, hits again for 3 damage.",
           "effects": [
             {
               "type": "damage",
               "amount": 5,
               "hits": 1,
-              "modifiers": [
-                {
-                  "if": "target.hasArmour",
-                  "addAmount": 2,
-                  "scope": "firstHit"
-                }
-              ]
+              "extraHit": {
+                "amount": 3,
+                "if": "thisAttackDamagedArmour",
+                "checkedAfterHit": 1
+              }
             }
           ]
         },
@@ -1932,13 +1932,13 @@ export const initialCardsData: CardsDataSchema = {
           "id": "stopping_power",
           "name": "Stopping Power",
           "trigger": "static",
-          "text": "When using Weighty Shot, if the unit hit is within range 1 of this unit, it deals an additional 3 damage.",
+          "text": "This unit's ranged attacks against a target at range 1 deal an additional 3 damage.",
           "effects": [
             {
               "type": "damageBonus",
-              "appliesTo": "ability:weighty_shot",
+              "appliesTo": "ownRangedAttacks",
               "amount": 3,
-              "if": "target.withinRange:1"
+              "if": "target.inMeleeRange"
             }
           ],
           "script": null
@@ -2694,12 +2694,13 @@ export const initialCardsData: CardsDataSchema = {
           "id": "shield_of_blessings",
           "name": "Shield of Blessings",
           "trigger": "static",
-          "text": "When this unit has armour on it, its attacks deal an additional 2 damage.",
+          "text": "When this unit has armour on it, its attacks deal an additional 2 damage on the first hit.",
           "effects": [
             {
               "type": "damageBonus",
               "appliesTo": "ownAttacks",
               "amount": 2,
+              "scope": "firstHit",
               "if": "self.hasArmour"
             }
           ],
@@ -3597,6 +3598,7 @@ export const initialCardsData: CardsDataSchema = {
           "id": "flawless_parry",
           "name": "Flawless Parry",
           "cost": 2,
+          "target": "self",
           "text": "Until the end of your opponent's next turn, the next time this unit would take damage from an attack, prevent up to 7 damage. If you do, this unit deals up to that much damage to the attacker as a react effect. This unit's turn ends.",
           "effects": [
             {
@@ -4322,7 +4324,7 @@ export const initialCardsData: CardsDataSchema = {
           "id": "thick_hide",
           "name": "Thick Hide",
           "trigger": "static",
-          "text": "This unit takes 1 damage less from all attacks, to a minimum of 1 damage per attack.",
+          "text": "This unit takes 1 damage less from all attacks on the first hit, to a minimum of 1 damage.",
           "effects": [
             {
               "type": "reduceDamage",
@@ -4530,7 +4532,7 @@ export const initialCardsData: CardsDataSchema = {
           "id": "flaming_dive",
           "name": "Flaming Dive",
           "cost": 1,
-          "text": "Deals 7 damage. If this unit moved before declaring this attack this turn, this attack deals an additional 2 damage (as a single hit).",
+          "text": "This attack deals an additional 2 damage if this unit has moved this turn. Deals 7 damage.",
           "effects": [
             {
               "type": "damage",
@@ -4595,14 +4597,14 @@ export const initialCardsData: CardsDataSchema = {
           "id": "gale_wings",
           "name": "Gale Wings",
           "trigger": "static",
-          "text": "This unit takes 2 damage less from ranged attacks, to a minimum of 1 damage per hit.",
+          "text": "Takes 2 damage less per attack from ranged attacks on the first hit, to a minimum of 1 damage.",
           "effects": [
             {
               "type": "reduceDamage",
               "amount": 2,
               "target": "self",
               "from": "rangedAttack",
-              "per": "hit",
+              "per": "attack",
               "minDamage": 1
             }
           ],
@@ -6771,7 +6773,7 @@ export const initialCardsData: CardsDataSchema = {
           "id": "perfect_form",
           "name": "Perfect Form",
           "trigger": "multiple",
-          "text": "Once per turn, after this unit uses an armour ability, its next attack this turn deals an additional 2 damage. Once per turn, after this unit uses an attack, its next armour ability this turn grants an additional 1 armour.",
+          "text": "Once per turn, after this unit uses an armour ability, its next attack this turn deals an additional 2 damage on the first hit. Once per turn, after this unit uses an attack, its next armour ability this turn grants an additional 1 armour.",
           "effects": [
             {
               "trigger": "self.usesArmourAbility",
@@ -6782,7 +6784,7 @@ export const initialCardsData: CardsDataSchema = {
               "target": "self",
               "addDamage": {
                 "amount": 2,
-                "scope": "allHits"
+                "scope": "firstHit"
               },
               "duration": "thisTurn"
             },
@@ -6820,8 +6822,8 @@ export const initialCardsData: CardsDataSchema = {
           "script": null
         },
         {
-          "id": "guard_break",
-          "name": "Guard Break",
+          "id": "guards_up",
+          "name": "Guards Up",
           "cost": 1,
           "text": "Use a 1AP armour ability from among the promoted cards as this ability for free.",
           "effects": [
@@ -7678,16 +7680,13 @@ export const initialCardsData: CardsDataSchema = {
         {
           "id": "relentless_rage",
           "name": "Relentless Rage",
-          "trigger": "static",
-          "text": "If this unit would take damage on a turn when it has killed an enemy unit, reduce that damage to 1.",
+          "trigger": "self.killsUnit",
+          "text": "When this unit kills another unit, it heals up to 3 damage.",
           "effects": [
             {
-              "type": "reduceDamage",
+              "type": "heal",
               "target": "self",
-              "setTo": 1,
-              "per": "hit",
-              "from": "any",
-              "if": "self.killedEnemyThisTurn"
+              "amount": 3
             }
           ],
           "script": null
@@ -7774,7 +7773,7 @@ export const initialCardsData: CardsDataSchema = {
           "tags": [
             "melee"
           ],
-          "text": "This attack deals an additional damage for each tile this unit has moved this turn. Deals 5 damage.",
+          "text": "This attack deals an additional 1 damage for each tile this unit has moved this turn. Deals 5 damage.",
           "effects": [
             {
               "type": "damage",
@@ -7902,7 +7901,7 @@ export const initialCardsData: CardsDataSchema = {
           "id": "thick_fur",
           "name": "Thick Fur",
           "trigger": "static",
-          "text": "This unit takes 1 damage less from melee attacks, to a minimum of 1.",
+          "text": "This unit takes 1 damage less from melee attacks on the first hit, to a minimum of 1 damage.",
           "effects": [
             {
               "type": "reduceDamage",
@@ -8108,7 +8107,7 @@ export const initialCardsData: CardsDataSchema = {
           "id": "regal_wings",
           "name": "Regal Wings",
           "trigger": "static",
-          "text": "This unit takes 2 damage less per attack from ranged attacks, to a minimum of 1 damage per attack.",
+          "text": "This unit takes 2 damage less from ranged attacks on the first hit, to a minimum of 1 damage.",
           "effects": [
             {
               "type": "reduceDamage",
@@ -8241,7 +8240,7 @@ export const initialCardsData: CardsDataSchema = {
       "reinforce": {
         "mode": "basic"
       },
-      "hp": 17,
+      "hp": 19,
       "ap": 2,
       "art": "art/plant_lasher.png",
       "passives": [
@@ -8249,13 +8248,14 @@ export const initialCardsData: CardsDataSchema = {
           "id": "insidious_weed",
           "name": "Insidious Weed",
           "trigger": "static",
-          "text": "Damage dealt to this unit is reduced by 1 to a minimum of 1 damage.",
+          "text": "This unit takes 1 damage less from all attacks on the first hit, to a minimum of 1 damage.",
           "effects": [
             {
               "type": "reduceDamage",
               "amount": 1,
               "target": "self",
-              "per": "hit",
+              "from": "attack",
+              "per": "attack",
               "minDamage": 1
             }
           ],
@@ -8632,7 +8632,7 @@ export const initialCardsData: CardsDataSchema = {
           ]
         ]
       },
-      "hp": 23,
+      "hp": 27,
       "ap": 3,
       "art": "art/hungering_overgrowth.png",
       "passives": [
@@ -8640,14 +8640,12 @@ export const initialCardsData: CardsDataSchema = {
           "id": "draining_touch",
           "name": "Draining Touch",
           "trigger": "self.usesMeleeAttack",
-          "text": "When this unit uses a melee attack, it heals 1 damage per hit (no matter how many units are hit).",
+          "text": "When this unit uses a melee attack, it heals 3 damage.",
           "effects": [
             {
               "type": "heal",
               "target": "self",
-              "amount": {
-                "perAttackHit": 1
-              }
+              "amount": 3
             }
           ],
           "script": null
@@ -8661,15 +8659,13 @@ export const initialCardsData: CardsDataSchema = {
           "tags": [
             "melee"
           ],
-          "text": "Choose a 1AP melee attack of the promoted unit that has not yet been chosen this way this turn. Use it as this ability for free.",
+          "text": "Choose a 1AP ability of the promoted unit that has not yet been chosen this way this turn. Use it as this ability for free.",
           "effects": [
             {
               "type": "useAbility",
               "source": "promotedCards",
               "filter": {
-                "cost": 1,
-                "kind": "attack",
-                "melee": true
+                "cost": 1
               },
               "free": true,
               "distinctPerTurn": true
@@ -8679,17 +8675,17 @@ export const initialCardsData: CardsDataSchema = {
         {
           "id": "extreme_lashing",
           "name": "Extreme Lashing",
-          "cost": 3,
+          "cost": 2,
           "tags": [
             "melee"
           ],
-          "text": "Deals 3 damage to all surrounding units. Hits three times.",
+          "text": "Deals 3 damage to all surrounding enemy units. Hits twice.",
           "effects": [
             {
               "type": "damage",
               "amount": 3,
-              "hits": 3,
-              "area": "allUnitsSurroundingSelf"
+              "hits": 2,
+              "area": "enemyUnitsSurroundingSelf"
             }
           ]
         }
@@ -8805,14 +8801,14 @@ export const initialCardsData: CardsDataSchema = {
       "art": "art/voracious_firemaw.png",
       "passives": [
         {
-          "id": "blazing_wings",
-          "name": "Blazing Wings",
+          "id": "blazing_aura",
+          "name": "Blazing Aura",
           "trigger": "static",
-          "text": "This unit takes 3 damage less per attack from ranged attacks, to a minimum of 1 damage per attack.",
+          "text": "This unit takes 2 damage less from ranged attacks on the first hit, to a minimum of 1 damage.",
           "effects": [
             {
               "type": "reduceDamage",
-              "amount": 3,
+              "amount": 2,
               "target": "self",
               "from": "rangedAttack",
               "per": "attack",
@@ -8885,7 +8881,7 @@ export const initialCardsData: CardsDataSchema = {
       "reinforce": { "mode": "tribute", "count": 2, "requirement": [["Frozen"]] }, "hp": 27, "ap": 3, "art": "art/bonechiller_greatwurm.png",
       "passives": [
         { "id": "thick_hide", "name": "Thick Hide", "trigger": "static",
-          "text": "This unit takes 1 damage less from all attacks, to a minimum of 1 damage per attack.",
+          "text": "This unit takes 1 damage less from all attacks on the first hit, to a minimum of 1 damage.",
           "effects": [{ "type": "reduceDamage", "amount": 1, "target": "self", "from": "attack", "per": "attack", "minDamage": 1 }], "script": null }
       ],
       "abilities": [
@@ -9545,7 +9541,7 @@ export const initialCardsData: CardsDataSchema = {
           "id": "gale_wings",
           "name": "Gale Wings",
           "trigger": "static",
-          "text": "Takes 2 damage less per attack from ranged attacks, to a minimum of 1 damage per attack.",
+          "text": "Takes 2 damage less per attack from ranged attacks on the first hit, to a minimum of 1 damage.",
           "effects": [
             {
               "type": "reduceDamage",
@@ -10525,7 +10521,7 @@ export const initialCardsData: CardsDataSchema = {
       "reinforce": {
         "mode": "basic"
       },
-      "hp": 16,
+      "hp": 17,
       "ap": 2,
       "art": "art/solar_drakeling.png",
       "passives": [
@@ -10533,7 +10529,7 @@ export const initialCardsData: CardsDataSchema = {
           "id": "shining_scales",
           "name": "Shining Scales",
           "trigger": "static",
-          "text": "This unit takes 1 damage less from melee attacks. When damage is prevented this way, deal that much damage to the attacker.",
+          "text": "This unit takes 1 damage less from melee attacks on the first hit. When damage is prevented this way, deal that much damage to the attacker.",
           "effects": [
             {
               "type": "reduceDamage",
@@ -10977,22 +10973,16 @@ export const initialCardsData: CardsDataSchema = {
           "id": "energy_crackle",
           "name": "Energy Crackle",
           "trigger": "static",
-          "text": "This unit takes 2 damage less from ranged attacks to a minimum of 1 damage per attack. Whenever an enemy unit attacks this unit from range 2 or further, deal 2 damage to that attacker.",
+          "text": "This unit takes 2 damage less from ranged attacks on the first hit, to a minimum of 1 damage. When damage is prevented this way, deal 2 damage to the attacker.",
           "effects": [
             {
               "type": "reduceDamage",
               "amount": 2,
               "target": "self",
               "from": "rangedAttack",
-              "per": "hit",
-              "minDamage": 1
-            },
-            {
-              "type": "damage",
-              "amount": 2,
-              "hits": 1,
-              "target": "attacker",
-              "if": "attackerAtRange2OrMore"
+              "per": "attack",
+              "minDamage": 1,
+              "dealToAttackerWhenPrevented": 2
             }
           ]
         }
@@ -11101,7 +11091,7 @@ export const initialCardsData: CardsDataSchema = {
           "id": "scaled_boon",
           "name": "Scaled Boon",
           "trigger": "static",
-          "text": "This unit takes 4 damage less from attacks of units on scorched tiles.",
+          "text": "This unit takes 4 damage less on the first hit from attacks of units on scorched tiles.",
           "effects": [
             {
               "type": "reduceDamage",
@@ -11184,14 +11174,13 @@ export const initialCardsData: CardsDataSchema = {
           "id": "unstoppable_momentum",
           "name": "Unstoppable Momentum",
           "trigger": "static",
-          "text": "Whenever this unit attacks, it deals an additional 1 damage for every tile it moved this turn to a maximum of 3.",
+          "text": "Whenever this unit attacks, it deals an additional 1 damage on the first hit for every tile it moved this turn.",
           "effects": [
             {
               "type": "damageBonus",
               "appliesTo": "ownAttacks",
               "amount": {
-                "perTileMovedThisTurn": 1,
-                "max": 3
+                "perTileMovedThisTurn": 1
               },
               "scope": "firstHit"
             }
@@ -11203,19 +11192,19 @@ export const initialCardsData: CardsDataSchema = {
           "id": "piercing_charge",
           "name": "Piercing Charge",
           "cost": 1,
-          "text": "Move up to 3 tiles in a chosen direction. Then, if there is an enemy in that direction, deal 6 damage to it and bypass up to 2 armour. Use up to twice per turn.",
+          "text": "Move up to 2 tiles in a chosen direction. Then, if there is an enemy in that direction, deal 5 damage to it and bypass up to 2 armour. Use up to twice per turn.",
           "effects": [
             {
               "type": "move",
               "target": "self",
               "distance": {
-                "max": 3
+                "max": 2
               },
               "straightLine": true
             },
             {
               "type": "damage",
-              "amount": 6,
+              "amount": 5,
               "hits": 1,
               "target": "enemyInDirectionMoved"
             },
@@ -12134,7 +12123,7 @@ export const initialCardsData: CardsDataSchema = {
           "id": "solar_wings",
           "name": "Solar Wings",
           "trigger": "static",
-          "text": "This unit takes 3 damage less from ranged attacks to a minimum of 1 damage per attack.",
+          "text": "This unit takes 3 damage less from ranged attacks on the first hit, to a minimum of 1 damage.",
           "effects": [
             {
               "type": "reduceDamage",
@@ -12224,14 +12213,15 @@ export const initialCardsData: CardsDataSchema = {
           "id": "golden_standard",
           "name": "Golden Standard",
           "trigger": "static",
-          "text": "Friendly units surrounding this unit take 1 damage less from melee attacks.",
+          "text": "Friendly units surrounding this unit take 1 damage less from melee attacks on the first hit, to a minimum of 1 damage.",
           "effects": [
             {
               "type": "reduceDamage",
               "amount": 1,
               "target": "friendlyUnitsSurroundingSelf",
               "from": "meleeAttack",
-              "per": "attack"
+              "per": "attack",
+              "minDamage": 1
             }
           ]
         }
@@ -12554,7 +12544,7 @@ export const initialCardsData: CardsDataSchema = {
           "id": "glacial_wings",
           "name": "Glacial Wings",
           "cost": 2,
-          "text": "Move up to 3 tiles in a straight line. This unit may move over other units this way. Deal 5 damage to all enemy units passed through. This ability must leave this unit alone on its tile.",
+          "text": "Move up to 3 tiles in a straight line. This unit may move over other units this way. Moving over an enemy unit this way deals 5 damage to that unit. This ability must leave this unit alone on its tile.",
           "effects": [
             {
               "type": "move",
@@ -12790,7 +12780,7 @@ export const initialCardsData: CardsDataSchema = {
           "id": "shifting_flow",
           "name": "Shifting Flow",
           "trigger": "static",
-          "text": "If this unit has an even amount of HP remaining, its attacks deal an additional 2 damage. If it has an odd amount of HP remaining, it takes 2 damage less from all attacks.",
+          "text": "If this unit has an even amount of HP remaining, its attacks deal an additional 2 damage on the first hit. If it has an odd amount of HP remaining, it takes 2 damage less from all attacks on the first hit, to a minimum of 1 damage.",
           "effects": [
             {
               "type": "damageBonus",
@@ -12805,6 +12795,7 @@ export const initialCardsData: CardsDataSchema = {
               "target": "self",
               "from": "attack",
               "per": "attack",
+              "minDamage": 1,
               "if": "self.hpRemainingIsOdd"
             }
           ]
@@ -12812,8 +12803,8 @@ export const initialCardsData: CardsDataSchema = {
       ],
       "abilities": [
         {
-          "id": "twilight_strike",
-          "name": "Twilight Strike",
+          "id": "solar_strike",
+          "name": "Solar Strike",
           "cost": 1,
           "text": "Deals 5 damage. Heal up to 1 damage from this unit.",
           "effects": [
@@ -12833,8 +12824,8 @@ export const initialCardsData: CardsDataSchema = {
           ]
         },
         {
-          "id": "total_eclipse",
-          "name": "Total Eclipse",
+          "id": "lunar_eclipse",
+          "name": "Lunar Eclipse",
           "tagNote": "Tile Target",
           "cost": 2,
           "text": "Deals 5 damage to all units on or surrounding the target tile. Then, armour up to 3.",
@@ -14814,7 +14805,7 @@ export const initialCardsData: CardsDataSchema = {
           "id": "ethereal_guard",
           "name": "Ethereal Guard",
           "trigger": "static",
-          "text": "This unit may move over other units. If this unit moves over another unit, this unit takes 2 damage less from all attacks to a minimum of 1 damage per attack until the end of your opponent's next turn, then move this unit to an empty surrounding tile for free.",
+          "text": "This unit may move over other units. If this unit moves over another unit, this unit takes 2 damage less from all attacks on the first hit, to a minimum of 1 damage, until the end of your opponent's next turn, then move this unit to an empty surrounding tile for free.",
           "effects": [
             {
               "type": "modifyMove",
@@ -15242,14 +15233,15 @@ export const initialCardsData: CardsDataSchema = {
           "id": "chitinous_plating",
           "name": "Chitinous Plating",
           "trigger": "static",
-          "text": "This unit takes 1 damage less from melee attacks.",
+          "text": "This unit takes 1 damage less from melee attacks on the first hit, to a minimum of 1 damage.",
           "effects": [
             {
               "type": "reduceDamage",
               "amount": 1,
               "target": "self",
               "from": "meleeAttack",
-              "per": "attack"
+              "per": "attack",
+              "minDamage": 1
             }
           ]
         }
@@ -15259,7 +15251,7 @@ export const initialCardsData: CardsDataSchema = {
           "id": "tendril_drain",
           "name": "Tendril Drain",
           "cost": 1,
-          "text": "Deals 4 damage. Heal up to 1 damage from this unit.",
+          "text": "Deals 5 damage. Heal up to 1 damage from this unit.",
           "range": [
             1,
             2
@@ -15269,7 +15261,7 @@ export const initialCardsData: CardsDataSchema = {
           "effects": [
             {
               "type": "damage",
-              "amount": 4,
+              "amount": 5,
               "hits": 1
             },
             {
@@ -15998,7 +15990,7 @@ export const initialCardsData: CardsDataSchema = {
           "id": "solid_ribcage",
           "name": "Solid Ribcage",
           "trigger": "multiple",
-          "text": "When you reinforce this card, discard a card. If you can't, this card goes to the graveyard (the units it would have fused stay). This unit takes 1 damage less from enemy attacks, to a minimum of 1 damage per hit.",
+          "text": "When you reinforce this card, discard a card. If you can't, this card goes to the graveyard (the units it would have fused stay). This unit takes 1 damage less from enemy attacks on the first hit, to a minimum of 1 damage.",
           "effects": [
             {
               "type": "discardOrFail",
@@ -16009,8 +16001,8 @@ export const initialCardsData: CardsDataSchema = {
               "type": "reduceDamage",
               "amount": 1,
               "target": "self",
-              "from": "attack",
-              "per": "hit",
+              "from": "enemyAttack",
+              "per": "attack",
               "minDamage": 1
             }
           ]
@@ -16253,7 +16245,7 @@ export const initialCardsData: CardsDataSchema = {
           "id": "hundred_cut_crescendo",
           "name": "Hundred-Cut Crescendo",
           "cost": 2,
-          "text": "Deals 4 damage. Hits 4 times. Each time this attack hits, if the target no longer has any armour, it deals an additional 1 damage.",
+          "text": "Deals 4 damage. Hits 4 times. Each time this attack hits, if the target no longer has any armour, that hit deals an additional 1 damage.",
           "effects": [
             {
               "type": "damage",
@@ -16517,7 +16509,7 @@ export const initialCardsData: CardsDataSchema = {
           ]
         ]
       },
-      "hp": 31,
+      "hp": 30,
       "ap": 4,
       "art": "art/revenant_trio.png",
       "passives": [
@@ -16548,12 +16540,12 @@ export const initialCardsData: CardsDataSchema = {
           "id": "three_curses",
           "name": "Three Curses",
           "cost": 1,
-          "text": "This attack deals an additional 1 damage for each time it has previously been used this turn. Deals 1 damage. Hits three times. Use up to three times per turn.",
+          "text": "This attack deals an additional 1 damage per hit for each time it has previously been used this turn. Deals 1 damage. Hits three times. Use up to three times per turn.",
           "range": [
             1,
-            3
+            2
           ],
-          "rangeText": "1-3",
+          "rangeText": "1-2",
           "target": "unit",
           "limits": {
             "maxPerTurn": 3
@@ -17156,7 +17148,7 @@ export const initialCardsData: CardsDataSchema = {
           "name": "Echoing Harmony",
           "trigger": "static",
           "optional": true,
-          "text": "If this unit has no cards under it, it may move under a friendly unit with exactly 2 promoted cards that share at least 1 type. If it does, attach it to that unit. While this card is attached to a unit, once during each of that unit's turns, after it uses a 1AP attack, it may use that attack again for free, except it deals 2 damage less on the first hit (to a minimum of 1). This effect does not stack.",
+          "text": "If this unit has no cards under it, it may move under a friendly unit with exactly 2 promoted cards that share at least 1 type. If it does, attach it to that unit. While this card is attached to a unit, once during each of that unit's turns, after it uses a 1AP attack, it may use that attack again for free, except it deals 2 damage less on the first hit, to a minimum of 1 damage. This effect does not stack.",
           "effects": [
             {
               "type": "attach",
@@ -18838,14 +18830,14 @@ export const initialCardsData: CardsDataSchema = {
           "id": "agile_flight",
           "name": "Agile Flight",
           "trigger": "static",
-          "text": "This unit takes 1 damage less from all attacks, to a minimum of 1 damage per hit.",
+          "text": "This unit takes 1 damage less from all attacks on the first hit, to a minimum of 1 damage.",
           "effects": [
             {
               "type": "reduceDamage",
               "amount": 1,
               "target": "self",
               "from": "attack",
-              "per": "hit",
+              "per": "attack",
               "minDamage": 1
             }
           ]
@@ -19340,14 +19332,14 @@ export const initialCardsData: CardsDataSchema = {
           "id": "pointed_guard",
           "name": "Pointed Guard",
           "trigger": "static",
-          "text": "This unit takes 1 damage less from melee attacks, to a minimum of 1 damage per hit.",
+          "text": "This unit takes 1 damage less from melee attacks on the first hit, to a minimum of 1 damage.",
           "effects": [
             {
               "type": "reduceDamage",
               "amount": 1,
               "target": "self",
               "from": "meleeAttack",
-              "per": "hit",
+              "per": "attack",
               "minDamage": 1
             }
           ]
@@ -19420,7 +19412,7 @@ export const initialCardsData: CardsDataSchema = {
           "id": "unbreakable_diamond",
           "name": "Unbreakable Diamond",
           "trigger": "static",
-          "text": "This unit takes 2 damage less per attack while armoured, to a minimum of 1 damage per attack.",
+          "text": "If this unit is armoured, it takes 2 damage less from attacks on the first hit, to a minimum of 1 damage.",
           "effects": [
             {
               "type": "reduceDamage",

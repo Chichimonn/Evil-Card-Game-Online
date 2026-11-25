@@ -92,14 +92,29 @@ export function getAllyAttackChoices(unit: BattlefieldUnit, spec: { cost: number
 
 const isBasicUnit = (u: BattlefieldUnit) => u.card.basic === true || u.card.reinforce?.mode === 'basic';
 
+/**
+ * "Use a 1AP melee attack ... except you may choose up to 2 additional targets. The attack also hits those targets. This
+ * attack does 1 damage less per hit for each target beyond the first" (e.g. Anchor Smash): the provider's useAbility
+ * { addTargets: { max }, addDamage: { amount: { perExtraTarget } } }, which the borrowed attack carries as addTargets
+ * (see the provider's executable in App).
+ */
+export function getAddedTargets(ability: CardAbility | null | undefined): { max: number; perExtraTarget: number } | null {
+  if (!ability) return null;
+  const carried = (ability as any).addTargets;
+  if (carried && typeof carried.max === 'number') return { max: carried.max, perExtraTarget: carried.perExtraTarget ?? 0 };
+  const use: any = ((ability.effects || []) as any[]).find((e) => e.type === 'useAbility' && e.addTargets);
+  if (!use || typeof use.addTargets.max !== 'number') return null;
+  return { max: use.addTargets.max, perExtraTarget: use.addDamage?.amount?.perExtraTarget ?? 0 };
+}
+
 export function isAnchorSmash(ability: CardAbility | null | undefined): boolean {
-  const id = ability?.id || '';
-  return id === 'anchor_smash' || id.startsWith('anchor_smash__');
+  return Boolean(getAddedTargets(ability));
 }
 
 export function getMultiTargetSpec(ability: CardAbility | null | undefined): MultiTargetSpec | null {
   if (!ability) return null;
-  if (isAnchorSmash(ability)) return { max: 3, minRange: 1, maxRange: 1 };
+  const added = getAddedTargets(ability);
+  if (added) return { max: 1 + added.max, minRange: 1, maxRange: 1 };
     // Optional "friendly unit surrounding this one" effect (e.g. Rally Stance)
   const friendEffect = ((ability as any).effects || []).find(
     (e: any) => e?.target === 'friendlySurroundingSelf' && e?.optional
@@ -145,7 +160,8 @@ export function getMultiTargetSpec(ability: CardAbility | null | undefined): Mul
  * Anchor Smash: -1 per target beyond the first.
  */
 export function getPerHitAdjustment(ability: CardAbility, targetCount: number): number {
-  if (isAnchorSmash(ability)) return -Math.max(0, targetCount - 1);
+  const added = getAddedTargets(ability);
+  if (added) return added.perExtraTarget * Math.max(0, targetCount - 1);
   const effects: any[] = (ability as any).effects || [];
   for (const e of effects) {
     for (const m of e?.modifiers || []) {
@@ -231,6 +247,17 @@ export function getMultiStageTargetInfo(
   const abilityId = ability.id;
   const casterUnit = unitsOnBoard[casterHex];
   const bonusRange = casterUnit?.bonusRangeThisTurn || 0;
+  // The ability's own numbers, from its data (its range, damage, hits, armour), for the flows below
+  const abilityMaxRange = Array.isArray(ability.range) && ability.range.length > 0 ? Math.max(...ability.range) : 1;
+  const dmgEff: any = ((ability.effects || []) as any[]).find(
+    (e: any) => e.type === 'damage' && e.target !== 'self' && e.target !== 'attacker' && typeof e.amount === 'number'
+  );
+  const abilityDamage: number = dmgEff ? dmgEff.amount : 0;
+  const abilityHits: number = typeof dmgEff?.hits === 'number' ? dmgEff.hits : 1;
+  const armourEffOf = (target: string): any =>
+    ((ability.effects || []) as any[]).find((e: any) => e.type === 'armour' && (e.target || 'self') === target);
+  const moveEff: any = ((ability.effects || []) as any[]).find((e: any) => e.type === 'move');
+  const moveMax: number = typeof moveEff?.distance === 'number' ? moveEff.distance : moveEff?.distance?.max ?? 1;
 
   // A chain (e.g. Arc Lightning: { type: 'damage', amount, chain: { to: 'enemyUnitSurroundingLastTarget', decreaseBy,
   // eachUnitOncePerTurn } }): first an enemy in range, then one surrounding the last target
@@ -444,7 +471,7 @@ export function getMultiStageTargetInfo(
   // Stage 2: Choose unit surrounding that chosen tile
   if (abilityId === 'realm_warp') {
     if (stage === 1) {
-      const inRangeTiles = getHexesInRange(casterHex, 1, 3 + bonusRange);
+      const inRangeTiles = getHexesInRange(casterHex, 1, abilityMaxRange + bonusRange);
       // Valid if empty and has at least 1 surrounding unit
       const validHexes = inRangeTiles.filter((hex) => {
         if (unitsOnBoard[hex]) return false;
@@ -453,7 +480,7 @@ export function getMultiStageTargetInfo(
       });
       return {
         validHexes,
-        promptMessage: `Realm Warp (Stage 1/2): Click a highlighted empty tile (range 1-${3 + bonusRange}) to warp a unit onto.`,
+        promptMessage: `Realm Warp (Stage 1/2): Click a highlighted empty tile (range 1-${abilityMaxRange + bonusRange}) to warp a unit onto.`,
         isTileTarget: true
       };
     } else {
@@ -462,7 +489,7 @@ export function getMultiStageTargetInfo(
       const validHexes = surrounding.filter((hex) => unitsOnBoard[hex] !== undefined);
       return {
         validHexes,
-        promptMessage: `Realm Warp (Stage 2/2): Click a unit surrounding ${targetTile} to place onto ${targetTile} (friendly units gain up to +3 armour).`
+        promptMessage: `Realm Warp (Stage 2/2): Click a unit surrounding ${targetTile} to place onto ${targetTile} (friendly units gain up to +${armourEffOf('placedUnit')?.upTo ?? 0} armour).`
       };
     }
   }
@@ -485,7 +512,7 @@ export function getMultiStageTargetInfo(
   // Stage 1: Friendly unit in range 1-3
   // Stage 2: Enemy unit in range 1-3
   if (abilityId === 'nexus_displacement') {
-    const inRange = getHexesInRange(casterHex, 1, 3 + bonusRange);
+    const inRange = getHexesInRange(casterHex, 1, abilityMaxRange + bonusRange);
     if (stage === 1) {
       const validHexes = inRange.filter((hex) => {
         const u = unitsOnBoard[hex];
@@ -493,7 +520,7 @@ export function getMultiStageTargetInfo(
       });
       return {
         validHexes,
-        promptMessage: `Nexus Displacement (Stage 1/2): Click a friendly unit in range 1-${3 + bonusRange} to swap.`
+        promptMessage: `Nexus Displacement (Stage 1/2): Click a friendly unit in range 1-${abilityMaxRange + bonusRange} to swap.`
       };
     } else {
       const validHexes = inRange.filter((hex) => {
@@ -503,7 +530,7 @@ export function getMultiStageTargetInfo(
       const firstUnitName = unitsOnBoard[targets[0]]?.card.name || 'friendly unit';
       return {
         validHexes,
-        promptMessage: `Nexus Displacement (Stage 2/2): Click an enemy unit in range 1-${3 + bonusRange} to swap with ${firstUnitName}.`
+        promptMessage: `Nexus Displacement (Stage 2/2): Click an enemy unit in range 1-${abilityMaxRange + bonusRange} to swap with ${firstUnitName}.`
       };
     }
   }
@@ -513,11 +540,11 @@ export function getMultiStageTargetInfo(
   // Stage 2: Tiebreak selection if multiple closest empty tiles exist
   if (abilityId === 'grappling_hook') {
     if (stage === 1) {
-      const inRange = getHexesInRange(casterHex, 1, 3 + bonusRange);
+      const inRange = getHexesInRange(casterHex, 1, abilityMaxRange + bonusRange);
       const validHexes = inRange.filter((hex) => unitsOnBoard[hex] && hex !== casterHex);
       return {
         validHexes,
-        promptMessage: `Grappling Hook (Stage 1): Click a target unit in range 1-${3 + bonusRange}.`
+        promptMessage: `Grappling Hook (Stage 1): Click a target unit in range 1-${abilityMaxRange + bonusRange}.`
       };
     } else {
       const tiebreakHexes = metadata?.tiebreakEmptyHexes || [];
@@ -541,19 +568,19 @@ export function getMultiStageTargetInfo(
       const surrUnits = getSurroundingHexes(casterHex).filter(
         (h) => unitsOnBoard[h] && h !== casterHex
       );
-      const emptyInRange = getHexesInRange(casterHex, 1, 3 + bonusRange).filter((h) => !unitsOnBoard[h]);
+      const emptyInRange = getHexesInRange(casterHex, 1, abilityMaxRange + bonusRange).filter((h) => !unitsOnBoard[h]);
       return {
         validHexes: [...surrUnits, ...emptyInRange],
-        promptMessage: `Spirit Away (Stage 1): Click an adjacent unit to carry, or click an empty tile in range 1-${3 + bonusRange} to fly alone.`
+        promptMessage: `Spirit Away (Stage 1): Click an adjacent unit to carry, or click an empty tile in range 1-${abilityMaxRange + bonusRange} to fly alone.`
       };
     } else if (stage === 2) {
-      const emptyInRange = getHexesInRange(casterHex, 1, 3 + bonusRange).filter((h) => !unitsOnBoard[h]);
+      const emptyInRange = getHexesInRange(casterHex, 1, abilityMaxRange + bonusRange).filter((h) => !unitsOnBoard[h]);
       const carriedName = metadata?.carriedUnitHex
         ? unitsOnBoard[metadata.carriedUnitHex]?.card.name || 'carried unit'
         : 'carried unit';
       return {
         validHexes: emptyInRange,
-        promptMessage: `Spirit Away (Stage 2): Click an empty tile in range 1-${3 + bonusRange} to fly Tempest Roc with ${carriedName}.`,
+        promptMessage: `Spirit Away (Stage 2): Click an empty tile in range 1-${abilityMaxRange + bonusRange} to fly Tempest Roc with ${carriedName}.`,
         isTileTarget: true
       };
     } else {
@@ -574,14 +601,14 @@ export function getMultiStageTargetInfo(
   // Deals 6 damage (Stage 1). If tile behind target is empty, move there (Stage 2)
   if (abilityId === 'umbral_flail') {
     if (stage === 1) {
-      const inRange = getHexesInRange(casterHex, 1, 2 + bonusRange);
+      const inRange = getHexesInRange(casterHex, 1, abilityMaxRange + bonusRange);
       const enemyHexes = inRange.filter((hex) => {
         const u = unitsOnBoard[hex];
         return u && (u.owner !== activePlayer || (hasFeedingFrenzy(unitsOnBoard[casterHex]) && hex !== casterHex));
       });
       return {
         validHexes: enemyHexes,
-        promptMessage: `Umbral Flail (Stage 1/2): Click a target in range 1-${2 + bonusRange} (deals 6 damage).`
+        promptMessage: `Umbral Flail (Stage 1/2): Click a target in range 1-${abilityMaxRange + bonusRange} (deals ${abilityDamage} damage).`
       };
     } else {
       const behindHex = metadata?.flailTileBehind;
@@ -602,11 +629,11 @@ export function getMultiStageTargetInfo(
   // Stage 2: Tiebreak selection if multiple closest empty tiles surrounding Dreadnought Privateer
   if (abilityId === 'boarding_hook') {
     if (stage === 1) {
-      const inRange = getHexesInRange(casterHex, 1, 3 + bonusRange);
+      const inRange = getHexesInRange(casterHex, 1, abilityMaxRange + bonusRange);
       const validHexes = inRange.filter((hex) => unitsOnBoard[hex] && hex !== casterHex);
       return {
         validHexes,
-        promptMessage: `Boarding Hook (Stage 1): Click a target unit in range 1-${3 + bonusRange}.`
+        promptMessage: `Boarding Hook (Stage 1): Click a target unit in range 1-${abilityMaxRange + bonusRange}.`
       };
     } else {
       const tiebreakHexes = metadata?.tiebreakEmptyHexes || [];
@@ -635,7 +662,7 @@ export function getMultiStageTargetInfo(
   // 11. Coin Plink (The Cyclotron)
   // Deals 1 damage, hits 3 times. If kill, Stage 2 triggers for another enemy in range 1-4 for 0 AP
   if (abilityId === 'coin_plink') {
-    const inRange = getHexesInRange(casterHex, 1, 4 + bonusRange);
+    const inRange = getHexesInRange(casterHex, 1, abilityMaxRange + bonusRange);
     const enemyHexes = inRange.filter((hex) => {
       const u = unitsOnBoard[hex];
       return u && (u.owner !== activePlayer || (hasFeedingFrenzy(unitsOnBoard[casterHex]) && hex !== casterHex));
@@ -644,12 +671,12 @@ export function getMultiStageTargetInfo(
     if (stage === 1) {
         return {
           validHexes: enemyHexes,
-          promptMessage: `Coin Plink (Stage 1): Click a target in range 1-${4 + bonusRange} (deals 1 damage, 3 hits). If it kills, chains to another target!`
+          promptMessage: `Coin Plink (Stage 1): Click a target in range 1-${abilityMaxRange + bonusRange} (deals ${abilityDamage} damage, ${abilityHits} hits). If it kills, chains to another target!`
         };
       } else {
         return {
           validHexes: enemyHexes,
-          promptMessage: `Coin Plink (Kill Chain ${metadata?.killCount || 1}!): Click another target in range 1-${4 + bonusRange} to repeat Coin Plink for free (0 AP), or finish.`,
+          promptMessage: `Coin Plink (Kill Chain ${metadata?.killCount || 1}!): Click another target in range 1-${abilityMaxRange + bonusRange} to repeat Coin Plink for free (0 AP), or finish.`,
           isOptional: true,
           finishButtonLabel: 'Finish Coin Plink'
         };
@@ -669,7 +696,7 @@ export function getMultiStageTargetInfo(
         });
         return {
           validHexes: surrEnemies,
-          promptMessage: `Jab and Backstep (Stage 1/2): Click a target in range 1-${maxR} to deal 5 damage.`
+          promptMessage: `Jab and Backstep (Stage 1/2): Click a target in range 1-${maxR} to deal ${abilityDamage} damage.`
         };
       } else {
         const backstepHexes =
@@ -699,7 +726,7 @@ export function getMultiStageTargetInfo(
         });
         return {
           validHexes: surrEnemies,
-          promptMessage: `Deft Swipe (Stage 1/2): Click a target in range 1-${maxR} to deal 6 damage (if from behind, grants a free 1-tile move afterward).`
+          promptMessage: `Deft Swipe (Stage 1/2): Click a target in range 1-${maxR} to deal ${abilityDamage} damage (if from behind, grants a free 1-tile move afterward).`
         };
       } else {
         const backstepHexes =
@@ -739,7 +766,7 @@ export function getMultiStageTargetInfo(
           validHexes,
           promptMessage:
             targets.length === 0
-              ? 'Lead the Charge (Stage 1/2): Click a tile to charge up to 2 tiles (ignoring units), or click \'Attack from Here\'.'
+              ? `Lead the Charge (Stage 1/2): Click a tile to charge up to ${moveMax} tiles (ignoring units), or click 'Attack from Here'.`
               : `Lead the Charge (Stage 1/2): Path: ${targets.join(' → ')}. Click the next empty tile, click a tile of the path to take it back there, or confirm.`,
           isOptional: true,
           finishButtonLabel: targets.length === 0 ? 'Attack from Here' : `Confirm Charge (${targets.length}) & Attack`,
@@ -754,7 +781,7 @@ export function getMultiStageTargetInfo(
         });
         return {
           validHexes: surrEnemies,
-          promptMessage: `Lead the Charge (Stage 2/2): Click an adjacent target in range 1-${1 + bonusRange} to deal 5 damage.`
+          promptMessage: `Lead the Charge (Stage 2/2): Click an adjacent target in range 1-${1 + bonusRange} to deal ${abilityDamage} damage.`
         };
       }
     }
@@ -764,14 +791,14 @@ export function getMultiStageTargetInfo(
     // Stage 2: Pick an empty tile surrounding the target to place the unit using it
     if (abilityId === 'swooping_pounce') {
       if (stage === 1) {
-        const inRange = getHexesInRange(casterHex, 1, 2 + bonusRange);
+        const inRange = getHexesInRange(casterHex, 1, abilityMaxRange + bonusRange);
         const validUnits = inRange.filter((hex) => {
           const u = unitsOnBoard[hex];
           return u && hex !== casterHex;
         });
         return {
           validHexes: validUnits,
-          promptMessage: `Swooping Pounce (Stage 1/2): Click a target unit in range 1-${2 + bonusRange}.`
+          promptMessage: `Swooping Pounce (Stage 1/2): Click a target unit in range 1-${abilityMaxRange + bonusRange}.`
         };
       } else {
         const targetHex = targets[0];
@@ -800,7 +827,7 @@ export function getMultiStageTargetInfo(
         });
         return {
           validHexes: validUnits,
-          promptMessage: `Vaulting Strike (Stage 1/2): Click an enemy in range 1-${maxR} (deals 6 damage).`
+          promptMessage: `Vaulting Strike (Stage 1/2): Click an enemy in range 1-${maxR} (deals ${abilityDamage} damage).`
         };
       } else {
         const tiles = metadata?.vaultTiles || [];
@@ -832,7 +859,7 @@ export function getMultiStageTargetInfo(
           promptMessage:
             validTiles.length === 0
               ? 'Sidestepping Crush: No legal empty tiles in a direction not yet moved this turn.'
-              : 'Sidestepping Crush (Stage 1/2): Click an empty adjacent tile in an unused direction to move 1 tile and gain 2 armour.',
+              : `Sidestepping Crush (Stage 1/2): Click an empty adjacent tile in an unused direction to move 1 tile and gain ${armourEffOf('self')?.amount ?? 0} armour.`,
           isTileTarget: true
         };
       } else {
@@ -843,7 +870,7 @@ export function getMultiStageTargetInfo(
         });
         return {
           validHexes: surrEnemies,
-          promptMessage: 'Sidestepping Crush (Stage 2/2): Click a surrounding enemy unit to deal 8 damage.'
+          promptMessage: `Sidestepping Crush (Stage 2/2): Click a surrounding enemy unit to deal ${abilityDamage} damage.`
         };
       }
     }

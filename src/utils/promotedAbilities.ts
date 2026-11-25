@@ -178,6 +178,14 @@ export function buildProviderExecutable(
     range,
     rangeText,
     effects: [...(promoted.effects || []), ...riders],
+    // The provider's own rules for the borrowed ability, from its useAbility: "treat it as though it were made from
+    // behind" (e.g. Blink Strike), "may target an empty tile" (e.g. Echoing Incantation), "you may choose up to 2
+    // additional targets ... 1 damage less per hit for each target beyond the first" (e.g. Anchor Smash)
+    ...(useEff?.treatAsFromBehind ? { treatAsFromBehind: true } : {}),
+    ...(useEff?.allowEmptyTileTarget ? { allowEmptyTileTarget: true } : {}),
+    ...(useEff?.addTargets && typeof useEff.addTargets.max === 'number'
+      ? { addTargets: { max: useEff.addTargets.max, perExtraTarget: useEff.addDamage?.amount?.perExtraTarget ?? 0 } }
+      : {}),
     ...(opts.extra || {})
   };
 }
@@ -256,7 +264,7 @@ export function getQualifyingPromotedAbilities(
         return;
       }
 
-      // Filter by kind (attack vs non-attack, or armour ability e.g. Guard Break)
+      // Filter by kind (attack vs non-attack, or armour ability e.g. Guards Up)
       if (filterKind === 'attack') {
         if (!isAttack) return;
       } else if (filterKind === 'armourAbility') {

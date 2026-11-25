@@ -19,13 +19,6 @@ export interface PathSpec {
 export function getPathSpec(ability?: CardAbility | null): PathSpec | null {
   const a = ability as any;
   if (!a) return null;
-  if (a.id === 'bananarang') {
-    return {
-      minLength: 3,
-      maxLength: 3,
-      straight: false
-    };
-  }
   // "Move up to N tiles in a straight line for free, then ..." (e.g. Spitfire Landing): the move is drawn as a path
   const lineMove = getSelfStraightLineMove(ability);
   if (lineMove) return { minLength: lineMove.minTiles, maxLength: lineMove.maxTiles, straight: true };

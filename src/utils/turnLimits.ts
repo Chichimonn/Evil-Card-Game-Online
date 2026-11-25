@@ -6,6 +6,7 @@ import { getBarredMinCost, getBarredExactCosts, CANNOT_USE_RANGED } from './turn
 import { getSurroundingHexes } from './hexGridMath';
 import { getUnitPassives } from './unitPassives';
 import { getCurrentTurnNumber, getCurrentUnitsOnBoard } from './boardContext';
+import { dealsDamageAsPartOfOwnMovement } from './movementMelee';
 
 /**
  * Checks if an ability or passive is flagged 1/Turn.
@@ -186,9 +187,8 @@ export function isAbilityLockedForUnit(
   const baseId = typeof ability === 'string' ? undefined : ability.baseAbilityId;
 
   const checkIds = [abilityId, parentId, baseId].filter(Boolean) as string[];
-  if (abilityId?.startsWith('overload_gemstone__')) {
-    checkIds.push('overload_gemstone');
-  }
+  // (a borrowed copy, 'provider__attack', is locked with its provider, e.g. Overload Gemstone's promoted attack)
+  if (abilityId?.includes('__')) checkIds.push(abilityId.split('__')[0]);
 
   for (const id of checkIds) {
     if (isLockActive(unit.lockedAbilities[id])) return true;
@@ -201,6 +201,26 @@ export function isAbilityLockedForUnit(
  * (turns count both players'), the opponent's turn is N + 1 and your next turn N + 2, the only turn it is locked. Read
  * from the turn number, so a copy of the unit written back late (an attack landing after its turn ended) can't stretch it.
  */
+/**
+ * "During your next turn, this unit can't use this ability" (e.g. Overload Gemstone): the ability this one locks on its
+ * user, from its { type: 'lockAbility', target: 'self', ability } effect, with its name. A borrowed copy
+ * ('provider__attack', or parentAbilityId) is its provider's. Looked up among the unit's own and granted abilities.
+ */
+export function getSelfLockOf(
+  unit: BattlefieldUnit | null | undefined,
+  usedKey: string | null | undefined
+): { abilityId: string; name: string } | null {
+  if (!unit || !usedKey) return null;
+  const baseKey = usedKey.split('__')[0];
+  const abilities = [...(unit.card.abilities || []), ...(unit.grantedAbilities || [])];
+  const ability = abilities.find((a) => a.id === baseKey || a.name === baseKey);
+  const lock: any = ((ability?.effects || []) as any[]).find((e) => e.type === 'lockAbility' && e.target === 'self');
+  if (!ability || !lock) return null;
+  const lockedId = typeof lock.ability === 'string' ? lock.ability : ability.id;
+  const locked = abilities.find((a) => a.id === lockedId);
+  return { abilityId: lockedId, name: locked?.name || ability.name };
+}
+
 export function isLockActive(
   lock: { turnsRemaining: number; usedOnTurn?: number } | null | undefined,
   turnNumber: number = getCurrentTurnNumber()
@@ -350,6 +370,8 @@ export function isRangedAttackAbility(ability: CardAbility | null | undefined): 
   if (!ability || !ability.effects?.some((e: any) => e.type === 'damage' && e.target !== 'self')) return false;
   if (ability.tags?.includes('ranged')) return true;
   if (ability.tags?.includes('melee')) return false;
+  // (damage as part of its user's own movement or placement is melee)
+  if (dealsDamageAsPartOfOwnMovement(ability)) return false;
   return ((ability.range?.[1] ?? ability.range?.[0] ?? 1) > 1) || ability.target === 'direction' || Boolean((ability as any).straightLine);
 }
 

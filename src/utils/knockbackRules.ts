@@ -41,7 +41,6 @@ export function isImmuneToKnockback(unit: BattlefieldUnit | null | undefined): b
   if (unit.knockbackImmuneThisTurn) return true;
   if (cannotBeMovedByOthers(unit)) return true;
   return getUnitPassives(unit).some((p) => {
-    if (p.id === 'knockback_immunity') return true;
     const effects = p.effects || [];
     // Text fallback only for passives with no effects spec
     if (effects.length === 0) return (p.text || '').toLowerCase().includes('immune to knockback');

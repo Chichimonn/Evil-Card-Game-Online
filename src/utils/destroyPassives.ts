@@ -10,7 +10,7 @@ interface DestroyBlast {
 }
 
 const destroysEnemyOrWall = (killer: BattlefieldUnit, killed: BattlefieldUnit) =>
-  killed.owner !== killer.owner || Boolean(killed.card.isWall) || killed.card.id === 'obstructing_wall';
+  killed.owner !== killer.owner || Boolean(killed.card.isWall);
 
 /**
  * The killer's blast around a unit it destroyed, read from card data ({ type: 'damage', area:

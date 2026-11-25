@@ -65,7 +65,8 @@ import {
   getTileBehindFor,
   isAttackFromBehind,
   getHexMovementDirection,
-  CUBE_DIRECTIONS
+  CUBE_DIRECTIONS,
+  getStraightLeapDistance
 } from './utils/hexGridMath';
 import {
   getValidPromoteTargets,
@@ -120,7 +121,8 @@ import {
   getTargetTileScorch,
   getRepeatDamageScorch,
   getSecondMeleeAttackKnockback,
-  getMeleeAttackHealPerHit,
+  getMeleeAttackHeal,
+  meleeAttackHealFor,
   getFirstDamageHeal,
   getMeleeHitTrap
 } from './utils/attackRiders';
@@ -160,7 +162,8 @@ import {
   getClosestEmptySurroundingHexes,
   getMultiTargetSpec,
   getPerHitAdjustment,
-  isAnchorSmash
+  isAnchorSmash,
+  getAddedTargets
 } from './utils/multiStageAbilities';
 import {
   checkMomentumCharge,
@@ -307,10 +310,13 @@ import {
   getAttackFreeMovePassive,
   countAttacksOnUnitThisTurn,
   getAfterAttackMove,
-  logMoveDirections
+  logMoveDirections,
+  getMovedThroughUnitArmour,
+  getDrawReplacement
 } from './utils/triggeredPassives';
-import { evalAttackerCondition, markDamageCapUsed } from './utils/attackLogic';
-import { getAuraAbilityBlock, getAbilitiesUsedThisTurn } from './utils/turnLimits';
+import { evalAttackerCondition, markDamageCapUsed, attackBypassesAllArmour, evalDamageFormula } from './utils/attackLogic';
+import { getAttackerLootPassives, getArmourDamagedLootPassives, getProviderLoot } from './utils/attackLoots';
+import { getAuraAbilityBlock, getAbilitiesUsedThisTurn, getSelfLockOf } from './utils/turnLimits';
 import {
   applyUseLimitStatuses,
   addUseLimitStatus,
@@ -332,7 +338,8 @@ import {
   isFlowingStanceActive,
   hasCephalopodReach,
   getEffectiveAbilityRange,
-  isMeleeAttackAbility
+  isMeleeAttackAbility,
+  isStatedMeleeAbility
 } from './utils/flowingStance';
 
 // The newest set: the set of the last card in the card list (it names the current update, e.g. "Fury of the Skies")
@@ -1962,28 +1969,28 @@ export default function App() {
         // "During your next turn, this unit can't use this ability" (Overload Gemstone): locked through its controller's
         // next turn, whichever unit takes it, then lifted (see expireLockedAbilities). Set here for every way it can be
         // used (each use is recorded under its key, whatever its promoted attack resolved as).
-        if (
-          unitThatTookTurn &&
-          u.instanceId === unitThatTookTurn.instanceId &&
-          u.owner === activePlayer &&
-          Object.entries(u.usedTurnCounts || {}).some(
-            ([key, n]) => n > 0 && (key === 'overload_gemstone' || key.startsWith('overload_gemstone__') || key.startsWith('Overload Gemstone'))
-          )
-        ) {
-          unitToUpdate = {
-            ...unitToUpdate,
-            lockedAbilities: {
-              ...(unitToUpdate.lockedAbilities || {}),
-              overload_gemstone: {
-                abilityId: 'overload_gemstone',
-                sourceAbilityName: 'Overload Gemstone',
-                lockedForPlayer: u.owner,
-                turnsRemaining: 2,
-                // the turn that is ending: locked on this player's next turn only (see isLockActive)
-                usedOnTurn: turnCount
+        if (unitThatTookTurn && u.instanceId === unitThatTookTurn.instanceId && u.owner === activePlayer) {
+          // (each ability used this turn that locks itself: see getSelfLockOf)
+          const locks = Object.entries(u.usedTurnCounts || {})
+            .filter(([, n]) => n > 0)
+            .map(([key]) => getSelfLockOf(u, key))
+            .filter(Boolean) as { abilityId: string; name: string }[];
+          locks.forEach((lock) => {
+            unitToUpdate = {
+              ...unitToUpdate,
+              lockedAbilities: {
+                ...(unitToUpdate.lockedAbilities || {}),
+                [lock.abilityId]: {
+                  abilityId: lock.abilityId,
+                  sourceAbilityName: lock.name,
+                  lockedForPlayer: u.owner,
+                  turnsRemaining: 2,
+                  // the turn that is ending: locked on this player's next turn only (see isLockActive)
+                  usedOnTurn: turnCount
+                }
               }
-            }
-          };
+            };
+          });
         }
         if (unitThatTookTurn && u.instanceId === unitThatTookTurn.instanceId) {
           getUnitPassives(u).forEach((p) => {
@@ -2826,9 +2833,11 @@ export default function App() {
   // Tiles an ability reaches from a hex (the range indicator), outside of any multi-stage step
   const getAbilityRangeHexesFrom = (ability: CardAbility, sourceHex: string, attackerUnit: BattlefieldUnit | null): string[] => {
     // Reckless Leap: show a line of 2 tiles in each straight line direction
-    if (ability.id === 'reckless_leap') {
+    if (getStraightLeapDistance(ability) !== null) {
       const lines = getAllStraightLinesFromHex(sourceHex);
-      return lines.map((line) => line.slice(0, 2)).flat();
+      const leap: any = ((ability.effects || []) as any[]).find((e: any) => e.type === 'move');
+      const leapTiles: number = typeof leap?.distance === 'number' ? leap.distance : leap?.distance?.max ?? 1;
+      return lines.map((line) => line.slice(0, leapTiles)).flat();
     }
 
     // Straight-line abilities show range indicators in the 6 straight lines of hexes in each direction
@@ -2851,8 +2860,6 @@ export default function App() {
     const bonusRange = getUnitBonusRange(attackerUnit);
 
     if (
-      ability.id === 'build_structure' ||
-      ability.id === 'pitch_camp' ||
       (!ability.effects?.some((e) => e.type === 'damage') &&
         // (not one that targets a unit in range, then places it around this unit, e.g. Drag and Drop)
         ability.target !== 'friendlyUnit' &&
@@ -2872,7 +2879,7 @@ export default function App() {
     // 'meleeAttacks', amount, if: 'self.movedThisTurn', directions: 'lastMovedAndEitherSide' }. Read as the straight
     // lines in those 3 directions.
     const dirs = attackerUnit?.movedDirectionsThisTurn || [];
-    if (attackerUnit?.movedThisTurn && dirs.length > 0 && isMeleeAttackAbility(ability)) {
+    if (attackerUnit?.movedThisTurn && dirs.length > 0 && isStatedMeleeAbility(ability)) {
       const lastDir = dirs[dirs.length - 1];
       getUnitPassives(attackerUnit).forEach((p) =>
         (p.effects || []).forEach((e: any) => {
@@ -2988,20 +2995,19 @@ export default function App() {
     const canTargetFriendly = hasFeedingFrenzy(attackerUnit);
 
     const allowEmpty =
-      Boolean((activeAbility as any).allowEmptyTileTarget) ||
-      activeAbility.parentAbilityId === 'echoing_incantation' ||
-      activeAbility.id?.startsWith('echoing_incantation__');
+      Boolean((activeAbility as any).allowEmptyTileTarget);
 
     const isReactEffect =
       activeAbility.tags?.includes('react') ||
       Boolean((activeAbility as any).isReactEffect);
 
     // Reckless Leap: empty tiles within a line of 2 tiles in each straight line direction
-    if (activeAbility.id === 'reckless_leap') {
+    if (getStraightLeapDistance(activeAbility) !== null) {
       const lines = getAllStraightLinesFromHex(sourceHex);
       const legalHexes: string[] = [];
       lines.forEach((line) => {
-        const twoTiles = line.slice(0, 2);
+        const leapEff: any = ((activeAbility.effects || []) as any[]).find((e: any) => e.type === 'move');
+        const twoTiles = line.slice(0, typeof leapEff?.distance === 'number' ? leapEff.distance : leapEff?.distance?.max ?? 1);
         twoTiles.forEach((hexId) => {
           if (!unitsOnBoard[hexId]) {
             legalHexes.push(hexId);
@@ -3067,7 +3073,7 @@ export default function App() {
     if (activeAbility.target === 'obstructingWall') {
       return abilityRangeHexes.filter((hexId) => {
         const u = unitsOnBoard[hexId];
-        return u && (u.card.id === 'obstructing_wall' || u.card.name === 'Obstructing Wall');
+        return u && Boolean(u.card.isWall);
       });
     }
 
@@ -4065,6 +4071,53 @@ export default function App() {
     });
   };
 
+  // What an ability does, from its effects, for the abilities resolved by their own steps below:
+  //   armourGift: "Armour up to 4. A friendly unit surrounding this one may also armour up to 3" (e.g. Rally Stance)
+  //   preventReact: "the next time ... prevent up to 7 damage ... deals up to that much damage to the attacker" (e.g.
+  //     Ready Stance, Flawless Parry): a setReact with preventDamage
+  //   lookTopTake: "Look at the top 2 cards of your deck. Put one into your hand and the other on the bottom" (e.g. Deep
+  //     Research): a lookTop with a set count and toHand
+  //   selfHealOnly: "This unit heals 2 damage ..." (e.g. Roast a Marshmallow): only heals on itself
+  //   targetMark: "This turn, this unit's attacks against that unit deal an additional 5 damage" (e.g. Death Mark): an
+  //     applyStatus carrying a damageBonus against that target
+  const abilityKind = (ab: CardAbility | null | undefined) => {
+    const effects = ((ab?.effects || []) as any[]);
+    return {
+      armourGift: effects.some((e) => e.type === 'armour' && e.target === 'friendlySurroundingSelf' && e.optional),
+      preventReact: effects.some((e) => e.type === 'setReact' && (e.effects || []).some((x: any) => x.type === 'preventDamage')),
+      lookTopTake: effects.some((e) => e.type === 'lookTop' && typeof e.count === 'number' && typeof e.toHand === 'number'),
+      selfHealOnly: effects.length > 0 && effects.every((e) => e.type === 'heal' && e.target === 'self'),
+      targetMark: effects.some(
+        (e) => e.type === 'applyStatus' && (e.effects || []).some((x: any) => x.type === 'damageBonus' && x.appliesTo === 'ownAttacksAgainstTarget')
+      )
+    };
+  };
+  // An ability's own damage, from its data: its first damage effect's amount (e.g. Sidestepping Crush's 8, Grappling
+  // Hook's 5), and the damage it deals to the enemy units it moves through (e.g. Lead the Charge's damageToEnemiesMovedThrough)
+  const getAbilityDamage = (ab: CardAbility): number => {
+    const eff: any = ((ab.effects || []) as any[]).find(
+      (e: any) => e.type === 'damage' && e.target !== 'self' && e.target !== 'attacker' && typeof e.amount === 'number'
+    );
+    return eff ? eff.amount : 0;
+  };
+  const getMovedThroughDamage = (ab: CardAbility): number => {
+    const mv: any = ((ab.effects || []) as any[]).find((e: any) => e.type === 'move');
+    const amount = mv?.damageToEnemiesMovedThrough ?? mv?.damageToEnemiesMovedOver ?? mv?.damageToUnitsMovedOver;
+    return typeof amount === 'number' ? amount : 0;
+  };
+  // An armour effect's amount or upTo (target: 'self', 'placedUnit', ...)
+  const getAbilityArmour = (ab: CardAbility, target: string): { amount: number; upTo: number } => {
+    const eff: any = ((ab.effects || []) as any[]).find((e: any) => e.type === 'armour' && (e.target || 'self') === target);
+    return { amount: typeof eff?.amount === 'number' ? eff.amount : 0, upTo: typeof eff?.upTo === 'number' ? eff.upTo : 0 };
+  };
+
+  // "Target another enemy unit within Range 1-4" (e.g. Coin Plink): its repeatAbility's newTarget 'anotherEnemyWithinRange:1-4'
+  const getRepeatTargetRange = (ab: CardAbility): [number, number] => {
+    const rep: any = ((ab.effects || []) as any[]).find((e: any) => e.type === 'repeatAbility');
+    const m = String(rep?.newTarget || '').match(/WithinRange:(\d+)-(\d+)/);
+    return m ? [parseInt(m[1], 10), parseInt(m[2], 10)] : [1, 1];
+  };
+
   // Damage application helper for multi-stage abilities.
   // targeted: false for units merely passed over (charges, flights), which don't trigger "when targeted" rules.
   const applyAttackDamageToHex = (
@@ -4208,7 +4261,7 @@ export default function App() {
     // Damage back to the attacker: Ready Stance, and "when targeted" retaliation (e.g. Reflective Armour)
     const retaliation =
       targeted && !isFriendly
-        ? getTargetedRetaliation(tgt, !isMeleeHit, damageDealt > 0, {
+        ? getTargetedRetaliation(tgt, !isMeleeAttackAbility(ab), damageDealt > 0, {
             distance: getHexDistance(activeTurnUnitHex, tgtHex),
             attacker: activeTurnUnit,
             rawFirstHit: hits[0]?.damage,
@@ -4285,33 +4338,23 @@ export default function App() {
     if (armourDealt > 0 && isOtherUnit && !isFriendly) lootOnArmourDamaged([{ unit: tgt, armourLost: armourDealt }]);
 
     if (damageDealt > 0 && activeTurnUnit) {
-      const aPassives = getUnitPassives(activeTurnUnit);
       let msLootAmount = 0;
       let msLootTitle = '';
-      const sf = aPassives.find((p) => p.id === 'short_fuse' || p.name === 'Short Fuse');
-      if (sf && canTriggerPassiveThisTurn(activeTurnUnit, sf)) {
-        recordTurnUsage(activeTurnUnit, sf.id || sf.name);
-        msLootAmount = Math.max(msLootAmount, 2);
-        msLootTitle = 'Short Fuse';
-      }
-      const sp = aPassives.find((p) => p.id === 'spoils' || p.name === 'Spoils');
-      if (sp && canTriggerPassiveThisTurn(activeTurnUnit, sp)) {
-        recordTurnUsage(activeTurnUnit, sp.id || sp.name);
-        msLootAmount = Math.max(msLootAmount, 2);
-        msLootTitle = 'Spoils';
-      }
-      const tf = aPassives.find((p) => p.id === 'twin_fury' || p.name === 'Twin Fury');
-      if (tf && canTriggerPassiveThisTurn(activeTurnUnit, tf)) {
-        recordTurnUsage(activeTurnUnit, tf.id || tf.name);
-        msLootAmount = Math.max(msLootAmount, 1);
-        msLootTitle = 'Twin Fury';
-      }
-      const ic = aPassives.find((p) => p.id === 'iron_clout' || p.name === 'Iron Clout');
-      if (ic && armourDealt > 0 && canTriggerPassiveThisTurn(activeTurnUnit, ic)) {
-        recordTurnUsage(activeTurnUnit, ic.id || ic.name);
-        msLootAmount = Math.max(msLootAmount, 1);
-        msLootTitle = 'Iron Clout';
-      }
+      // The attacker's loot passives (e.g. Short Fuse, Spoils, Twin Fury, Iron Clout, Magnetized Plunder): see
+      // getAttackerLootPassives
+      getAttackerLootPassives(activeTurnUnit, {
+        dealtDamage: true,
+        damagedEnemy: !isFriendly,
+        dealtToArmour: armourDealt > 0,
+        ranged: !isMeleeHit
+      }).forEach(({ passive, amount }) => {
+        if (!canTriggerPassiveThisTurn(activeTurnUnit, passive)) return;
+        recordTurnUsage(activeTurnUnit, passive.id || passive.name);
+        if (amount > msLootAmount) {
+          msLootAmount = amount;
+          msLootTitle = passive.name;
+        }
+      });
       if (msLootAmount > 0) {
         triggerLoot(activePlayer, msLootAmount, msLootTitle, activeTurnUnit.card.name, {
           unitHex: activeTurnUnitHex
@@ -4332,11 +4375,15 @@ export default function App() {
     // finishes, so every hit of this attack counts. Heals come before any damage dealt back.
     // Also a melee attack's per-hit heal (e.g. Draining Touch) and the first damage dealt each turn (e.g. Burn Fuel).
     const firstHeal = isOtherUnit ? getFirstAttackHealPerHit(activeTurnUnit) : null;
-    const drainHeal = isOtherUnit && !isHealingHit && isMeleeHit ? getMeleeAttackHealPerHit(activeTurnUnit) : null;
+    const drainHeal = isOtherUnit && !isHealingHit && isMeleeHit ? getMeleeAttackHeal(activeTurnUnit) : null;
+    // (the flat heal once per use of the ability, however many of its hits land on separate units)
+    const drainUseKey = `${turnCount}:${activeTurnUnit.instanceId}:${ab.id}`;
+    const drainFlatNow = Boolean(drainHeal && drainHeal.flat > 0 && drainUseRef.current !== drainUseKey);
+    if (drainFlatNow) drainUseRef.current = drainUseKey;
     const fuelHeal = isOtherUnit && !isHealingHit && damageDealt > 0 ? getFirstDamageHeal(activeTurnUnit, turnCount) : null;
     const healAmount =
       (firstHeal ? firstHeal.perHit * exec.hitResults.length : 0) +
-      (drainHeal ? drainHeal.perHit * exec.hitResults.length : 0) +
+      meleeAttackHealFor(drainHeal, exec.hitResults.length, drainFlatNow) +
       (fuelHeal ? fuelHeal.amount : 0);
     if (healAmount > 0 || fuelHeal) {
       const attackerId = activeTurnUnit.instanceId;
@@ -4858,7 +4905,7 @@ export default function App() {
       if (!isFriendlyTarget) {
         // (its own armour goes first, before any a surrounding unit shares with it)
         const ownArmourLostHere = Math.min(startArmour, Math.max(0, usable.total - exec.finalArmour));
-        multiRecoil += getTargetedRetaliation(tgt, !isMeleeHit, dealt > 0, {
+        multiRecoil += getTargetedRetaliation(tgt, !isMeleeAttackAbility(hitSource), dealt > 0, {
           distance: getHexDistance(activeTurnUnitHex, hex),
           attacker: activeTurnUnit,
           rawFirstHit: hits[0]?.damage,
@@ -4912,6 +4959,14 @@ export default function App() {
       const c = nextBoard[activeTurnUnitHex];
       nextBoard[activeTurnUnitHex] = { ...c, damageCounters: Math.max(0, c.damageCounters - multiHeal) };
       summaries.push(`${multiFirstHeal!.name} healed ${Math.min(multiHeal, c.damageCounters)}`);
+    }
+    // "When this unit uses a melee attack, it heals 3 damage" (e.g. Draining Touch): once for the whole attack
+    const multiDrain = isMeleeAttackAbility(ability) && multiHitsLanded > 0 ? getMeleeAttackHeal(activeTurnUnit) : null;
+    const multiDrainHeal = meleeAttackHealFor(multiDrain, multiHitsLanded);
+    if (multiDrainHeal > 0 && nextBoard[activeTurnUnitHex]) {
+      const c = nextBoard[activeTurnUnitHex];
+      nextBoard[activeTurnUnitHex] = { ...c, damageCounters: Math.max(0, c.damageCounters - multiDrainHeal) };
+      summaries.push(`${multiDrain!.name} healed ${Math.min(multiDrainHeal, c.damageCounters)}`);
     }
     // The attack's own self heal, once per use however many targets it hit (e.g. Overgrowth Spores: "This unit heals 5
     // damage"), as for a single target: { amount: 'totalDamageDealt' } heals the damage dealt, { if: 'damageDealt' }
@@ -5019,17 +5074,17 @@ export default function App() {
         movedThroughUnit = true;
         if (unitOnTile.owner !== activePlayer) {
           // Charged through, not targeted
-          const res = applyAttackDamageToHex(midHex, 5, ability, { targeted: false });
+          const res = applyAttackDamageToHex(midHex, getMovedThroughDamage(ability), ability, { targeted: false });
           passThroughLogs.push(
-            `charged through ${unitOnTile.card.name} for 5 damage${res.isDefeated ? ' (Defeated!)' : ''}`
+            `charged through ${unitOnTile.card.name} for ${getMovedThroughDamage(ability)} damage${res.isDefeated ? ' (Defeated!)' : ''}`
           );
         }
       }
     }
 
     const passives = getUnitPassives(activeTurnUnit);
-    const hasBreakTheLine = passives.some((p) => p.id === 'break_the_line' || p.name === 'Break the Line');
-    const bonusArmour = movedThroughUnit && hasBreakTheLine ? 2 : 0;
+    // "After moving over an enemy unit, this unit gains N armour" (e.g. Break the Line): trigger 'self.movedThroughUnit'
+    const bonusArmour = movedThroughUnit ? getMovedThroughUnitArmour(passives) : 0;
 
     let currentArmour = activeTurnUnit.armour + bonusArmour;
     let currentDamageCounters = activeTurnUnit.damageCounters;
@@ -5934,10 +5989,11 @@ export default function App() {
 
     // Abilities whose only effect on the clicked unit is non-damage (swaps, placements, armour gifts) can't pick another
     // unit, friendly or enemy, that is immune to non-damage effects (Machine Heart)
-    const NON_DAMAGE_ON_CLICKED_UNIT = ['tactical_swap', 'nexus_displacement', 'spirit_away', 'realm_warp', 'buddy_tag', 'rally_stance'];
+    // (e.g. Tactical Swap, Nexus Displacement, Spirit Away, Realm Warp, Buddy Tag, Rally Stance: no damage effect at all)
+    const onlyNonDamageOnClicked = !((ability.effects || []) as any[]).some((e: any) => e.type === 'damage');
     const clickedUnit = unitsOnBoard[hexId];
     if (
-      NON_DAMAGE_ON_CLICKED_UNIT.includes(abilityId) &&
+      onlyNonDamageOnClicked &&
       clickedUnit &&
       clickedUnit.instanceId !== activeTurnUnit.instanceId &&
       isImmuneToNonDamageEffects(clickedUnit)
@@ -5947,11 +6003,11 @@ export default function App() {
     }
 
     // 0. Rally Stance special resolution: resolve immediately upon clicking an adjacent ally
-    if (ability.id === 'rally_stance') {
+    if (abilityKind(ability).armourGift) {
       const friendUnit = unitsOnBoard[hexId];
       if (!friendUnit || friendUnit.owner !== activePlayer) return;
-      const selfUp = 4;
-      const friendUp = 3;
+      const selfUp = getArmourUpTo(ability, 'self');
+      const friendUp = getArmourUpTo(ability, 'friend');
       const newAp = Math.max(0, activeTurnUnit.currentAp - cost);
       const currentCounts = activeTurnUnit.usedTurnCounts || {};
       const nextCounts = recordAbilityUse(currentCounts, ability);
@@ -5979,7 +6035,7 @@ export default function App() {
       setActiveAbility(null);
       setMultiStageState(null);
       showNotification(
-        `${activeTurnUnit.card.name} used Rally Stance! (Armoured up to 4, and ${friendUnit.card.name} armoured up to 3! ${cost} AP spent, ${newAp} AP remaining).`
+        `${activeTurnUnit.card.name} used ${ability.name}! (Armoured up to ${selfUp}, and ${friendUnit.card.name} armoured up to ${friendUp}! ${cost} AP spent, ${newAp} AP remaining).`
       );
       if (!afterArmourAbilityUsed(activeTurnUnit, ability, newAp) && cost > 0 && newAp <= 0) {
         switchTurn(false);
@@ -6018,7 +6074,7 @@ export default function App() {
         const unitToWarp = unitsOnBoard[hexId];
         if (!unitToWarp) return;
         const isFriendly = unitToWarp.owner === activePlayer;
-        const newArmour = isFriendly ? Math.max(unitToWarp.armour, 3) : unitToWarp.armour;
+        const newArmour = isFriendly ? Math.max(unitToWarp.armour, getAbilityArmour(ability, 'placedUnit').upTo) : unitToWarp.armour;
         const newAp = Math.max(0, activeTurnUnit.currentAp - cost);
         const nextCounts = recordAbilityUse(activeTurnUnit.usedTurnCounts || {}, ability);
         const isWarpingSelf = hexId === activeTurnUnitHex;
@@ -6060,7 +6116,7 @@ export default function App() {
         playCardDrawSound();
         showNotification(
           `Fateweaver Sage used Realm Warp! Placed ${unitToWarp.card.name} onto ${destHex}${
-            isFriendly ? ' and granted armour up to 3!' : '!'
+            isFriendly ? ` and granted armour up to ${getAbilityArmour(ability, 'placedUnit').upTo}!` : '!'
           } (${cost} AP spent, ${newAp} AP remaining).`
         );
         setActiveAbility(null);
@@ -6078,7 +6134,7 @@ export default function App() {
       if (stage === 1) {
         const targetUnit = unitsOnBoard[hexId];
         if (!targetUnit) return;
-        const amount = (ability.effects?.find((e: any) => e.type === 'damage') as any)?.amount ?? 6;
+        const amount = getAbilityDamage(ability);
         const res = applyAttackDamageToHex(hexId, amount, ability);
         const vaultTiles = getSurroundingHexes(hexId).filter((h) => !unitsOnBoard[h]);
         const dealtNote = `Vaulting Strike dealt ${res.damageDealt} damage to ${targetUnit.card.name}${res.isDefeated ? ' (defeated!)' : ''}.`;
@@ -6108,7 +6164,7 @@ export default function App() {
     }
 
     if (abilityId === 'swooping_pounce') {
-      const dmgAmount = 10;
+      const dmgAmount = getAbilityDamage(ability);
       const verb = 'pounce';
       const pastVerb = 'swooped';
       const emoji = '🦅';
@@ -6244,7 +6300,7 @@ export default function App() {
 
         // Gain 2 armour
         if (!isCasterDefeated) {
-          finalArmour += 2;
+          finalArmour += getAbilityArmour(ability, 'self').amount;
         }
 
         const nextMovedDirections =
@@ -6306,14 +6362,14 @@ export default function App() {
             targets: [destHex]
           });
           showNotification(
-            `🦀 Sidestepping Crush (Stage 2/2): Moved to ${destHex} and gained 2 armour (now 🛡️${finalArmour}). Now click a surrounding enemy unit to deal 8 damage!`
+            `🦀 Sidestepping Crush (Stage 2/2): Moved to ${destHex} and gained ${getAbilityArmour(ability, 'self').amount} armour (now 🛡️${finalArmour}). Now click a surrounding enemy unit to deal ${getAbilityDamage(ability)} damage!`
           );
           return;
         } else {
           // No surrounding enemies, finish ability
           finishMultiStageAbility(destHex);
           showNotification(
-            `🦀 ${activeTurnUnit.card.name} used Sidestepping Crush: Moved to ${destHex} and gained 2 armour (now 🛡️${finalArmour}), but no enemies are surrounding to crush. (${cost} AP spent).`
+            `🦀 ${activeTurnUnit.card.name} used Sidestepping Crush: Moved to ${destHex} and gained ${getAbilityArmour(ability, 'self').amount} armour (now 🛡️${finalArmour}), but no enemies are surrounding to crush. (${cost} AP spent).`
           );
           return;
         }
@@ -6324,7 +6380,7 @@ export default function App() {
         const targetUnit = unitsOnBoard[targetHex];
         if (!targetUnit) return;
 
-        const res = applyAttackDamageToHex(targetHex, 8, ability);
+        const res = applyAttackDamageToHex(targetHex, getAbilityDamage(ability), ability);
         finishMultiStageAbility(multiStageState.casterHex);
         showNotification(
           `🦀 ${activeTurnUnit.card.name} crushed ${targetUnit.card.name} for ${res.damageDealt} damage${res.isDefeated ? ' (Defeated!)' : ''}! (${cost} AP spent).`
@@ -6442,7 +6498,7 @@ export default function App() {
             next[destHex] = { ...targetUnit, hexId: destHex };
             return next;
           });
-          applyAttackDamageToHex(destHex, 5, ability);
+          applyAttackDamageToHex(destHex, getAbilityDamage(ability), ability);
           finishMultiStageAbility();
           return;
         }
@@ -6468,12 +6524,12 @@ export default function App() {
           });
           setActiveTurnUnitHex(casterDest);
           setSelectedHex(casterDest);
-          applyAttackDamageToHex(hexId, 5, ability);
+          applyAttackDamageToHex(hexId, getAbilityDamage(ability), ability);
           finishMultiStageAbility(casterDest);
           return;
         }
 
-        applyAttackDamageToHex(hexId, 5, ability);
+        applyAttackDamageToHex(hexId, getAbilityDamage(ability), ability);
         finishMultiStageAbility();
         return;
       }
@@ -6492,7 +6548,7 @@ export default function App() {
           });
           setActiveTurnUnitHex(destHex);
           setSelectedHex(destHex);
-          applyAttackDamageToHex(targetHex, 5, ability);
+          applyAttackDamageToHex(targetHex, getAbilityDamage(ability), ability);
           finishMultiStageAbility(destHex);
         } else if (targetUnit) {
           setUnitsOnBoard((prev) => {
@@ -6501,7 +6557,7 @@ export default function App() {
             next[destHex] = { ...targetUnit, hexId: destHex };
             return next;
           });
-          applyAttackDamageToHex(destHex, 5, ability);
+          applyAttackDamageToHex(destHex, getAbilityDamage(ability), ability);
           finishMultiStageAbility();
         }
         return;
@@ -6586,7 +6642,7 @@ export default function App() {
     // 8. Umbral Flail (Shadowguard)
     if (abilityId === 'umbral_flail') {
       if (stage === 1) {
-        applyAttackDamageToHex(hexId, 6, ability);
+        applyAttackDamageToHex(hexId, getAbilityDamage(ability), ability);
         const tgtUnit = unitsOnBoard[hexId];
         const behindHex = tgtUnit ? getTileBehindFor(hexId, activePlayer) : getHexBehind(activeTurnUnitHex, hexId);
         if (behindHex && !unitsOnBoard[behindHex]) {
@@ -6596,7 +6652,7 @@ export default function App() {
             targets: [hexId],
             metadata: { flailTileBehind: behindHex }
           });
-          showNotification(`Umbral Flail dealt 6 damage! You may click tile ${behindHex} behind target to move Shadowguard there, or click 'Stay Here'.`);
+          showNotification(`${ability.name} dealt ${getAbilityDamage(ability)} damage! You may click tile ${behindHex} behind target to move Shadowguard there, or click 'Stay Here'.`);
           return;
         }
         finishMultiStageAbility();
@@ -6638,7 +6694,7 @@ export default function App() {
         }
 
         const destHex = closestEmpty[0] || hexId;
-        const res = applyAttackDamageToHex(destHex, 6, ability, {
+        const res = applyAttackDamageToHex(destHex, getAbilityDamage(ability), ability, {
           targetUnitOverride: { ...targetUnit, hexId: destHex },
           previousHex: hexId
         });
@@ -6658,7 +6714,7 @@ export default function App() {
         const targetHex = metadata?.targetUnitHex!;
         const targetUnit = unitsOnBoard[targetHex];
         if (targetUnit) {
-          const res = applyAttackDamageToHex(destHex, 6, ability, {
+          const res = applyAttackDamageToHex(destHex, getAbilityDamage(ability), ability, {
             targetUnitOverride: { ...targetUnit, hexId: destHex },
             previousHex: targetHex
           });
@@ -6705,7 +6761,7 @@ export default function App() {
       const res = applyAttackDamageToHex(hexId, plinkEff?.amount ?? 1, ability, { hits: plinkEff?.hits ?? 1 });
       if (res.isDefeated) {
         const chain = (metadata?.killCount || 0) + 1;
-        const remainingEnemies = getHexesInRange(activeTurnUnitHex, 1, 4).filter(
+        const remainingEnemies = getHexesInRange(activeTurnUnitHex, ...getRepeatTargetRange(ability)).filter(
           (h) => unitsOnBoard[h] && unitsOnBoard[h].owner !== activePlayer && h !== hexId
         );
         if (remainingEnemies.length > 0) {
@@ -6726,7 +6782,7 @@ export default function App() {
     // 12. Jab and Backstep (Crossbow Fighter)
     if (abilityId === 'jab_and_backstep') {
       if (stage === 1) {
-        const res = applyAttackDamageToHex(hexId, 5, ability);
+        const res = applyAttackDamageToHex(hexId, getAbilityDamage(ability), ability);
         playCardDrawSound();
 
         const currentHex = activeTurnUnitHex;
@@ -6819,7 +6875,7 @@ export default function App() {
       if (stage === 1) {
         const targetUnit = unitsOnBoard[hexId];
         const wasFromBehind = isAttackFromBehind(activeTurnUnitHex, hexId, targetUnit?.owner, ability);
-        const res = applyAttackDamageToHex(hexId, 6, ability);
+        const res = applyAttackDamageToHex(hexId, getAbilityDamage(ability), ability);
         playCardDrawSound();
 
         if (wasFromBehind) {
@@ -6964,7 +7020,7 @@ export default function App() {
       }
 
       if (stage === 2) {
-        const res = applyAttackDamageToHex(hexId, 5, ability);
+        const res = applyAttackDamageToHex(hexId, getAbilityDamage(ability), ability);
         playCardDrawSound();
         showNotification(`Lead the Charge dealt ${res.damageDealt} damage to ${unitsOnBoard[hexId]?.card.name || 'enemy'}!`);
         finishMultiStageAbility(activeTurnUnitHex);
@@ -7153,8 +7209,8 @@ export default function App() {
         showNotification(multiStageTargetInfo.promptMessage);
         return;
       }
-      if (activeAbility.id === 'reckless_leap') {
-        showNotification("You must click a highlighted empty tile within 2 tiles in a straight line for Reckless Leap.");
+      if (getStraightLeapDistance(activeAbility) !== null) {
+        showNotification(`You must click a highlighted empty tile within ${getStraightLeapDistance(activeAbility)} tiles in a straight line for ${activeAbility.name}.`);
       } else if (isStraightLineAbility(activeAbility)) {
         showNotification(
           activeAbility.effects?.some((e) => e.type === 'damage' && (e as any).area === 'allUnitsInLine')
@@ -7619,13 +7675,16 @@ export default function App() {
       }
 
       // Subcase 3.2: Reinforce Structure (targets Obstructing Wall token)
-      if (activeAbility.id === 'reinforce_structure') {
+      if (activeAbility.target === 'obstructingWall') {
         const wall = unitsOnBoard[hexId];
-        if (!wall || (wall.card.id !== 'obstructing_wall' && wall.card.name !== 'Obstructing Wall')) {
+        if (!wall || !wall.card.isWall) {
           showNotification("Must target an Obstructing Wall token.");
           return;
         }
-        const newArmour = Math.min(18, wall.armour + 6);
+        const wallArmourEff: any = ((activeAbility.effects || []) as any[]).find((e: any) => e.type === 'armour');
+        const wallGain: number = typeof wallArmourEff?.amount === 'number' ? wallArmourEff.amount : 0;
+        const wallCap: number = typeof wallArmourEff?.cap === 'number' ? wallArmourEff.cap : Infinity;
+        const newArmour = Math.min(wallCap, wall.armour + wallGain);
         const newAp = Math.max(0, activeTurnUnit.currentAp - cost);
         const currentCounts = activeTurnUnit.usedTurnCounts || {};
         const newCounts = recordAbilityUse(currentCounts, activeAbility);
@@ -7646,7 +7705,7 @@ export default function App() {
         playCardDrawSound();
         setActiveAbility(null);
         showNotification(
-          `${activeTurnUnit.card.name} reinforced Obstructing Wall on ${hexId} (+6 armour, now ${newArmour} armour).`
+          `${activeTurnUnit.card.name} reinforced ${wall.card.name} on ${hexId} (+${wallGain} armour, now ${newArmour} armour).`
         );
 
         if (cost > 0 && newAp <= 0) {
@@ -7658,16 +7717,17 @@ export default function App() {
       // Subcase 3.25: Reckless Leap
       // "Move this unit 2 tiles in the same direction for free. Then, this unit takes 3 damage."
       // "The effect of reckless leap should show a line of 2 tiles in each straight line direction, and clicking one should move the unit to that tile along the connecting ones before the 3 self damage is dealt."
-      if (activeAbility.id === 'reckless_leap') {
+      if (getStraightLeapDistance(activeAbility) !== null) {
         if (unitsOnBoard[hexId]) {
-          showNotification("Reckless Leap must land on an empty tile.");
+          showNotification(`${activeAbility.name} must land on an empty tile.`);
           return;
         }
 
         const allLines = getAllStraightLinesFromHex(activeTurnUnitHex);
         let connectingPath: string[] = [];
         for (const line of allLines) {
-          const twoTiles = line.slice(0, 2);
+          const leapEff: any = ((activeAbility.effects || []) as any[]).find((e: any) => e.type === 'move');
+        const twoTiles = line.slice(0, typeof leapEff?.distance === 'number' ? leapEff.distance : leapEff?.distance?.max ?? 1);
           const idx = twoTiles.indexOf(hexId);
           if (idx !== -1) {
             connectingPath = twoTiles.slice(0, idx + 1);
@@ -7676,7 +7736,7 @@ export default function App() {
         }
 
         if (connectingPath.length === 0) {
-          showNotification("Reckless Leap can only move up to 2 tiles in a straight line direction.");
+          showNotification(`${activeAbility.name} can only move up to ${getStraightLeapDistance(activeAbility)} tiles in a straight line direction.`);
           return;
         }
 
@@ -7696,8 +7756,8 @@ export default function App() {
             }
           }
         }
-        const hasBreakTheLine = passives.some((p) => p.id === 'break_the_line' || p.name === 'Break the Line');
-        const bonusArmour = movedThroughUnit && hasBreakTheLine ? 2 : 0;
+        // "After moving over an enemy unit, this unit gains N armour" (e.g. Break the Line): trigger 'self.movedThroughUnit'
+        const bonusArmour = movedThroughUnit ? getMovedThroughUnitArmour(passives) : 0;
 
         // Check scorched tile damage along the connecting path:
         // "units moving onto or off of a scorched tile take 4 damage"
@@ -7733,7 +7793,7 @@ export default function App() {
         const defeatedByScorch = currentCounters >= activeTurnUnit.card.hp;
 
         // Move unit to destination tile FIRST ("move the unit to that tile along the connecting ones before the 3 self damage is dealt")
-        const selfDmg = 3;
+        const selfDmg = getAbilitySelfDamage(activeAbility);
         let finalArmour = currentArmour;
         let finalCounters = currentCounters;
         let defeatedBySelfDmg = false;
@@ -7804,7 +7864,7 @@ export default function App() {
           setActiveTurnUnitHex(null);
           setSelectedHex(null);
           showNotification(
-            `${activeTurnUnit.card.name} leaped along connecting tiles to ${hexId} via Reckless Leap, but was defeated by scorched tiles (took ${scorchDamage} damage)!`
+            `${activeTurnUnit.card.name} leaped along connecting tiles to ${hexId} via ${activeAbility.name}, but was defeated by scorched tiles (took ${scorchDamage} damage)!`
           );
           switchTurn(false);
           return;
@@ -7815,11 +7875,17 @@ export default function App() {
           ? `along connecting tile ${connectingPath[0]} to ${hexId}`
           : `to ${hexId}`;
         const scorchNote = scorchDamage > 0 ? ` (took ${scorchDamage} scorched tile damage)` : '';
-        const enrageNote = activeTurnUnit.card.id === 'savage_grizzly' ? ' (Enraged: +1 damage per hit on attacks!)' : '';
+        // (a "while damaged, its attacks deal more" passive, e.g. Savage Grizzly's Enrage: damageBonus if 'self.hasDamage')
+        const enragePassive = getUnitPassives(activeTurnUnit).find((p) =>
+          ((p.effects || []) as any[]).some((e: any) => e.type === 'damageBonus' && e.if === 'self.hasDamage')
+        );
+        const enrageAmount: number =
+          ((enragePassive?.effects || []) as any[]).find((e: any) => e.type === 'damageBonus' && e.if === 'self.hasDamage')?.amount ?? 0;
+        const enrageNote = enragePassive ? ` (${enragePassive.name}: +${enrageAmount} damage per hit on attacks!)` : '';
         const defeatedNote = isDefeated ? ' (Defeated!)' : '';
 
         showNotification(
-          `🐾 ${activeTurnUnit.card.name} moved ${pathDesc} via Reckless Leap, then took ${selfDmg} self-damage!${scorchNote}${enrageNote}${defeatedNote} (${cost} AP spent).`
+          `🐾 ${activeTurnUnit.card.name} moved ${pathDesc} via ${activeAbility.name}, then took ${selfDmg} self-damage!${scorchNote}${enrageNote}${defeatedNote} (${cost} AP spent).`
         );
 
         if (isDefeated) {
@@ -7984,13 +8050,16 @@ export default function App() {
 
         let drewCard = false;
         const unitPassives = getUnitPassives(activeTurnUnit);
-        const sanguine = unitPassives.find((p) => p.id === 'sanguine_offering' || p.name === 'Sanguine Offering');
+        // "Whenever this unit takes damage, draw N cards" (e.g. Sanguine Offering): trigger 'self.takesDamage', a draw effect
+        const sanguine = unitPassives.find(
+          (p) => p.trigger === 'self.takesDamage' && ((p.effects || []) as any[]).some((e: any) => e.type === 'draw' && typeof e.amount === 'number')
+        );
         if (sanguine && canTriggerPassiveThisTurn(activeTurnUnit, sanguine)) {
           const pKey = sanguine.id || sanguine.name;
           newCounts[pKey] = (newCounts[pKey] || 0) + 1;
-          newCounts['sanguine_offering'] = (newCounts['sanguine_offering'] || 0) + 1;
-          drawCardForPlayer(activeTurnUnit.owner);
-          healOnDraw(activeTurnUnit, 1);
+          const drawCount: number = ((sanguine.effects || []) as any[]).find((e: any) => e.type === 'draw').amount;
+          for (let i = 0; i < drawCount; i++) drawCardForPlayer(activeTurnUnit.owner);
+          healOnDraw(activeTurnUnit, drawCount);
           drewCard = true;
         }
 
@@ -8179,14 +8248,14 @@ export default function App() {
         return;
       }
       // Subcase 3.38: Death Mark (Blight Phantom)
-      if (activeAbility.id === 'death_mark' || activeAbility.name === 'Death Mark') {
+      if (abilityKind(activeAbility).targetMark) {
         const targetUnit = unitsOnBoard[hexId];
         if (!targetUnit) {
-          showNotification("You must click an enemy unit to place Death Mark.");
+          showNotification(`You must click an enemy unit to place ${activeAbility.name}.`);
           return;
         }
         if (targetUnit.owner === activePlayer) {
-          showNotification("Death Mark must target an enemy unit.");
+          showNotification(`${activeAbility.name} must target an enemy unit.`);
           return;
         }
         if (isImmuneToNonDamageEffects(targetUnit)) {
@@ -8195,19 +8264,24 @@ export default function App() {
         }
         const cost = getAbilityApCost(activeAbility);
         if (activeTurnUnit.currentAp < cost) {
-          showNotification(`Not enough AP to use Death Mark (Requires ${cost} AP, has ${activeTurnUnit.currentAp} AP).`);
+          showNotification(`Not enough AP to use ${activeAbility.name} (Requires ${cost} AP, has ${activeTurnUnit.currentAp} AP).`);
           return;
         }
         const newAp = Math.max(0, activeTurnUnit.currentAp - cost);
         const currentCounts = activeTurnUnit.usedTurnCounts || {};
         const nextCounts = recordAbilityUse(currentCounts, activeAbility);
 
+        // (the damageBonus on the status it applies, e.g. "deal an additional 5 damage on the first hit")
+        const markBonus: number =
+          ((activeAbility.effects || []) as any[])
+            .flatMap((e: any) => (e.type === 'applyStatus' ? e.effects || [] : []))
+            .find((e: any) => e.type === 'damageBonus' && typeof e.amount === 'number')?.amount ?? 0;
         const updatedTarget: BattlefieldUnit = {
           ...targetUnit,
           deathMark: {
             casterInstanceId: activeTurnUnit.instanceId,
             casterOwner: activePlayer,
-            bonusDamage: 5
+            bonusDamage: markBonus
           },
           statuses: targetUnit.statuses?.includes('death_mark')
             ? targetUnit.statuses
@@ -8227,7 +8301,7 @@ export default function App() {
         playCardDrawSound();
         setActiveAbility(null);
         showNotification(
-          `💀 ${activeTurnUnit.card.name} placed Death Mark on ${targetUnit.card.name}! This turn, ${activeTurnUnit.card.name}'s attacks against that unit deal +5 damage on the first hit (does not stack). (${cost} AP spent, ${newAp} AP remaining).`
+          `💀 ${activeTurnUnit.card.name} placed ${activeAbility.name} on ${targetUnit.card.name}! This turn, ${activeTurnUnit.card.name}'s attacks against that unit deal +${markBonus} damage on the first hit (does not stack). (${cost} AP spent, ${newAp} AP remaining).`
         );
 
         if (cost > 0 && newAp <= 0) {
@@ -8239,9 +8313,7 @@ export default function App() {
       const isEchoEmptyTarget =
         !unitsOnBoard[hexId] &&
         Boolean(
-          (activeAbility as any).allowEmptyTileTarget ||
-            activeAbility.parentAbilityId === 'echoing_incantation' ||
-            activeAbility.id?.startsWith('echoing_incantation__')
+          (activeAbility as any).allowEmptyTileTarget
         );
 
       if (isEchoEmptyTarget) {
@@ -8313,11 +8385,8 @@ export default function App() {
         // Cast as though an enemy unit was on that tile:
         // Leyline Invoker Volatile Hexes: "Whenever an attack from this unit deals damage to a unit, the tile that unit is on becomes scorched until the end of your opponent's next turn"
         const unitPassives = getUnitPassives(activeTurnUnit);
-        const hasVolatileHexes = unitPassives.some(
-          (p) =>
-            p.id === 'volatile_hexes' ||
-            p.name === 'Volatile Hexes' ||
-            p.effects?.some((e: any) => e.type === 'scorchTile' && e.tile === 'damagedUnitTile')
+        const hasVolatileHexes = unitPassives.some((p) =>
+          p.effects?.some((e: any) => e.type === 'scorchTile' && e.tile === 'damagedUnitTile')
         );
 
         const opponent: PlayerId = activePlayer === 'player1' ? 'player2' : 'player1';
@@ -8370,7 +8439,7 @@ export default function App() {
           ? ` Volatile Hexes triggered: Tile ${hexId} is scorched until the end of opponent's next turn!`
           : '';
         showNotification(
-          `${activeTurnUnit.card.name} cast ${activeAbility.name} on empty tile ${hexId} via Echoing Incantation!${vhNote} (${cost} AP spent, ${newAp} AP remaining).`
+          `${activeTurnUnit.card.name} cast ${activeAbility.name} on empty tile ${hexId}!${vhNote} (${cost} AP spent, ${newAp} AP remaining).`
         );
 
         if (casterDefeated) {
@@ -8574,8 +8643,6 @@ export default function App() {
           if (getFalloffDamageBase(activeAbility) !== null) {
             const tilesBetween = Math.max(0, targetDist - 1);
             incomingHits = [{ hitIndex: 1, damage: Math.max(0, (getFalloffDamageBase(activeAbility) ?? 0) - tilesBetween) }];
-          } else if (activeAbility.id === 'weighty_shot') {
-            incomingHits = [{ hitIndex: 1, damage: targetDist === 1 ? 10 : 7 }];
           } else if (hitStructure.isMultiHit && hitStructure.hits.length > 0) {
             incomingHits = hitStructure.hits;
           } else {
@@ -8815,8 +8882,6 @@ export default function App() {
           if (getFalloffDamageBase(activeAbility) !== null) {
             const tilesBetween = Math.max(0, targetDist - 1);
             hitsToExecute = [{ hitIndex: 1, damage: Math.max(0, (getFalloffDamageBase(activeAbility) ?? 0) - tilesBetween) }];
-          } else if (activeAbility.id === 'weighty_shot') {
-            hitsToExecute = [{ hitIndex: 1, damage: targetDist === 1 ? 10 : 7 }];
           } else if (hitStructure.isMultiHit) {
             hitsToExecute = hitStructure.hits;
           } else {
@@ -8918,34 +8983,32 @@ export default function App() {
           }
           return;
         }
-        const targetIsVenomed = Boolean(targetUnit.statuses?.includes('slow_venom'));
-        let coupBypass = false;
+        // Every hit bypasses armour (e.g. Coup de Grace without Slow Venom on the target): see attackBypassesAllArmour
+        const coupBypass = attackBypassesAllArmour(activeAbility, targetUnit);
+        // "Hits again for 4 damage to the target and all enemy units surrounding it" (e.g. Shield Bash & Cleave): the
+        // damage effect with area 'targetAndEnemyUnitsSurroundingTarget', dealt to the surrounding enemies
+        const cleaveEff: any = ((activeAbility.effects || []) as any[]).find(
+          (e: any) => e.type === 'damage' && e.area === 'targetAndEnemyUnitsSurroundingTarget'
+        );
+        const cleaveDamage: number = typeof cleaveEff?.amount === 'number' ? cleaveEff.amount : 0;
+        // "If the target is not on a tile surrounding this unit, you may place it on an empty tile surrounding this unit"
+        // (e.g. Tentacle Drag): a place effect { unit: 'hitUnit', tile: 'chosenEmptySurroundingSelf' }
+        const placesHitUnitAroundSelf = ((activeAbility.effects || []) as any[]).some(
+          (e: any) => e.type === 'place' && e.unit === 'hitUnit' && e.tile === 'chosenEmptySurroundingSelf'
+        );
 
         // Check for ability effects that remove armour from target prior to damage calculation
         let armourRemovedBeforeAttack = 0;
         let effectiveTargetArmour = targetUnit.armour;
 
-        if (activeAbility.id === 'rip_and_tear') {
-          // Rip and Tear: Remove all armour from target first
-          armourRemovedBeforeAttack = targetUnit.armour;
+        if (coupBypass) {
           effectiveTargetArmour = 0;
-        } else if (activeAbility.id === 'shield_bash_and_cleave') {
-          // Shield Bash & Cleave: Removes up to 2 armour from target unit first
-          armourRemovedBeforeAttack = Math.min(2, targetUnit.armour);
-          effectiveTargetArmour = Math.max(0, targetUnit.armour - armourRemovedBeforeAttack);
-        } else if (activeAbility.id === 'coup_de_grace') {
-          // Non-venomed: 1 damage that bypasses armour. Venomed: normal 10 damage.
-          coupBypass = !targetIsVenomed;
-          if (coupBypass) effectiveTargetArmour = 0;
-        } else if (activeAbility.id === 'telekinetic_rend') {
-          // Telekinetic Rend: Remove up to 5 armour from the target and place that much armour on this unit
-          armourRemovedBeforeAttack = Math.min(5, targetUnit.armour);
-          effectiveTargetArmour = Math.max(0, targetUnit.armour - armourRemovedBeforeAttack);
         } else {
-          // Generic removeArmour effect in card data
+          // "Remove up to N armour from the target" / "Remove all armour" first (e.g. Rip and Tear, Shield Bash & Cleave,
+          // Telekinetic Rend): its removeArmour effect
           const rmEffect = activeAbility.effects?.find((e: any) => e.type === 'removeArmour');
           if (rmEffect) {
-            const maxRm = rmEffect.amount === 'all' ? targetUnit.armour : (typeof rmEffect.amount === 'number' ? rmEffect.amount : 2);
+            const maxRm = rmEffect.amount === 'all' ? targetUnit.armour : (typeof rmEffect.amount === 'number' ? rmEffect.amount : 0);
             armourRemovedBeforeAttack = Math.min(maxRm, targetUnit.armour);
             effectiveTargetArmour = Math.max(0, targetUnit.armour - armourRemovedBeforeAttack);
           }
@@ -9005,18 +9068,9 @@ export default function App() {
 
         let hitsToExecute: AttackHit[] = [];
 
-        // Custom ability damage formulas (Rip and Tear and Plunge and Twist come from the hit structure, which checks
-        // their extra hits: see getAbilityHitStructure)
-        if (activeAbility.id === 'shield_bash_and_cleave') {
-          hitsToExecute = [
-            { hitIndex: 1, damage: 7, conditionalNote: armourRemovedBeforeAttack > 0 ? `removed ${armourRemovedBeforeAttack} armour` : '' },
-            { hitIndex: 2, damage: 4, conditionalNote: 'cleave' }
-          ];
-        } else if (activeAbility.id === 'telekinetic_rend') {
-          hitsToExecute = [
-            { hitIndex: 1, damage: armourRemovedBeforeAttack, conditionalNote: `1 damage per armour stolen (${armourRemovedBeforeAttack})` }
-          ];
-        } else if (
+        // Damage formulas (armour removed, this unit's armour, extra hits...) all come from the hit structure, which reads
+        // the card data (see getAbilityHitStructure)
+        if (
           activeAbility.effects?.some((e: any) => e.type === 'damage' && e.amount?.formula === 'armourRemoved' && typeof e.amount?.plus === 'number')
         ) {
           // "Then deal 2 damage plus 1 damage for each armour removed this way" (e.g. Dissolving Spit):
@@ -9037,37 +9091,12 @@ export default function App() {
             targetHex: hexId,
             unitsOnBoard
           });
-          } else if (activeAbility.id === 'coup_de_grace') {
-          hitsToExecute = [
-            {
-              hitIndex: 1,
-              damage: targetIsVenomed ? 10 : 1,
-              conditionalNote: targetIsVenomed ? 'Slow Venom: 10 damage' : 'bypassed armour'
-            }
-          ];
         } else if (getFalloffDamageBase(activeAbility) !== null) {
           // Full Bore: deals less damage equal to the number of tiles between this unit and the unit hit (N - tilesBetween)
           const targetDist = getHexDistance(activeTurnUnitHex, hexId);
           const tilesBetween = Math.max(0, targetDist - 1);
           damage = Math.max(0, (getFalloffDamageBase(activeAbility) ?? 0) - tilesBetween);
           hitsToExecute = [{ hitIndex: 1, damage }];
-        } else if (activeAbility.id === 'weighty_shot') {
-          // Weighty Shot: Deals 7 damage. Crossbow Fighter passive deals +3 damage if unit hit is within range 1
-          const targetDist = getHexDistance(activeTurnUnitHex, hexId);
-          damage = targetDist === 1 ? 10 : 7;
-          hitsToExecute = [{ hitIndex: 1, damage, conditionalNote: targetDist === 1 ? '+3 Stopping Power (range 1)' : undefined }];
-        } else if (activeAbility.id === 'flaming_dive') {
-          const hasMoved = Boolean(activeTurnUnit.movedThisTurn);
-          damage = hasMoved ? 9 : 7;
-          hitsToExecute = [
-            {
-              hitIndex: 1,
-              damage,
-              conditionalNote: hasMoved ? '+2 moved this turn bonus' : undefined,
-              appliedBonuses: hasMoved ? ['flaming_dive'] : []
-            }
-          ];
-          applyAttackerBonusPassives(hitsToExecute, activeAbility, activeTurnUnit, targetUnit, attackOptions);
         } else if (hitStructure.hits.length > 0) {
           hitsToExecute = hitStructure.hits;
         } else {
@@ -9165,7 +9194,7 @@ export default function App() {
         // works at any range, and react immunity doesn't stop it
         const retaliation = isFeedingFrenzy
           ? { amount: 0, sources: [] as string[] }
-          : getTargetedRetaliation(targetUnit, isRanged, damage > 0, {
+          : getTargetedRetaliation(targetUnit, !isMeleeAttackAbility(activeAbility), damage > 0, {
               distance: targetDist,
               attacker: activeTurnUnit,
               rawFirstHit: hitsToExecute[0]?.damage,
@@ -9280,7 +9309,7 @@ export default function App() {
         const attackerPassives = getUnitPassives(activeTurnUnit);
         const firstAttackHeal = getFirstAttackHealPerHit(activeTurnUnit);
         const drainingHeal =
-          !isFeedingFrenzy && isMeleeAttackAbility(activeAbility) ? getMeleeAttackHealPerHit(activeTurnUnit) : null;
+          !isFeedingFrenzy && isMeleeAttackAbility(activeAbility) ? getMeleeAttackHeal(activeTurnUnit) : null;
         const firstDamageHeal = !isFeedingFrenzy && damage > 0 ? getFirstDamageHeal(activeTurnUnit, turnCount) : null;
         // The attack's own self heal (e.g. Red Thirst: "Heal 3 damage from this unit"; Overgrowth Spores: equal to the
         // total damage dealt)
@@ -9296,7 +9325,7 @@ export default function App() {
             : 0;
         const attackHealSources = [
           firstAttackHeal ? { name: firstAttackHeal.name, amount: firstAttackHeal.perHit * multiHitRecords.length } : null,
-          drainingHeal ? { name: drainingHeal.name, amount: drainingHeal.perHit * multiHitRecords.length } : null,
+          drainingHeal ? { name: drainingHeal.name, amount: meleeAttackHealFor(drainingHeal, multiHitRecords.length) } : null,
           firstDamageHeal ? { name: firstDamageHeal.name, amount: firstDamageHeal.amount } : null,
           abilityHeal > 0 ? { name: activeAbility.name, amount: abilityHeal } : null
         ].filter((h): h is { name: string; amount: number } => Boolean(h && h.amount > 0));
@@ -9314,16 +9343,16 @@ export default function App() {
         let lootTriggerTitle = '';
         let extraAttackLoots: { amount: number; title: string; player: PlayerId }[] = [];
         let twinFuryActive = false;
+        let twinFuryFollowUp: { amount: number; range: number; name: string } = { amount: 0, range: 1, name: '' };
         let defLootTriggered = false;
         let noxiousBurstVictims: BattlefieldUnit[] = [];
         // "When this unit becomes the target of a melee attack" token passives (e.g. Spirits' Protection)
         if (!isFriendlyTarget && isMeleeAttackAbility(activeAbility)) {
           offerMeleeTargetedTokens(targetUnit.instanceId);
         }
-        const isOverloadGemstone =
-          activeAbility.parentAbilityId === 'overload_gemstone' ||
-          activeAbility.id === 'overload_gemstone' ||
-          activeAbility.id?.startsWith('overload_gemstone__');
+        // An ability that locks itself for its user's next turn (e.g. Overload Gemstone), or a borrowed copy of one
+        const selfLock = getSelfLockOf(activeTurnUnit, String(activeAbility.parentAbilityId || activeAbility.id));
+        const isOverloadGemstone = Boolean(selfLock);
 
         // (run at once, not on the next render: the code after this reads what it works out, e.g. the loots its
         // passives trigger (Short Fuse, Iron Clout...), the attacker's AP left and whether the attacker died)
@@ -9353,12 +9382,10 @@ export default function App() {
           if (isDefeated) {
             const unitPassives = getUnitPassives(activeTurnUnit);
             const bloodlustPassive = unitPassives.find(
-              (p) =>
-                p.id === 'bloodlust' ||
-                (p.trigger === 'self.killsEnemyUnit' && (p.effects || []).some((e: any) => e.type === 'gainAP'))
+              (p) => p.trigger === 'self.killsEnemyUnit' && (p.effects || []).some((e: any) => e.type === 'gainAP')
             );
             if (bloodlustPassive && canTriggerPassiveThisTurn(activeTurnUnit, bloodlustPassive)) {
-              bonusAp = 1;
+              bonusAp = ((bloodlustPassive.effects || []) as any[]).find((e: any) => e.type === 'gainAP')?.amount ?? 0;
               const pKey = bloodlustPassive.id || bloodlustPassive.name;
               nextCounts[pKey] = (nextCounts[pKey] || 0) + 1;
             }
@@ -9367,7 +9394,7 @@ export default function App() {
           // Deduct AP from attacking unit (plus any bonus AP from 1/Turn passives)
           const finalAp = newAp + bonusAp;
           attackFinalAp = finalAp;
-          let finalCasterArmour = activeTurnUnit.armour + (activeAbility.id === 'telekinetic_rend' ? armourRemovedBeforeAttack : 0);
+          let finalCasterArmour = activeTurnUnit.armour;
           // Armour gain per AP spent (e.g. Boulder Hurl: gain 1 armour per AP spent)
           // A conditional rider (e.g. Blessed Armament's "if no Shield of Blessings bonus") is handled below
           const armourEff = activeAbility.effects?.find(
@@ -9379,6 +9406,13 @@ export default function App() {
               finalCasterArmour += (armourEff.amount as any).perAP * getApSpent(activeAbility);
             } else if (typeof armourEff.amount === 'number') {
               finalCasterArmour += armourEff.amount;
+            } else if (typeof (armourEff.amount as any)?.formula === 'string') {
+              // e.g. Telekinetic Rend: { formula: 'armourRemoved' } ("place that much armour on this unit")
+              finalCasterArmour += evalDamageFormula((armourEff.amount as any).formula, {
+                armourRemoved: armourRemovedBeforeAttack,
+                'self.armour': activeTurnUnit.armour,
+                'target.armour': targetUnit.armour
+              });
             } else if (typeof armourEff.upTo === 'number') {
               finalCasterArmour = Math.max(finalCasterArmour, armourEff.upTo);
             } else if (armourEff.upTo === 'armourDamaged') {
@@ -9386,8 +9420,15 @@ export default function App() {
               finalCasterArmour = Math.max(finalCasterArmour, Math.max(0, effectiveTargetArmour - newArmour));
             }
           }
-          if (activeAbility.parentAbilityId === 'knightly_armament' || activeAbility.id?.startsWith('knightly_armament__')) {
-            finalCasterArmour = Math.max(finalCasterArmour, 2);
+          {
+            const providerId = activeAbility.parentAbilityId || (activeAbility.id?.includes('__') ? activeAbility.id.split('__')[0] : '');
+            const provider = providerId
+              ? [...(activeTurnUnit.card.abilities || []), ...(activeTurnUnit.grantedAbilities || [])].find((a) => a.id === providerId)
+              : undefined;
+            const providerArmour: any = (provider?.effects || []).find(
+              (e: any) => e.type === 'armour' && (e.target === 'self' || !e.target) && !e.if && typeof e.upTo === 'number'
+            );
+            if (providerArmour) finalCasterArmour = Math.max(finalCasterArmour, providerArmour.upTo);
           }
           // "If this attack did not deal bonus damage from Shield of Blessings, gain 2 armour" (Blessed Armament)
           const noBlessingArmour: any = activeAbility.effects?.find(
@@ -9431,65 +9472,43 @@ export default function App() {
           const attackerPassives = getUnitPassives(activeTurnUnit);
           const totalDmgDealt = isFeedingFrenzy ? 0 : ((effectiveTargetArmour - newArmour) + (newDamageCounters - targetUnit.damageCounters));
           const targetDistance = getHexDistance(activeTurnUnitHex, hexId);
-          const isRangedAttack = activeAbility.tags?.includes('ranged') || targetDistance > 1 || Boolean(activeAbility.text?.toLowerCase().includes('ranged'));
+          const isRangedAttack =
+            !isMeleeAttackAbility(activeAbility) &&
+            (activeAbility.tags?.includes('ranged') || targetDistance > 1 || Boolean(activeAbility.text?.toLowerCase().includes('ranged')));
           const attackerArmourDamage = Math.max(0, finalCasterArmour - casterArmourAfterDamage);
           const dmgToArmour = Math.max(0, effectiveTargetArmour - newArmour);
 
-          // 1. Short Fuse (Powder Keg Plunderer): "Once per turn, when this unit deals damage with an attack, Loot 2."
-          const shortFuse = attackerPassives.find((p) => p.id === 'short_fuse' || p.name === 'Short Fuse');
-          if (shortFuse && totalDmgDealt > 0 && canTriggerPassiveThisTurn(activeTurnUnit, shortFuse)) {
-            const pKey = shortFuse.id || shortFuse.name;
-            nextCounts[pKey] = (nextCounts[pKey] || 0) + 1;
-            nextCounts['short_fuse'] = (nextCounts['short_fuse'] || 0) + 1;
-            lootTriggerAmount = Math.max(lootTriggerAmount, 2);
-            lootTriggerTitle = 'Short Fuse';
+          // The attacker's loot passives (e.g. Short Fuse, Spoils, Twin Fury, Iron Clout, Magnetized Plunder): see
+          // getAttackerLootPassives. Twin Fury's "you may have this attack deal 4 damage to a different enemy unit within
+          // range 1" comes from its damage effect (twinFuryFollowUp, after the loot)
+          if (!isFeedingFrenzy) {
+            getAttackerLootPassives(activeTurnUnit, {
+              dealtDamage: totalDmgDealt > 0,
+              damagedEnemy: totalDmgDealt > 0 && targetUnit.owner !== activeTurnUnit.owner,
+              dealtToArmour: dmgToArmour > 0,
+              tookArmourDamage: attackerArmourDamage > 0,
+              ranged: isRangedAttack
+            }).forEach(({ passive, amount, followUpDamage }) => {
+              if (!canTriggerPassiveThisTurn(activeTurnUnit, passive)) return;
+              const pKey = passive.id || passive.name;
+              nextCounts[pKey] = (nextCounts[pKey] || 0) + 1;
+              if (amount > lootTriggerAmount) {
+                lootTriggerAmount = amount;
+                lootTriggerTitle = passive.name;
+              }
+              if (followUpDamage) {
+                twinFuryActive = true;
+                twinFuryFollowUp = { ...followUpDamage, name: passive.name };
+              }
+            });
           }
 
-          // 2. Spoils (Swashbuckle Plunderer): "Once per turn, when this unit deals damage with an attack, Loot 2."
-          const spoils = attackerPassives.find((p) => p.id === 'spoils' || p.name === 'Spoils');
-          if (spoils && totalDmgDealt > 0 && canTriggerPassiveThisTurn(activeTurnUnit, spoils)) {
-            const pKey = spoils.id || spoils.name;
-            nextCounts[pKey] = (nextCounts[pKey] || 0) + 1;
-            nextCounts['spoils'] = (nextCounts['spoils'] || 0) + 1;
-            lootTriggerAmount = Math.max(lootTriggerAmount, 2);
-            lootTriggerTitle = 'Spoils';
-          }
-
-          // 3. Twin Fury (Twinaxe Plunderer): "Once per turn, after this unit deals damage to an enemy unit with an attack, Loot 1. When you do, you may have this attack deal 4 damage to a different enemy unit within range 1 of this unit."
-          const twinFury = attackerPassives.find((p) => p.id === 'twin_fury' || p.name === 'Twin Fury');
-          if (twinFury && totalDmgDealt > 0 && canTriggerPassiveThisTurn(activeTurnUnit, twinFury)) {
-            const pKey = twinFury.id || twinFury.name;
-            nextCounts[pKey] = (nextCounts[pKey] || 0) + 1;
-            nextCounts['twin_fury'] = (nextCounts['twin_fury'] || 0) + 1;
-            lootTriggerAmount = Math.max(lootTriggerAmount, 1);
-            lootTriggerTitle = 'Twin Fury';
-            twinFuryActive = true;
-          }
-
-          // 4. Iron Clout (Dreadnought Privateer): "Once per turn, when this unit deals damage to armour or takes damage to its armour, Loot 1."
-          const ironClout = attackerPassives.find((p) => p.id === 'iron_clout' || p.name === 'Iron Clout');
-          if (ironClout && (dmgToArmour > 0 || attackerArmourDamage > 0) && canTriggerPassiveThisTurn(activeTurnUnit, ironClout)) {
-            const pKey = ironClout.id || ironClout.name;
-            nextCounts[pKey] = (nextCounts[pKey] || 0) + 1;
-            nextCounts['iron_clout'] = (nextCounts['iron_clout'] || 0) + 1;
-            lootTriggerAmount = Math.max(lootTriggerAmount, 1);
-            lootTriggerTitle = 'Iron Clout';
-          }
-
-          // 5. Magnetized Plunder (Magnetic Marauder): "Once per turn, when a ranged attack from this unit deals damage to an enemy or its armour, Loot 2."
-          const magPlunder = attackerPassives.find((p) => p.id === 'magnetized_plunder' || p.name === 'Magnetized Plunder');
-          if (magPlunder && isRangedAttack && totalDmgDealt > 0 && canTriggerPassiveThisTurn(activeTurnUnit, magPlunder)) {
-            const pKey = magPlunder.id || magPlunder.name;
-            nextCounts[pKey] = (nextCounts[pKey] || 0) + 1;
-            nextCounts['magnetized_plunder'] = (nextCounts['magnetized_plunder'] || 0) + 1;
-            lootTriggerAmount = Math.max(lootTriggerAmount, 2);
-            lootTriggerTitle = 'Magnetized Plunder';
-          }
-
-          // 6. Shrapnel Volley (Heavy Cannoneer): "Use a 1AP ranged attack from among the promoted cards as this ability for free, then Loot 1."
-          if (activeAbility.parentAbilityId === 'shrapnel_volley' || activeAbility.id?.startsWith('shrapnel_volley__')) {
-            lootTriggerAmount = Math.max(lootTriggerAmount, 1);
-            lootTriggerTitle = 'Shrapnel Volley';
+          // "Use a 1AP ranged attack from among the promoted cards as this ability for free, then Loot 1" (e.g. Shrapnel
+          // Volley): the provider's own loot
+          const providerLoot = getProviderLoot(activeTurnUnit, activeAbility);
+          if (providerLoot && providerLoot.amount > lootTriggerAmount) {
+            lootTriggerAmount = providerLoot.amount;
+            lootTriggerTitle = providerLoot.name;
           }
           // 7. Dead Shot, Flare Pistol, Smash and Stash, Shared Spoils (see getAttackLoots)
           if (!isFeedingFrenzy) {
@@ -9503,12 +9522,11 @@ export default function App() {
           }
 
           // Defender Iron Clout (Dreadnought Privateer):
-          const defenderPassives = getUnitPassives(targetUnit);
-          const defIronClout = defenderPassives.find((p) => p.id === 'iron_clout' || p.name === 'Iron Clout');
+          const defIronClout = getArmourDamagedLootPassives(targetUnit)[0];
           if (!isFeedingFrenzy && defIronClout && dmgToArmour > 0 && canTriggerPassiveThisTurn(targetUnit, defIronClout)) {
             const pKey = defIronClout.id || defIronClout.name;
             const defCounts = targetUnit.usedTurnCounts || {};
-            const nextDefCounts = { ...defCounts, [pKey]: (defCounts[pKey] || 0) + 1, 'iron_clout': (defCounts['iron_clout'] || 0) + 1 };
+            const nextDefCounts = { ...defCounts, [pKey]: (defCounts[pKey] || 0) + 1 };
             if (!isDefeated) {
               next[hexId] = {
                 ...next[hexId],
@@ -9532,10 +9550,10 @@ export default function App() {
             // can land after the turn's end, so it carries the lock rather than dropping it, and the turn number keeps it
             // to the controller's next turn only (see isLockActive)
             const nextLockedAbilities = { ...(activeTurnUnit.lockedAbilities || {}) };
-            if (isOverloadGemstone) {
-              nextLockedAbilities.overload_gemstone = {
-                abilityId: 'overload_gemstone',
-                sourceAbilityName: 'Overload Gemstone',
+            if (selfLock) {
+              nextLockedAbilities[selfLock.abilityId] = {
+                abilityId: selfLock.abilityId,
+                sourceAbilityName: selfLock.name,
                 lockedForPlayer: activeTurnUnit.owner,
                 turnsRemaining: 2,
                 usedOnTurn: turnCount
@@ -9566,7 +9584,7 @@ export default function App() {
               },
               ...(!attackFromBehind
                 ? { attackedFromFrontIds: [...(activeTurnUnit.attackedFromFrontIds || []), targetUnit.instanceId] }
-                : {})
+                : { attacksFromBehindThisTurn: (activeTurnUnit.attacksFromBehindThisTurn || 0) + 1 })
             };
           }
 
@@ -9615,7 +9633,7 @@ export default function App() {
                 damageCounters: finalCounters,
                 tookDamageThisTurn: isFeedingFrenzy ? venomTarget.tookDamageThisTurn : (venomTarget.tookDamageThisTurn || damage > 0)
               };
-            } else if (activeAbility.id === 'tentacle_drag' && targetDist > 1 && !targetImmuneAfterHit) {
+            } else if (placesHitUnitAroundSelf && targetDist > 1 && !targetImmuneAfterHit) {
               // Tentacle Drag: If target is not on a tile surrounding this unit, place it on an empty tile surrounding this unit
               const emptySurrounding = getSurroundingHexes(activeTurnUnitHex).filter(
                 (h) => !next[h] && h !== hexId
@@ -9653,14 +9671,14 @@ export default function App() {
             const sharer = next[sharedArmourInfo.sharerHex];
             next[sharedArmourInfo.sharerHex] = { ...sharer, armour: Math.max(0, sharer.armour - sharedArmourLost) };
           }
-          // Apply Shield Bash & Cleave cleave damage to surrounding enemies
-          if (activeAbility.id === 'shield_bash_and_cleave') {
+          // The hit on the enemies surrounding the target (e.g. Shield Bash & Cleave's cleave): getCleaveDamage
+          if (cleaveDamage > 0) {
             const surrounding = getSurroundingHexes(hexId);
             surrounding.forEach((sHex) => {
               const sUnit = next[sHex];
               if (sUnit && sUnit.owner !== activePlayer && sHex !== hexId) {
                 let sArmour = sUnit.armour;
-                let sRem = 4;
+                let sRem = cleaveDamage;
                 if (sArmour > 0) {
                   if (sArmour >= sRem) {
                     sArmour -= sRem;
@@ -9748,11 +9766,8 @@ export default function App() {
             });
           }
           const unitPassives = getUnitPassives(activeTurnUnit);
-          const hasVolatileHexes = unitPassives.some(
-            (p) =>
-              p.id === 'volatile_hexes' ||
-              p.name === 'Volatile Hexes' ||
-              p.effects?.some((e: any) => e.type === 'scorchTile' && e.tile === 'damagedUnitTile')
+          const hasVolatileHexes = unitPassives.some((p) =>
+            p.effects?.some((e: any) => e.type === 'scorchTile' && e.tile === 'damagedUnitTile')
           );
           if (hasVolatileHexes && totalDmgDealt > 0) {
             const opponent: PlayerId = activePlayer === 'player1' ? 'player2' : 'player1';
@@ -9779,7 +9794,7 @@ export default function App() {
             }));
             showNotification(`🔥 ${scorchesTargetTile.name}: ${hexId} is scorched!`);
           }
-          if (activeAbility.id === 'shield_bash_and_cleave') {
+          if (cleaveDamage > 0) {
             const surrounding = getSurroundingHexes(hexId);
             surrounding.forEach((sHex) => {
               const sUnit = unitsOnBoard[sHex];
@@ -9787,7 +9802,7 @@ export default function App() {
                 stdDamageEvents.push({
                   hexId: sHex,
                   damagedUnitOwner: sUnit.owner,
-                  damageAmount: 4
+                  damageAmount: cleaveDamage
                 });
               }
             });
@@ -9983,26 +9998,6 @@ export default function App() {
           const hitCount = multiHitRecords.length;
           const hitSpec = hitCount > 1 ? ` (${hitCount} hits)` : '';
           notif = `${activeTurnUnit.card.name} used ${activeAbility.name}${hitSpec} on friendly ${targetUnit.card.name}! Feeding Frenzy converted damage into ${damage} healing! (${targetUnit.card.name} healed ${healedAmount} damage, now 💥${newDamageCounters}/${targetUnit.card.hp} counters). (${isFree ? 'Free promoted ability' : `${cost} AP spent`})`;
-        } else if (activeAbility.id === 'rip_and_tear') {
-          if (armourRemovedBeforeAttack > 0) {
-            notif = `${activeTurnUnit.card.name} used Rip and Tear! Removed all ${armourRemovedBeforeAttack} armour from ${targetUnit.card.name} and dealt 7 damage! ${
-              isDefeated ? `${targetUnit.card.name} was defeated and sent to Graveyard!` : `(💥${newDamageCounters}/${targetUnit.card.hp} counters placed)`
-            }`;
-          } else {
-            notif = `${activeTurnUnit.card.name} used Rip and Tear! No armour was removed, so Rip and Tear struck twice for 7 + 5 damage (${damage} total)! ${
-              isDefeated ? `${targetUnit.card.name} was defeated and sent to Graveyard!` : `(💥${newDamageCounters}/${targetUnit.card.hp} counters placed)`
-            }`;
-          }
-        } else if (activeAbility.id === 'shield_bash_and_cleave') {
-          notif = `${activeTurnUnit.card.name} used Shield Bash & Cleave! ${
-            armourRemovedBeforeAttack > 0 ? `Removed ${armourRemovedBeforeAttack} armour from ${targetUnit.card.name}. ` : ''
-          }Dealt ${damage} damage to ${targetUnit.card.name} and cleaved surrounding enemies for 4 damage! ${
-            isDefeated ? `${targetUnit.card.name} was defeated!` : `(💥${newDamageCounters}/${targetUnit.card.hp} counters placed)`
-          }`;
-        } else if (activeAbility.id === 'telekinetic_rend') {
-          notif = `${activeTurnUnit.card.name} used Telekinetic Rend! Removed ${armourRemovedBeforeAttack} armour from ${targetUnit.card.name}, placed ${armourRemovedBeforeAttack} armour on ${activeTurnUnit.card.name}, and dealt ${damage} damage! ${
-            isDefeated ? `${targetUnit.card.name} was defeated!` : `(💥${newDamageCounters}/${targetUnit.card.hp} counters placed)`
-          }`;
         } else if (hitStructure.isMultiHit && multiHitRecords.length > 0) {
           const hitCount = multiHitRecords.length;
           const damages = multiHitRecords.map((h) => h.damage);
@@ -10094,7 +10089,7 @@ export default function App() {
           notif += ` 💎 ${targetUnit.card.name}'s ${retaliation.sources.join(' & ')} dealt ${retaliationReturn} damage back to ${activeTurnUnit.card.name}${casterDefeated ? ' (Defeated!)' : ''}.`;
         }
         if (isOverloadGemstone && !casterDefeated) {
-          notif += ` [Overload Gemstone: Locked during your next turn]`;
+          notif += ` [${selfLock?.name}: Locked during your next turn]`;
         }
         if (isFlowingStanceActive(activeTurnUnit) && getHexDistance(activeTurnUnitHex, hexId) === 2 && (activeAbility.tags?.includes('melee') || activeAbility.text?.toLowerCase().includes('melee'))) {
           notif += ` [Flowing Stance: Range 2 melee strike]`;
@@ -10102,8 +10097,8 @@ export default function App() {
         if (hasCephalopodReach(activeTurnUnit) && targetDist > 1 && (activeAbility.tags?.includes('melee') || activeAbility.text?.toLowerCase().includes('melee'))) {
           notif += ` [🐙 Cephalopod Reach: +1 Range melee strike]`;
         }
-        if (activeAbility.id === 'tentacle_drag' && !isDefeated && targetDist > 1) {
-          notif += ` [🐙 Tentacle Drag: Dragged target to surrounding tile]`;
+        if (placesHitUnitAroundSelf && !isDefeated && targetDist > 1) {
+          notif += ` [🐙 ${activeAbility.name}: Dragged target to surrounding tile]`;
         }
         if (flawlessParryPrevented > 0) {
           const parryReason = isImmuneToReactEffects(activeTurnUnit)
@@ -10111,8 +10106,14 @@ export default function App() {
             : `(Attacker was at Range ${targetDist}, outside Range 1 so attack was not reflected).`;
           notif += ` 🛡️ ${targetUnit.card.name}'s Flawless Parry prevented ${flawlessParryPrevented} damage! ${parryReason}`;
         }
-        if (activeAbility.id === 'ice_lance' && !isDefeated) {
-          notif += ` [🧊 Ice Lance: ${targetUnit.card.name} cannot be promoted or fused during opponent's next turn!]`;
+        if (armourRemovedBeforeAttack > 0) {
+          notif += ` [Removed ${armourRemovedBeforeAttack} armour from ${targetUnit.card.name} first]`;
+        }
+        if (cleaveDamage > 0) {
+          notif += ` [${activeAbility.name}: ${cleaveDamage} damage to the enemy units surrounding ${targetUnit.card.name}]`;
+        }
+        if (!isDefeated && activeAbility.effects?.some((e: any) => e.type === 'cannotBePromotedOrFused')) {
+          notif += ` [🧊 ${activeAbility.name}: ${targetUnit.card.name} cannot be promoted or fused during opponent's next turn!]`;
         }
         if (onAttackArmour.upTo > 0) {
           notif += ` [${activeTurnUnit.card.name}'s ${onAttackArmour.sources.join(' & ')}: armoured up to ${onAttackArmour.upTo}]`;
@@ -10215,12 +10216,17 @@ export default function App() {
             afterAp: activeAbility.inProviderChain ? undefined : attackFinalAp,
             postLootCallback: twinFuryActive ? () => {
               setUnitsOnBoard((prevUnits) => {
-                const surrounding = getSurroundingHexes(activeTurnUnitHex);
-                const otherEnemyHex = surrounding.find((h) => prevUnits[h] && prevUnits[h].owner !== activePlayer && h !== hexId);
+                const otherEnemyHex = Object.keys(prevUnits).find(
+                  (h) =>
+                    prevUnits[h].owner !== activePlayer &&
+                    h !== hexId &&
+                    getHexDistance(activeTurnUnitHex, h) >= 1 &&
+                    getHexDistance(activeTurnUnitHex, h) <= twinFuryFollowUp.range
+                );
                 if (!otherEnemyHex) return prevUnits;
                 const otherUnit = prevUnits[otherEnemyHex];
                 let oArmour = otherUnit.armour;
-                let oDamage = 4;
+                let oDamage = twinFuryFollowUp.amount;
                 if (oArmour > 0) {
                   if (oArmour >= oDamage) {
                     oArmour -= oDamage;
@@ -10238,19 +10244,19 @@ export default function App() {
                     if (otherUnit.owner === 'player1') setPlayer1Graveyard((g) => [...g, otherUnit.card]);
                     else setPlayer2Graveyard((g) => [...g, otherUnit.card]);
                   }
-                  showNotification(`⚡ Twin Fury: Cleaved ${otherUnit.card.name} at ${otherEnemyHex} for 4 damage (Defeated!)`);
+                  showNotification(`⚡ ${twinFuryFollowUp.name}: Cleaved ${otherUnit.card.name} at ${otherEnemyHex} for ${twinFuryFollowUp.amount} damage (Defeated!)`);
                 } else {
                   nextB[otherEnemyHex] = {
                     ...otherUnit,
                     armour: oArmour,
                     damageCounters: oCounters
                   };
-                  showNotification(`⚡ Twin Fury: Cleaved ${otherUnit.card.name} at ${otherEnemyHex} for 4 damage!`);
+                  showNotification(`⚡ ${twinFuryFollowUp.name}: Cleaved ${otherUnit.card.name} at ${otherEnemyHex} for ${twinFuryFollowUp.amount} damage!`);
                 }
                 let nextBWithPress = nextB;
                 if (otherUnit && (oDamage > 0 || otherUnit.armour > oArmour)) {
                   nextBWithPress = applyDamageEventsAndPassives(
-                    [{ hexId: otherEnemyHex, damagedUnitOwner: otherUnit.owner, damageAmount: 4 }],
+                    [{ hexId: otherEnemyHex, damagedUnitOwner: otherUnit.owner, damageAmount: twinFuryFollowUp.amount }],
                     nextB
                   );
                 }
@@ -10384,6 +10390,7 @@ export default function App() {
               usedTurnCounts: {},
               usedOnTargets: {},
               attackedFromFrontIds: undefined,
+              attacksFromBehindThisTurn: 0,
               tookDamageThisTurn: false,
               movedThisTurn: false,
               movesThisTurn: 0,
@@ -10460,6 +10467,7 @@ export default function App() {
         attacksUsedThisTurn: 0,
         usedOnTargets: {},
               attackedFromFrontIds: undefined,
+              attacksFromBehindThisTurn: 0,
         movedThisTurn: false,
         movesThisTurn: 0,
         lockedIn: false,
@@ -10481,8 +10489,6 @@ export default function App() {
     if (
       movingUnit.card.isWall ||
       hasSelfCannotMovePassive(movingUnit) ||
-      movingUnit.card.id === 'raging_bonfire' ||
-      movingUnit.card.id === 'obstructing_wall' ||
       movingUnit.statuses?.includes(CANNOT_MOVE) ||
       movingUnit.statuses?.includes(CANT_MOVE_SELF)
     ) {
@@ -11431,9 +11437,8 @@ export default function App() {
     if (offerReadySpellInterrupt({ kind: 'draw' })) return;
 
     const passives = getUnitPassives(activeTurnUnit);
-    const hasRapidCatalog = passives.some(
-      (p) => p.id === 'rapid_catalog' || p.name === 'Rapid Catalog' || p.name === 'Rapid Catalogue'
-    );
+    const drawReplacement = getDrawReplacement(passives);
+    const hasRapidCatalog = Boolean(drawReplacement);
 
     const newAp = activeTurnUnit.currentAp - drawCost;
     setUnitsOnBoard((prev) => ({
@@ -11456,9 +11461,9 @@ export default function App() {
           setPlayer2Hand((h) => [...h, drawnCard]);
           setPlayer2Deck([]);
         }
-        showNotification(`${activeTurnUnit.card.name}'s Rapid Catalogue drew the last card of the deck (${drawnCard.name})!`, {
+        showNotification(`${activeTurnUnit.card.name}'s ${drawReplacement!.name} drew the last card of the deck (${drawnCard.name})!`, {
           privateTo: activePlayer,
-          publicText: `${activeTurnUnit.card.name}'s Rapid Catalogue drew the last card of the deck!`
+          publicText: `${activeTurnUnit.card.name}'s ${drawReplacement!.name} drew the last card of the deck!`
         });
         if (newAp <= 0) {
           switchTurn(false);
@@ -11466,15 +11471,15 @@ export default function App() {
         return;
       }
 
-      const top2 = activeDeck.slice(0, 2);
+      const top2 = activeDeck.slice(0, drawReplacement!.count);
       setResearchPending({
         cards: top2,
         player: activePlayer,
-        sourceTitle: 'Rapid Catalogue',
+        sourceTitle: drawReplacement!.name,
         unitName: activeTurnUnit.card.name,
         afterAp: newAp
       });
-      showNotification(`${activeTurnUnit.card.name} activated Rapid Catalogue! Choose 1 of the top 2 cards for your hand.`);
+      showNotification(`${activeTurnUnit.card.name} activated ${drawReplacement!.name}! Choose 1 of the top ${drawReplacement!.count} cards for your hand.`);
       return;
     }
 
@@ -11738,7 +11743,10 @@ export default function App() {
     const areaOnAttackArmour = getOnAttackSelfArmour(activeTurnUnit, (board[targetHex]?.armour || 0) > 0);
     // First-attack heal per hit (e.g. Bloodrush): every hit that landed on any unit
     const areaFirstAttackHeal = getFirstAttackHealPerHit(activeTurnUnit);
-    const areaHeal = areaFirstAttackHeal ? areaFirstAttackHeal.perHit * (res.hitsLanded || 0) : 0;
+    // "When this unit uses a melee attack, it heals 3 damage" (e.g. Draining Touch), once for the whole attack
+    const areaDrain = isMeleeAttackAbility(ability) && (res.hitsLanded || 0) > 0 ? getMeleeAttackHeal(activeTurnUnit) : null;
+    const areaHeal =
+      (areaFirstAttackHeal ? areaFirstAttackHeal.perHit * (res.hitsLanded || 0) : 0) + meleeAttackHealFor(areaDrain, res.hitsLanded || 0);
     if (caster) {
       // e.g. Human Cannonball: "...but it cannot move until the end of your opponent's next turn"
       finalUnits[casterHex] = applySelfCannotMove(
@@ -11856,25 +11864,25 @@ export default function App() {
     let areaLootAmount = 0;
     let areaLootTitle = '';
     if (anyEnemyDamaged && activeTurnUnit) {
-      const aPassives = getUnitPassives(activeTurnUnit);
-      const sf = aPassives.find((p) => p.id === 'short_fuse' || p.name === 'Short Fuse');
-      if (sf && canTriggerPassiveThisTurn(activeTurnUnit, sf)) {
-        nextCounts[sf.id || sf.name] = (nextCounts[sf.id || sf.name] || 0) + 1;
-        areaLootAmount = Math.max(areaLootAmount, 2);
-        areaLootTitle = 'Short Fuse';
-      }
-      const sp = aPassives.find((p) => p.id === 'spoils' || p.name === 'Spoils');
-      if (sp && canTriggerPassiveThisTurn(activeTurnUnit, sp)) {
-        nextCounts[sp.id || sp.name] = (nextCounts[sp.id || sp.name] || 0) + 1;
-        areaLootAmount = Math.max(areaLootAmount, 2);
-        areaLootTitle = 'Spoils';
-      }
-      const ic = aPassives.find((p) => p.id === 'iron_clout' || p.name === 'Iron Clout');
-      if (ic && canTriggerPassiveThisTurn(activeTurnUnit, ic)) {
-        nextCounts[ic.id || ic.name] = (nextCounts[ic.id || ic.name] || 0) + 1;
-        areaLootAmount = Math.max(areaLootAmount, 1);
-        areaLootTitle = 'Iron Clout';
-      }
+      // The attacker's loot passives (e.g. Short Fuse, Spoils, Iron Clout, Magnetized Plunder): see getAttackerLootPassives
+      const areaArmourDealt = Object.values(board).some((u) => {
+        if (u.owner === activePlayer || u.armour <= 0) return false;
+        const after = Object.values(res.updatedUnits).find((x) => x.instanceId === u.instanceId);
+        return u.armour - (after ? after.armour : 0) > 0;
+      });
+      getAttackerLootPassives(activeTurnUnit, {
+        dealtDamage: true,
+        damagedEnemy: true,
+        dealtToArmour: areaArmourDealt,
+        ranged: !isMeleeAttackAbility(ability)
+      }).forEach(({ passive, amount }) => {
+        if (!canTriggerPassiveThisTurn(activeTurnUnit, passive)) return;
+        nextCounts[passive.id || passive.name] = (nextCounts[passive.id || passive.name] || 0) + 1;
+        if (amount > areaLootAmount) {
+          areaLootAmount = amount;
+          areaLootTitle = passive.name;
+        }
+      });
     }
 
     if (areaLootAmount > 0) {
@@ -11886,6 +11894,17 @@ export default function App() {
     }
 
     if ((cost > 0 || endsTurn) && newAp <= 0) switchTurn(false);
+  };
+  // "Armour up to 4. A friendly unit surrounding this one may also armour up to 3" (e.g. Rally Stance): the upTo of the
+  // ability's armour effects on itself and on a surrounding friendly unit
+  const getArmourUpTo = (ability: CardAbility, who: 'self' | 'friend'): number => {
+    const eff: any = ((ability.effects || []) as any[]).find(
+      (e: any) =>
+        e.type === 'armour' &&
+        typeof e.upTo === 'number' &&
+        (who === 'self' ? e.target === 'self' || !e.target : String(e.target || '').startsWith('friendly'))
+    );
+    return eff ? eff.upTo : 0;
   };
   // Handle Ability Trigger (Works from action panel or directly from standee hover)
   // Abilities bring up range indicator (blue) and spend AP
@@ -11961,7 +11980,7 @@ export default function App() {
       setReadySpellChoice({ ability, cost: reactSpec.cost, once: reactSpec.once, onAnyAction: reactSpec.onAnyAction, options });
       return;
     }
-    if (abilityId === 'rally_stance') {
+    if (abilityKind(ability).armourGift) {
       const surroundingFriends = getSurroundingHexes(activeTurnUnitHex!).filter((h) => {
         const u = unitsOnBoard[h];
         return u && u.owner === activePlayer && h !== activeTurnUnitHex;
@@ -11978,7 +11997,7 @@ export default function App() {
             ...prev,
             [activeTurnUnitHex!]: {
               ...cur,
-              armour: Math.max(cur.armour, 4),
+              armour: Math.max(cur.armour, getArmourUpTo(ability, 'self')),
               currentAp: newAp,
               usedTurnCounts: newCounts
             }
@@ -11987,7 +12006,7 @@ export default function App() {
 
         playCardDrawSound();
         showNotification(
-          `${activeTurnUnit.card.name} used Rally Stance! (Armoured up to 4; no surrounding allies present, ${cost} AP spent, ${newAp} AP remaining).`
+          `${activeTurnUnit.card.name} used ${ability.name}! (Armoured up to ${getArmourUpTo(ability, 'self')}; no surrounding allies present, ${cost} AP spent, ${newAp} AP remaining).`
         );
         if (!afterArmourAbilityUsed(activeTurnUnit, ability, newAp) && cost > 0 && newAp <= 0) {
           switchTurn(false);
@@ -11998,14 +12017,14 @@ export default function App() {
     // "Prevent up to N damage ... and deal that much back as a react effect" until the end of the opponent's next turn:
     // Ready Stance (the next melee attack against it), Flawless Parry (the next attack of any kind), read from its
     // setReact effect (preventDamage upTo; a trigger that isn't about melee attacks covers any attack)
-    if (abilityId === 'ready_stance' || abilityId === 'flawless_parry') {
+    if (abilityKind(ability).preventReact) {
       const opponent: PlayerId = activePlayer === 'player1' ? 'player2' : 'player1';
       const newAp = activeTurnUnit.currentAp - cost;
       const currentCounts = activeTurnUnit.usedTurnCounts || {};
       const newCounts = recordAbilityUse(currentCounts, ability);
       const react: any = ability.effects?.find((e: any) => e.type === 'setReact');
       const preventEff: any = (react?.effects || []).find((e: any) => e.type === 'preventDamage');
-      const preventUpTo = typeof preventEff?.upTo === 'number' ? preventEff.upTo : 7;
+      const preventUpTo = typeof preventEff?.upTo === 'number' ? preventEff.upTo : 0;
       const anyAttack = !String(react?.trigger || '').toLowerCase().includes('melee');
       setUnitsOnBoard((prev) => ({
         ...prev,
@@ -12025,7 +12044,7 @@ export default function App() {
       }
       return;
     }
-    if (abilityId === 'deep_research') {
+    if (abilityKind(ability).lookTopTake) {
       const deck = activePlayer === 'player1' ? player1Deck : player2Deck;
       if (deck.length === 0) {
         showNotification("Your deck is empty.");
@@ -12055,9 +12074,9 @@ export default function App() {
           setPlayer2Hand((h) => [...h, drawnCard]);
           setPlayer2Deck([]);
         }
-        showNotification(`${activeTurnUnit.card.name} used Deep Research: drew the last card of the deck (${drawnCard.name})!`, {
+        showNotification(`${activeTurnUnit.card.name} used ${ability.name}: drew the last card of the deck (${drawnCard.name})!`, {
           privateTo: activePlayer,
-          publicText: `${activeTurnUnit.card.name} used Deep Research: drew the last card of the deck!`
+          publicText: `${activeTurnUnit.card.name} used ${ability.name}: drew the last card of the deck!`
         });
         if (cost > 0 && newAp <= 0) {
           switchTurn(false);
@@ -12065,15 +12084,17 @@ export default function App() {
         return;
       }
 
-      const top2 = deck.slice(0, 2);
+      const lookCount: number =
+        ((ability.effects || []) as any[]).find((e: any) => e.type === 'lookTop' && typeof e.count === 'number')?.count ?? 1;
+      const top2 = deck.slice(0, lookCount);
       setResearchPending({
         cards: top2,
         player: activePlayer,
-        sourceTitle: 'Deep Research',
+        sourceTitle: ability.name,
         unitName: activeTurnUnit.card.name,
         afterAp: newAp
       });
-      showNotification(`${activeTurnUnit.card.name} activated Deep Research! Choose 1 of the top 2 cards for your hand.`);
+      showNotification(`${activeTurnUnit.card.name} activated ${ability.name}! Choose 1 of the top ${lookCount} cards for your hand.`);
       return;
     }
     // Reveal the top cards of your own deck and choose one for your hand (e.g. Foretell)
@@ -12400,13 +12421,15 @@ export default function App() {
     }
 
     // Non-targeted self abilities:
-    if (abilityId === 'roast_a_marshmallow') {
+    if (abilityKind(ability).selfHealOnly) {
       const surroundingHexes = getSurroundingHexes(activeTurnUnitHex!);
-      const nearBonfire = surroundingHexes.some((h) => {
-        const u = unitsOnBoard[h];
-        return u && (u.card.id === 'raging_bonfire' || u.card.name === 'Raging Bonfire');
-      });
-      const healAmount = nearBonfire ? 4 : 2;
+      const healEff: any = ((ability.effects || []) as any[]).find((e: any) => e.type === 'heal');
+      const surroundingMod: any = ((healEff?.modifiers || []) as any[]).find(
+        (m: any) => typeof m.setAmount === 'number' && /^self\.surroundingToken:/.test(m.if || '')
+      );
+      const nearToken = surroundingMod ? String(surroundingMod.if).split(':')[1] : '';
+      const nearBonfire = Boolean(nearToken) && surroundingHexes.some((h) => unitsOnBoard[h]?.card.id === nearToken);
+      const healAmount: number = nearBonfire ? surroundingMod.setAmount : typeof healEff?.amount === 'number' ? healEff.amount : 0;
       const newDamageCounters = Math.max(0, activeTurnUnit.damageCounters - healAmount);
       const newAp = activeTurnUnit.currentAp - cost;
       const currentCounts = activeTurnUnit.usedTurnCounts || {};
@@ -12424,7 +12447,7 @@ export default function App() {
 
       playCardDrawSound();
       showNotification(
-        `${activeTurnUnit.card.name} used Roast a Marshmallow and healed ${healAmount} damage!${nearBonfire ? ' (Boosted by adjacent Raging Bonfire)' : ''} (${cost} AP spent, ${newAp} AP remaining).`
+        `${activeTurnUnit.card.name} used ${ability.name} and healed ${healAmount} damage!${nearBonfire ? ` (Boosted by an adjacent ${surroundingHexes.map((h) => unitsOnBoard[h]).find((u) => u?.card.id === nearToken)?.card.name})` : ''} (${cost} AP spent, ${newAp} AP remaining).`
       );
 
       if (cost > 0 && newAp <= 0) {
@@ -12566,8 +12589,6 @@ export default function App() {
     if (match) armourGain = parseInt(match[1], 10);
 
     const hasReflect =
-      abilityId === 'fortress_stance' ||
-      abilityId === 'gird_for_battle' ||
       Boolean(ability.effects?.some((e: any) => e.type === 'setReact' && e.effects?.some((re: any) => re.type === 'reflect'))) ||
       Boolean(ability.effects?.some((e: any) => e.type === 'reflect')) ||
       ability.text?.toLowerCase().includes('reflect');
@@ -12576,8 +12597,6 @@ export default function App() {
     if (hasReflect) {
       const isRangedOnly =
         ability.text?.toLowerCase().includes('ranged attack') ||
-        abilityId === 'fortress_stance' ||
-        abilityId === 'gird_for_battle' ||
         Boolean(ability.effects?.some((e: any) => e.trigger?.toLowerCase().includes('ranged')));
       const isRange1Only = ability.text?.toLowerCase().includes('within range 1');
 
@@ -13326,7 +13345,6 @@ export default function App() {
       promotedAbility.text.toLowerCase().includes('damage');
 
     const allowEmpty =
-      parentAbility.id === 'echoing_incantation' ||
       Boolean((parentAbility as any).allowEmptyTileTarget) ||
       Boolean(parentAbility.effects?.some((e: any) => e.allowEmptyTileTarget));
 
@@ -13335,9 +13353,12 @@ export default function App() {
     // still costs the AP
     // "This unit may move 1 tile for free before choosing a target for this attack" (Shifting Strike): read from the
     // useAbility effect's 'before' list. The provider is paid when chosen, as with the effects above.
-    const beforeMove: any = ((parentAbility.effects?.find((e: any) => e.type === 'useAbility') as any)?.before || []).find(
+    const providerUse: any = parentAbility.effects?.find((e: any) => e.type === 'useAbility');
+    const beforeMove: any = (providerUse?.before || []).find(
       (e: any) => e.type === 'move' && e.target === 'self' && e.free
     );
+    // "Except loot 1 first" (e.g. Avast): a loot in the useAbility's before list
+    const beforeLoot: any = (providerUse?.before || []).find((e: any) => e.type === 'loot' && typeof e.amount === 'number');
     const prepaysAttack = (getProviderPreEffects(parentAbility).length > 0 || Boolean(beforeMove)) && isAttack;
 
     const executableAbility = buildProviderExecutable(parentAbility, promotedAbility, {
@@ -13345,13 +13366,12 @@ export default function App() {
       parentUsedBefore,
       extra: {
         ...(prepaysAttack || revealPrepaid ? { prepaidByParent: true } : {}),
-        ...(parentAbility.id === 'blink_strike' ? { treatAsFromBehind: true } : {}),
         ...(allowEmpty ? { allowEmptyTileTarget: true } : {})
       }
     });
 
     if (isAttack) {
-      if (parentAbility.id === 'avast') {
+      if (beforeLoot) {
         const newAp = activeTurnUnit.currentAp - parentCost;
         const currentCounts = activeTurnUnit.usedTurnCounts || {};
         const pKey = parentAbility.id || parentAbility.name;
@@ -13359,7 +13379,6 @@ export default function App() {
           ...currentCounts,
           [pKey]: (currentCounts[pKey] || 0) + 1
         };
-        newCounts['avast'] = (newCounts['avast'] || 0) + 1;
         setUnitsOnBoard((prev) => ({
           ...prev,
           [activeTurnUnitHex!]: {
@@ -13369,13 +13388,13 @@ export default function App() {
           }
         }));
 
-        triggerLoot(activePlayer, 1, 'Avast', activeTurnUnit.card.name, {
+        triggerLoot(activePlayer, beforeLoot.amount, parentAbility.name, activeTurnUnit.card.name, {
           unitHex: activeTurnUnitHex!,
           afterAp: newAp,
           postLootCallback: () => {
             setActiveAbility(executableAbility);
             showNotification(
-              `Avast: Loot 1 completed! Targeting ${promotedAbility.name} for free. Click an enemy in range (blue tiles).`
+              `${parentAbility.name}: Loot ${beforeLoot.amount} completed! Targeting ${promotedAbility.name} for free. Click an enemy in range (blue tiles).`
             );
           }
         });
@@ -13441,7 +13460,7 @@ export default function App() {
         usesBefore: activeTurnUnit.usedTurnCounts?.[parentAbility.id] || 0,
         borrowed: promotedAbility
       };
-      if (parentAbility.id === 'anchor_smash' || isMultiStageAbility(parentAbility)) {
+      if (getAddedTargets(parentAbility) || isMultiStageAbility(parentAbility)) {
         const initialState: MultiStageState = {
           ability: executableAbility,
           casterHex: activeTurnUnitHex!,
@@ -13454,13 +13473,14 @@ export default function App() {
         showNotification(info.promptMessage);
         return;
       }
-      if (parentAbility.id === 'echoing_incantation' || allowEmpty) {
+      if (allowEmpty) {
         showNotification(
-          `Targeting Echoing Incantation (${promotedAbility.name}): Click an enemy or empty tile in range (blue tiles).`
+          `Targeting ${parentAbility.name} (${promotedAbility.name}): Click an enemy or empty tile in range (blue tiles).`
         );
-      } else if (parentAbility.id === 'overload_gemstone') {
+      } else if (typeof providerUse?.times === 'number' && providerUse.times > 1) {
+        // (e.g. Overload Gemstone: "twice ... both against the same target")
         showNotification(
-          `Targeting Overload Gemstone: using ${promotedAbility.name} twice for free against the same target (${parentCost} AP). Click an enemy in range (blue tiles).`
+          `Targeting ${parentAbility.name}: using ${promotedAbility.name} ${providerUse.times === 2 ? 'twice' : `${providerUse.times} times`} for free against the same target (${parentCost} AP). Click an enemy in range (blue tiles).`
         );
       } else {
         showNotification(
@@ -15082,9 +15102,10 @@ export default function App() {
         showNotification(`${mark.sourceName}: ${next[casterHex].card.name} healed ${mark.healCasterOnDeath} as ${killed.card.name} died.`);
       }
     }
-    // "When this unit kills an enemy unit" (e.g. Medal Collection, Pride Feast)
-    if (killer && killed.owner !== killer.owner && !killed.card.isWall) {
-      const rewards = applyKillRewards(killer, next);
+    // "When this unit kills an enemy unit" (e.g. Medal Collection, Pride Feast), or "another unit", friendly ones
+    // too (e.g. Relentless Rage)
+    if (killer && killed.instanceId !== killer.instanceId && !killed.card.isWall) {
+      const rewards = applyKillRewards(killer, next, killed.owner !== killer.owner);
       next = rewards.board;
       if (rewards.log.length > 0) showNotification(`🏅 ${rewards.log.join(' • ')}`);
     }
@@ -15288,10 +15309,13 @@ export default function App() {
 
   // Foresight (Fateweaver Sage): when this unit takes a turn, scry 1
   const triggerForesight = (unit: BattlefieldUnit) => {
-    if (!getUnitPassives(unit).some((p) => p.id === 'foresight')) return;
+    const foresight = getUnitPassives(unit).find(
+      (p) => p.trigger === 'self.takesTurn' && ((p.effects || []) as any[]).some((e: any) => e.type === 'lookTop')
+    );
+    if (!foresight) return;
     const deck = unit.owner === 'player1' ? player1Deck : player2Deck;
     if (deck.length === 0) return;
-    enqueuePopup(unit.owner, 'Foresight: Scry 1', (ctx) => {
+    enqueuePopup(unit.owner, `${foresight.name}: Scry 1`, (ctx) => {
       const d = unit.owner === 'player1' ? ctx.p1Deck : ctx.p2Deck;
       if (d.length > 0) setScryPending({ card: d[0], player: unit.owner, unitName: unit.card.name });
     });
@@ -15698,6 +15722,11 @@ export default function App() {
   //     limits: { oncePerTurn }, effects: [{ type: 'loot' }] } (e.g. Shared Spoils)
   //   the puller's { trigger: 'self.pullsEnemyUnit', limits: { oncePerTurn } } (e.g. Salvage; see getPullLoots)
   const passiveLootTurnRef = useRef<Record<string, number>>({});
+  // A melee attack's flat heal already given for this use of the ability (e.g. Draining Touch), across its steps
+  const drainUseRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!activeAbility && !multiStageState) drainUseRef.current = null;
+  }, [activeAbility, multiStageState]);
   const takeOncePerTurnLoot = (unit: BattlefieldUnit, passive: CardPassive): boolean => {
     const key = `${unit.instanceId}:${passive.id || passive.name}`;
     if (isOncePerTurn(passive) && passiveLootTurnRef.current[key] === turnCount) return false;
@@ -15820,12 +15849,14 @@ export default function App() {
     let plunderersDueTriggered = false;
     if (lootingUnit) {
       const passives = getUnitPassives(lootingUnit);
-      const plunderersDue = passives.find((p) => p.id === 'plunderers_due' || p.name === "Plunderer's Due");
+      const plunderersDue = passives.find(
+        (p) => p.trigger === 'self.loots' && ((p.effects || []) as any[]).some((e: any) => e.type === 'loot' && typeof e.amount === 'number')
+      );
       if (plunderersDue && canTriggerPassiveThisTurn(lootingUnit, plunderersDue)) {
         plunderersDueTriggered = true;
         const pKey = plunderersDue.id || plunderersDue.name;
         const currentCounts = lootingUnit.usedTurnCounts || {};
-        const nextCounts = { ...currentCounts, [pKey]: (currentCounts[pKey] || 0) + 1, 'plunderers_due': (currentCounts['plunderers_due'] || 0) + 1 };
+        const nextCounts = { ...currentCounts, [pKey]: (currentCounts[pKey] || 0) + 1 };
         setUnitsOnBoard((prev) => {
           const uHex = lootingUnit.hexId;
           if (!prev[uHex]) return prev;
@@ -15837,11 +15868,11 @@ export default function App() {
             }
           };
         });
-        showNotification(`🏴‍☠️ ${lootingUnit.card.name}'s Plunderer's Due: Loot 1 again!`);
+        showNotification(`🏴‍☠️ ${lootingUnit.card.name}'s ${plunderersDue.name}: Loot ${((plunderersDue.effects || []) as any[]).find((e: any) => e.type === 'loot')?.amount ?? 0} again!`);
         lootQueueRef.current.push({
           player,
-          amount: 1,
-          sourceTitle: "Plunderer's Due",
+          amount: ((plunderersDue.effects || []) as any[]).find((e: any) => e.type === 'loot')?.amount ?? 0,
+          sourceTitle: plunderersDue.name,
           unitName: lootingUnit.card.name,
           opts: {
             unitHex: lootingUnit.hexId,
@@ -16422,13 +16453,14 @@ export default function App() {
       onClick: handleUniversalMoveClick
     });
     // Draw (or Rapid Catalogue, which replaces it, in amber)
-    const rapid = getUnitPassives(u).some((p) => p.id === 'rapid_catalog' || p.id === 'rapid_catalogue' || /^Rapid Catalog(ue)?$/.test(p.name));
+    const rapidReplacement = getDrawReplacement(getUnitPassives(u));
+    const rapid = Boolean(rapidReplacement);
     const canDraw = !isUnitMindless(u) && !u.usedUniversalDrawThisTurn && activeDeck.length > 0;
     out.push({
       key: 'draw',
-      name: rapid ? 'Rapid Catalogue' : 'Draw',
+      name: rapid ? rapidReplacement!.name : 'Draw',
       cost: '1 AP',
-      text: rapid ? 'Look at the top 2 cards of your deck: put 1 in your hand, 1 on the bottom. Once per turn.' : 'Draw 1 card. Once per turn.',
+      text: rapid ? `Look at the top ${rapidReplacement!.count} cards of your deck: put 1 in your hand, the rest on the bottom. Once per turn.` : 'Draw 1 card. Once per turn.',
       usable: !locked && canDraw && u.currentAp >= 1,
       why: isUnitMindless(u)
         ? "Mindless: it can't draw"
@@ -17783,7 +17815,7 @@ export default function App() {
                       multiStageState ? multiStageState.targets : []
                     }
                     abilityRangeHexes={activeAbility ? abilityRangeHexes : previewRangeHexes}
-                    isStraightLineAbility={isStraightLineAbility(activeAbility) || activeAbility?.id === 'reckless_leap'}
+                    isStraightLineAbility={isStraightLineAbility(activeAbility) || getStraightLeapDistance(activeAbility) !== null}
                     customArtMap={customArtMap}
                     selectedHandCard={selectedHandIndex !== null ? activeHand[selectedHandIndex] : null}
                     activePlayer={activePlayer}

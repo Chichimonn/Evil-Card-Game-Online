@@ -43,10 +43,6 @@ export interface ChargeFlightSpec {
  */
 export function isChargeFlightAbility(ability?: CardAbility | null): boolean {
   if (!ability) return false;
-  const id = ability.id?.toLowerCase() || '';
-  const name = ability.name?.toLowerCase() || '';
-  if (id === 'mounted_charge' || name.includes('mounted charge')) return true;
-  if (id === 'drakes_flight' || name.includes("drake's flight") || name.includes('drakes flight')) return true;
   if ((ability as any).isChargeFlight === true) return true;
   return Boolean(
     ability.effects?.some(
@@ -98,8 +94,6 @@ function getChargeFlightSpecOfAbility(ability?: CardAbility | null): ChargeFligh
     };
   }
 
-  const id = ability.id?.toLowerCase() || '';
-  const name = ability.name?.toLowerCase() || '';
   const moveEffect = ability.effects?.find((e: any) => e.type === 'move') as any;
 
   // Damage variable: read from effect, ability property, or fallback to 8
@@ -112,13 +106,9 @@ function getChargeFlightSpecOfAbility(ability?: CardAbility | null): ChargeFligh
     damage = (ability as any).damage;
   }
 
-  // Path lengths: Mounted Charge is [3], Drake's Flight is [3, 4]
+  // Path lengths, from the move's distance (e.g. Mounted Charge: 3; Drake's Flight: { min: 3, max: 4 })
   let possiblePathLengths: number[] = [3];
-  if (id === 'mounted_charge' || name.includes('mounted charge')) {
-    possiblePathLengths = [3];
-  } else if (id === 'drakes_flight' || name.includes("drake's flight") || name.includes('drakes flight')) {
-    possiblePathLengths = [3, 4];
-  } else if (moveEffect?.distance) {
+  if (moveEffect?.distance) {
     if (typeof moveEffect.distance === 'number') {
       possiblePathLengths = [moveEffect.distance];
     } else if (typeof moveEffect.distance.min === 'number' && typeof moveEffect.distance.max === 'number') {

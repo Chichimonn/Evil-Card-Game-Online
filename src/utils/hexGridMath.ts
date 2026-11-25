@@ -137,11 +137,8 @@ export function isAttackFromBehind(
   targetOwner: PlayerId | null | undefined,
   ability?: CardAbility | null
 ): boolean {
-  if (
-    ability?.parentAbilityId === 'blink_strike' ||
-    ability?.id?.startsWith('blink_strike__') ||
-    (ability as any)?.treatAsFromBehind === true
-  ) {
+  // "Treat it as though it were made from behind" (e.g. Blink Strike's borrowed attack: treatAsFromBehind)
+  if ((ability as any)?.treatAsFromBehind === true) {
     return true;
   }
   if (!attackerHex || !targetHex || !targetOwner) return false;
@@ -220,7 +217,6 @@ export function isStraightLineAbility(
   if (!ability) return false;
   if (ability.straightLine) return true;
   if (ability.target === 'direction') return true;
-  if (ability.id === 'full_bore' || ability.id === 'weighty_shot' || ability.id === 'quartz_ray') return true;
   if (ability.effects?.some((e: any) => e.area === 'firstUnitInStraightLine' || e.area === 'allUnitsInLine')) return true;
   return false;
 }
@@ -237,7 +233,6 @@ export function isAbilityTargetingEmptyTile(
     return false;
   }
   if (ability.targetText?.toLowerCase().includes('empty tile') || ability.targetText?.toLowerCase().includes('empty surrounding')) return true;
-  if (ability.id === 'stone_wall' || ability.id === 'build_structure' || ability.id === 'pitch_camp' || ability.id === 'shade_step' || ability.id === 'vanish' || ability.id === 'reckless_leap') return true;
   // Abilities that deal damage target a unit, not an empty tile
   if (ability.effects?.some((e: any) => e.type === 'damage')) return false;
   if (ability.effects?.some((e: any) => e.tile === 'chosenEmptySurrounding' || e.tile === 'chosenEmptySurroundingSelf' || (e.type === 'createToken' && e.tile === 'target'))) return true;
@@ -265,15 +260,6 @@ export function isTargetedAbility(
   // A tile to click (e.g. Reckless Leap), even when its only damage is to itself
   if (ability.target === 'emptyTile') return true;
   if (
-    ability.id === 'fortress_stance' ||
-    ability.id === 'gird_for_battle' ||
-    ability.id === 'flawless_parry' ||
-    ability.id === 'roast_a_marshmallow' ||
-    ability.id === 'profane_insight' ||
-    ability.id === 'ready_stance' ||
-    ability.id === 'deep_research' ||
-    ability.id === 'field_notes' ||
-    ability.name?.toLowerCase().includes('field notes') ||
     (ability.effects?.some((e: any) => e.type === 'revealTop') &&
       !ability.effects?.some((e2: any) => e2.type === 'damage') &&
       !ability.tags?.includes('melee') &&
@@ -317,7 +303,7 @@ export function isTargetedAbility(
   ) {
     return false;
   }
-  if (ability.isMultiStage || ability.id === 'buddy_tag' || ability.id === 'tactical_swap' || ability.id === 'nexus_displacement' || ability.id === 'mounted_charge' || ability.id === 'drakes_flight' || (ability as any).isChargeFlight) return true;
+  if (ability.isMultiStage || (ability as any).isChargeFlight) return true;
   if (ability.effects?.some((e) => e.type === 'removeArmour')) return true;
   if (isStraightLineAbility(ability)) return true;
   if (isAbilityTargetingEmptyTile(ability)) return true;
@@ -360,7 +346,8 @@ export function isTileScorched(
   }
   for (const surrHex of surrounding) {
     const u = unitsOnBoard[surrHex];
-    if (u && (u.card?.id === 'raging_bonfire' || u.card?.name === 'Raging Bonfire')) {
+    // A unit that scorches the tiles around it (e.g. Raging Bonfire's Blazing Fixture: { type: 'scorchTiles', tiles: 'surroundingSelf' })
+    if (u && u.card?.passives?.some((p) => (p.effects || []).some((e: any) => e?.type === 'scorchTiles' && e.tiles === 'surroundingSelf' && !e.duration))) {
       return true;
     }
   }
@@ -437,3 +424,12 @@ export function getKnockbackDestination(
   };
 }
 
+
+/**
+ * "Move this unit 2 tiles in the same direction" (e.g. Reckless Leap): an ability whose move of this unit is a set
+ * number of tiles in one direction ({ type: 'move', target: 'self', distance: N, direction: 'same' }). Its N, or null.
+ */
+export function getStraightLeapDistance(ability: { effects?: any[] } | null | undefined): number | null {
+  const mv: any = (ability?.effects || []).find((e: any) => e.type === 'move' && e.target === 'self' && e.direction === 'same');
+  return mv && typeof mv.distance === 'number' ? mv.distance : null;
+}

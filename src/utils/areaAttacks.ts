@@ -425,7 +425,7 @@ export function resolveAreaAttack(
       if (u) working[casterHex] = { ...u, armour: u.armour + eff.amount };
       logMessages.push(`gained ${eff.amount} armour`);
     } else if (eff.type === 'armour' && eff.target === 'self' && typeof eff.upTo === 'number') {
-      // "...then armour up to N" (e.g. Total Eclipse, Gelatinous Bounce)
+      // "...then armour up to N" (e.g. Lunar Eclipse, Gelatinous Bounce)
       const u = working[casterHex];
       if (u && u.armour < eff.upTo) working[casterHex] = { ...u, armour: eff.upTo };
       logMessages.push(`armoured up to ${eff.upTo}`);

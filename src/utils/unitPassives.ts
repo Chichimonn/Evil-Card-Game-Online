@@ -48,8 +48,6 @@ export function isUnitMindless(unit: BattlefieldUnit | null | undefined): boolea
   const passives = getUnitPassives(unit);
   return passives.some(
     (p) =>
-      p.id?.toLowerCase() === 'mindless' ||
-      p.name?.toLowerCase() === 'mindless' ||
       p.effects?.some(
         (e: any) =>
           e.type === 'cannotUse' &&
@@ -66,9 +64,6 @@ export function hasFeedingFrenzy(unit: BattlefieldUnit | null | undefined): bool
   if (!unit) return false;
   const passives = getUnitPassives(unit);
   return passives.some((p) => {
-    const id = p.id?.toLowerCase() || '';
-    const name = p.name?.toLowerCase() || '';
-    if (id === 'feeding_frenzy' || name.includes('feeding frenzy')) return true;
     if (
       p.effects?.some(
         (e: any) =>
@@ -90,10 +85,7 @@ import { isOncePerTurn, getAttacksUsedThisTurn } from './turnLimits';
  */
 export function isEmbeddedPressPassive(passive: CardPassive | null | undefined): boolean {
   if (!passive) return false;
-  const id = passive.id?.toLowerCase() || '';
-  const name = passive.name?.toLowerCase() || '';
   const trigger = passive.trigger?.toLowerCase() || '';
-  if (id === 'embedded_press' || name.includes('embedded press')) return true;
   if (trigger.startsWith('enemyunittakesdamagewithinrange')) return true;
   if (
     passive.text?.toLowerCase().includes('enemy unit takes damage within range') &&
@@ -390,12 +382,20 @@ export function getTargetedRetaliation(
   getUnitPassives(unit).forEach((p) => {
     (p.effects || []).forEach((e: any) => {
       // "When damage is prevented this way, deal that much damage to the attacker" (e.g. Shining Scales: 1 less from
-      // melee attacks, per attack)
-      if (e.type === 'reduceDamage' && e.dealPreventedToAttacker && typeof e.amount === 'number') {
+      // melee attacks on the first hit), or a set amount (dealToAttackerWhenPrevented, e.g. Energy Crackle: 2 less from
+      // ranged attacks on the first hit, to a minimum of 1, "When damage is prevented this way, deal 2 damage to the
+      // attacker"). Prevented: what the reduction took off the first hit, down to its minimum.
+      if (
+        e.type === 'reduceDamage' &&
+        (e.dealPreventedToAttacker || typeof e.dealToAttackerWhenPrevented === 'number') &&
+        typeof e.amount === 'number'
+      ) {
         const applies = (e.from !== 'meleeAttack' || !isRangedAttack) && (e.from !== 'rangedAttack' || isRangedAttack);
-        const prevented = Math.min(e.amount, Math.max(0, opts?.rawFirstHit ?? e.amount));
+        const floor = typeof e.minDamage === 'number' ? e.minDamage : 0;
+        const firstHit = opts?.rawFirstHit ?? e.amount + floor;
+        const prevented = Math.min(e.amount, Math.max(0, firstHit - floor));
         if (applies && prevented > 0) {
-          result.amount += prevented;
+          result.amount += typeof e.dealToAttackerWhenPrevented === 'number' ? e.dealToAttackerWhenPrevented : prevented;
           result.sources.push(p.name);
         }
         return;
@@ -445,8 +445,6 @@ export function isImmuneToReactEffects(unit: BattlefieldUnit | null | undefined)
   return (
     passives.some(
       (p) =>
-        p.id?.toLowerCase() === 'nightbound' ||
-        p.name?.toLowerCase() === 'nightbound' ||
         p.text?.toLowerCase().includes('cannot be targeted by react effects') ||
         p.effects?.some(
           (e: any) =>

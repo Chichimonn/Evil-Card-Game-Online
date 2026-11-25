@@ -36,14 +36,30 @@ export function getSecondMeleeAttackKnockback(unit: BattlefieldUnit | null | und
   return 0;
 }
 
-/** "When this unit uses a melee attack, it heals N damage per hit (no matter how many units are hit)" (e.g. Draining Touch). */
-export function getMeleeAttackHealPerHit(unit: BattlefieldUnit | null | undefined): { perHit: number; name: string } | null {
+/**
+ * "When this unit uses a melee attack, it heals 3 damage" (e.g. Draining Touch: a heal amount, once per use, however many
+ * units it hits), or "heals N damage per hit" (amount { perAttackHit: N }). trigger 'self.usesMeleeAttack'.
+ */
+export function getMeleeAttackHeal(unit: BattlefieldUnit | null | undefined): { flat: number; perHit: number; name: string } | null {
   for (const p of getUnitPassives(unit)) {
     if (p.trigger !== 'self.usesMeleeAttack') continue;
-    const eff: any = (p.effects || []).find((e: any) => e.type === 'heal' && typeof e.amount?.perAttackHit === 'number');
-    if (eff) return { perHit: eff.amount.perAttackHit, name: p.name };
+    const eff: any = (p.effects || []).find(
+      (e: any) => e.type === 'heal' && (typeof e.amount === 'number' || typeof e.amount?.perAttackHit === 'number')
+    );
+    if (eff) {
+      return {
+        flat: typeof eff.amount === 'number' ? eff.amount : 0,
+        perHit: typeof eff.amount?.perAttackHit === 'number' ? eff.amount.perAttackHit : 0,
+        name: p.name
+      };
+    }
   }
   return null;
+}
+/** The heal for one use of a melee attack that landed this many hits (see getMeleeAttackHeal). */
+export function meleeAttackHealFor(heal: { flat: number; perHit: number } | null, hits: number, includeFlat = true): number {
+  if (!heal) return 0;
+  return (includeFlat ? heal.flat : 0) + heal.perHit * hits;
 }
 
 /**

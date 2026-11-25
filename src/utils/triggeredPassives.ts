@@ -1,5 +1,5 @@
 import { BattlefieldUnit, PlayerId } from '../types/game';
-import { CardAbility } from '../types/card';
+import { CardAbility, CardPassive } from '../types/card';
 import { getSurroundingHexes, getHexDistance, getKnockbackDestination, getHexMovementDirection, parseHexId, offsetToCube, cubeToOffset, toHexId, CUBE_DIRECTIONS } from './hexGridMath';
 import { isImmuneToDamageWhileMoving, getUnitPassives, DamageEvent, isImmuneToNonDamageEffects } from './unitPassives';
 import { reduceNonAttackDamage } from './attackLogic';
@@ -84,20 +84,23 @@ export function getDamageTakenReactions(
 }
 
 /**
- * "When this unit kills an enemy unit" rewards (trigger 'self.killsEnemyUnit'): { type: 'armour', target: 'self',
- * amount } (e.g. Medal Collection) and { type: 'heal', target: 'friendlyUnitsSurroundingSelf', amount } (e.g. Pride
- * Feast: the units surrounding the killer). Applied to the killer where it now stands.
+ * "When this unit kills an enemy unit" rewards (trigger 'self.killsEnemyUnit'), and "When this unit kills another unit"
+ * ones (trigger 'self.killsUnit', any unit but itself, friendly ones too, e.g. Relentless Rage): { type: 'armour',
+ * target: 'self', amount } (e.g. Medal Collection), { type: 'heal', target: 'self', amount } (e.g. Relentless Rage)
+ * and { type: 'heal', target: 'friendlyUnitsSurroundingSelf', amount } (e.g. Pride Feast: the units surrounding the
+ * killer). Applied to the killer where it now stands. killedEnemy: whether the unit it killed was an enemy one.
  */
 export function applyKillRewards(
   killer: BattlefieldUnit,
-  board: Record<string, BattlefieldUnit>
+  board: Record<string, BattlefieldUnit>,
+  killedEnemy = true
 ): { board: Record<string, BattlefieldUnit>; log: string[] } {
   const hex = findHex(board, killer.instanceId);
   if (!hex) return { board, log: [] };
   let next = board;
   const log: string[] = [];
   getUnitPassives(killer).forEach((p) => {
-    if (p.trigger !== 'self.killsEnemyUnit') return;
+    if (!((p.trigger === 'self.killsEnemyUnit' && killedEnemy) || p.trigger === 'self.killsUnit')) return;
     (p.effects || []).forEach((e: any) => {
       if (e.type === 'armour' && e.target === 'self' && typeof e.amount === 'number') {
         next = { ...next, [hex]: { ...next[hex], armour: next[hex].armour + e.amount } };
@@ -478,4 +481,26 @@ export function logMoveDirections(
     prev = h;
   });
   return { newDirections, log: { turn: turnNumber, dirs } };
+}
+
+/** "After moving over an enemy unit, this unit gains N armour" (e.g. Break the Line): trigger 'self.movedThroughUnit'. */
+export function getMovedThroughUnitArmour(passives: CardPassive[]): number {
+  return passives
+    .filter((p) => p.trigger === 'self.movedThroughUnit')
+    .flatMap((p) => ((p.effects || []) as any[]).filter((e) => e.type === 'armour' && typeof e.amount === 'number'))
+    .reduce((sum, e) => sum + e.amount, 0);
+}
+
+/**
+ * A passive replacing the universal Draw action with a look at the top N cards (e.g. Rapid Catalog: "instead you may
+ * look at the top 2 cards of your deck. Put one into your hand and the other on the bottom of your deck"): a replace
+ * effect { replaces: 'universalDrawAction', with: [{ type: 'lookTop', count }] }.
+ */
+export function getDrawReplacement(passives: CardPassive[]): { name: string; count: number } | null {
+  for (const p of passives) {
+    const rep: any = ((p.effects || []) as any[]).find((e) => e.type === 'replace' && e.replaces === 'universalDrawAction');
+    const look: any = (rep?.with || []).find((e: any) => e.type === 'lookTop' && typeof e.count === 'number');
+    if (look) return { name: p.name, count: look.count };
+  }
+  return null;
 }

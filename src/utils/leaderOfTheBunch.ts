@@ -9,11 +9,6 @@ import { getUnitPassives } from './unitPassives';
  */
 export function isLeaderOfTheBunchPassive(passive: CardPassive | null | undefined): boolean {
   if (!passive) return false;
-  const id = passive.id?.toLowerCase() || '';
-  const name = passive.name?.toLowerCase() || '';
-  if (id === 'leader_of_the_bunch' || name === 'leader of the bunch') {
-    return true;
-  }
   return Boolean(
     passive.effects?.some(
       (e: any) =>

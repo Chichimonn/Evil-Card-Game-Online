@@ -4,6 +4,7 @@ import { CardArtFallback } from './CardArtFallback';
 import { Heart, Zap, ShieldAlert } from 'lucide-react';
 import { formatFusionRequirements, formatTributeRequirements } from '../utils/reinforceRules';
 import { isStraightLineAbility } from '../utils/hexGridMath';
+import { dealsDamageAsPartOfOwnMovement } from '../utils/movementMelee';
 import { useProcessedArt } from '../utils/artHalo';
 import { TYPE_LINES } from '../data/typeLines';
 import { getCardFill, CARD_SURFACE_FILL, type CardFillEdges } from '../utils/classColours';
@@ -202,8 +203,12 @@ export const CardAbilityBox: React.FC<{
   // A tag: colour-coded text only
   const chip = 'rounded-md font-bold px-[0.25em] text-[0.65em]';
   // An Assist or Inspiring ability's own tag stays beside its name, and its other tags go on the line under it
-  const leadTags = (ability.tags || []).filter((t) => t === 'assist' || t === 'inspiring');
-  const otherTags = (ability.tags || []).filter((t) => t !== 'assist' && t !== 'inspiring');
+  // (an attack dealing damage as part of its user's own movement or placement is melee by the rules, so it shows the
+  // Melee tag whether or not its card data has one)
+  const tags = [...(ability.tags || [])];
+  if (!tags.includes('melee') && dealsDamageAsPartOfOwnMovement(ability)) tags.unshift('melee');
+  const leadTags = tags.filter((t) => t === 'assist' || t === 'inspiring');
+  const otherTags = tags.filter((t) => t !== 'assist' && t !== 'inspiring');
   const tagChip = (tag: string) => (
     <span key={tag} className={`${highlight.tag[tag] || 'bg-stone-600'} text-white capitalize ${chip}`}>
       {tag}
@@ -217,7 +222,7 @@ export const CardAbilityBox: React.FC<{
   const hasOtherTags =
     otherTags.length > 0 ||
     isStraightLineAbility(ability) ||
-    Boolean(ability.usesPath || ability.id === 'bananarang') ||
+    Boolean(ability.usesPath) ||
     Boolean(ability.rangeText || (ability.range && ability.range.length > 0)) ||
     Boolean(areaRange) ||
     Boolean(ability.tagNote);
@@ -259,7 +264,7 @@ export const CardAbilityBox: React.FC<{
               </span>
             )}
           </>
-        ) : (ability.usesPath || ability.id === 'bananarang') ? (
+        ) : ability.usesPath ? (
           // A path drawn tile by tile, which must run straight for some (e.g. Glacial Spikes: "Straight Path: 3 tiles")
           <span className={`bg-amber-800 text-white ${chip}`}>
             {withNumerals(

@@ -17,6 +17,7 @@ import { getQualifyingPromotedAbilities } from './promotedAbilities';
 import { getAttacksUsedThisTurn, getAbilitiesUsedThisTurn, hasAttackedUnitThisTurn } from './turnLimits';
 import { getCurrentTurnNumber, getCurrentUnitsOnBoard, isHexScorchedNow, tookLastTurn, getHandSize } from './boardContext';
 import { getStartingApForTurn } from './noxiousBurst';
+import { dealsDamageAsPartOfOwnMovement } from './movementMelee';
 
 export interface AttackHit {
   hitIndex: number;
@@ -28,6 +29,43 @@ export interface AttackHit {
   appliedBonuses?: string[];
   /** "Then, if the target has no armour, this attack hits again" (e.g. Plunge and Twist): checked when this hit comes up, after the earlier hits */
   onlyIfTargetHasNoArmour?: boolean;
+  /** "Then, if this attack damaged armour, hits again" (e.g. Phlox Shot): the earlier hits must have taken armour off the target */
+  onlyIfArmourDamaged?: boolean;
+  /**
+   * Bonuses that depend on the target's armour as this hit lands, after the earlier hits (see addPerHitBonus): an armour
+   * condition with checkedAt: 'eachHit' (e.g. Hundred-Cut Crescendo: "Each time this attack hits, if the target no
+   * longer has any armour, that hit deals an additional 1 damage") and an amount of the target's current armour (e.g.
+   * Inscribed Edge: { formula: 'floor(target.armour / 2)' }). Other armour conditions are checked as the attack is
+   * made (e.g. Glimmering Arrows: "attacks against armour").
+   */
+  perHitBonuses?: PerHitBonus[];
+}
+
+export interface PerHitBonus {
+  key: string;
+  name: string;
+  amount: number | { formula: string };
+  if?: string;
+}
+
+/** Conditions and amounts that read the target's armour, so are checked as each hit lands (see perHitBonuses). */
+const isArmourCondition = (cond: unknown): boolean => cond === 'target.hasArmour' || cond === 'target.noArmour';
+const isArmourFormula = (amount: any): boolean => typeof amount?.formula === 'string' && /target\.armour/.test(amount.formula);
+
+/** Adds a bonus checked when the hit lands (once per key per hit). */
+export function addPerHitBonus(hit: AttackHit, bonus: PerHitBonus): void {
+  if (hit.perHitBonuses?.some((b) => b.key === bonus.key) || hit.appliedBonuses?.includes(bonus.key)) return;
+  hit.perHitBonuses = [...(hit.perHitBonuses || []), bonus];
+}
+
+/** A per-hit bonus's damage against the target's armour now (0 when its condition doesn't hold). */
+function evalPerHitBonus(bonus: PerHitBonus, currentArmour: number): number {
+  if (bonus.if === 'target.hasArmour' && !(currentArmour > 0)) return 0;
+  if (bonus.if === 'target.noArmour' && currentArmour > 0) return 0;
+  if (typeof bonus.amount === 'number') return bonus.amount;
+  const half = bonus.amount.formula.match(/^\s*floor\(\s*target\.armour\s*\/\s*(\d+)\s*\)\s*$/);
+  if (half) return Math.floor(currentArmour / parseInt(half[1], 10));
+  return 0;
 }
 
 export interface AbilityHitStructure {
@@ -70,8 +108,9 @@ function isTargetOnScorchedTile(target: BattlefieldUnit | null | undefined, opti
 
 /**
  * Whether an attack's conditional extra hit ({ extraHit: { amount, if } }) happens. With no target (a preview of the
- * ability on its own) the hit is shown as possible. 'target.noArmour' is checked later, as the hit comes up (see
- * onlyIfTargetHasNoArmour), so it holds here. A condition this doesn't know never adds the hit.
+ * ability on its own) the hit is shown as possible. 'target.noArmour' and 'thisAttackDamagedArmour' are checked later, as
+ * the hit comes up (see onlyIfTargetHasNoArmour, onlyIfArmourDamaged), so they hold here. A condition this doesn't know
+ * never adds the hit.
  */
 export function extraHitConditionHolds(
   cond: unknown,
@@ -87,6 +126,7 @@ export function extraHitConditionHolds(
   }
   if (!target) return true;
   if (cond === 'target.noArmour') return true;
+  if (cond === 'thisAttackDamagedArmour') return true;
   if (cond === 'noArmourWasRemoved') {
     return typeof options?.armourRemovedBeforeAttack === 'number' ? options.armourRemovedBeforeAttack === 0 : target.armour === 0;
   }
@@ -98,15 +138,12 @@ export function extraHitConditionHolds(
   return evalAttackerCondition(cond, attacker, isBehind) ?? false;
 }
 
-/** Whether an ability's damage comes from its user's own movement (e.g. Mounted Charge, Sky Slither, Lead the Charge). */
+/**
+ * Whether an ability's damage is part of its user's own movement or placement, so a melee attack (e.g. Mounted Charge,
+ * Sidestepping Crush, Spitfire Landing): see dealsDamageAsPartOfOwnMovement.
+ */
 export function dealsDamageThroughOwnMovement(ability: CardAbility | null | undefined): boolean {
-  return ((ability?.effects || []) as any[]).some(
-    (e) =>
-      e.type === 'move' &&
-      (typeof e.damageToUnitsMovedOver === 'number' ||
-        typeof e.damageToEnemiesMovedOver === 'number' ||
-        typeof e.damageToEnemiesMovedThrough === 'number')
-  );
+  return dealsDamageAsPartOfOwnMovement(ability);
 }
 
 /**
@@ -129,6 +166,9 @@ export function evalAttackerCondition(cond: string, attacker: BattlefieldUnit, i
   const hand = cond.match(/^owner\.cardsInHand>=(\d+)$/);
   if (hand) return getHandSize(attacker.owner) >= parseInt(hand[1], 10);
   if (cond === 'self.hasArmour') return attacker.armour > 0;
+  // "If this unit is damaged" (e.g. Enrage), "If this unit has already taken damage this turn" (e.g. Adrenaline)
+  if (cond === 'self.hasDamage') return attacker.damageCounters > 0;
+  if (cond === 'self.tookDamageThisTurn') return Boolean(attacker.tookDamageThisTurn);
   const hpRemaining = attacker.card.hp - attacker.damageCounters;
   if (cond === 'self.hpRemainingIsEven') return hpRemaining % 2 === 0;
   if (cond === 'self.hpRemainingIsOdd') return hpRemaining % 2 === 1;
@@ -174,7 +214,11 @@ function targetConditionHolds(
   target: BattlefieldUnit,
   options?: AttackExecutionOptions
 ): boolean {
-  if (typeof cond !== 'string' || !attacker) return false;
+  if (typeof cond !== 'string') return false;
+  if (/^target\.hasStatus:/.test(cond)) return Boolean(target.statuses?.includes(cond.split(':')[1]));
+  if (cond === 'target.hasArmour') return target.armour > 0;
+  if (cond === 'target.noArmour') return target.armour <= 0;
+  if (!attacker) return false;
   const units = options?.unitsOnBoard || getCurrentUnitsOnBoard();
   const targetHex = options?.targetHex || target.hexId;
   const attackerHex = options?.attackerHex || attacker.hexId;
@@ -189,6 +233,12 @@ function targetConditionHolds(
     return Boolean(between && between.length === 1 && units[between[0]] && units[between[0]].owner === attacker.owner);
   }
   if (cond === 'target.inMeleeRange') return getHexDistance(attackerHex, targetHex) === 1;
+  // "If the target is currently affected by Slow Venom" (e.g. Coup de Grace): 'target.hasStatus:slow_venom'
+  const status = cond.match(/^target\.hasStatus:(\w+)$/);
+  if (status) return Boolean(target.statuses?.includes(status[1]));
+  // The target's armour as the attack is made (e.g. Glimmering Arrows: "attacks against armour")
+  if (cond === 'target.hasArmour') return target.armour > 0;
+  if (cond === 'target.noArmour') return target.armour <= 0;
   if (cond === 'target.firstUnitInStraightLine') {
     const between = getStraightLineTilesBetween(attackerHex, targetHex);
     return between !== null && between.every((h) => !units[h]);
@@ -212,6 +262,99 @@ function targetConditionHolds(
 }
 
 /**
+ * A damage amount written as a formula in card data ({ formula }), e.g. 'self.armour' (Fortified Blows: "damage equal to
+ * this unit's armour"), 'armourRemoved' (Telekinetic Rend: "1 damage per point of armour removed this way"),
+ * 'lowestPerHitDamage(promotedCard.attacks)' and 'max(1, 7 - firstHitAmount)' (Bladefury), 'floor(target.armour / 2)'.
+ * Numbers, + - * /, brackets, max/min/floor and these names. An unknown name is 0.
+ */
+export function evalDamageFormula(formula: string, vars: Record<string, number>): number {
+  const src = formula.replace(/\s+/g, '');
+  let i = 0;
+  const peek = () => src[i];
+  const name = () => {
+    const m = src.slice(i).match(/^[A-Za-z_][\w.]*(\([\w.]*\))?/);
+    if (!m) return '';
+    i += m[0].length;
+    return m[0];
+  };
+  const primary = (): number => {
+    if (peek() === '(') { i++; const v = expr(); i++; return v; }
+    if (peek() === '-') { i++; return -primary(); }
+    const num = src.slice(i).match(/^\d+(\.\d+)?/);
+    if (num) { i += num[0].length; return parseFloat(num[0]); }
+    const n = name();
+    if ((n === 'max' || n === 'min' || n === 'floor' || n === 'ceil') && peek() === '(') {
+      i++;
+      const args = [expr()];
+      while (peek() === ',') { i++; args.push(expr()); }
+      i++;
+      if (n === 'max') return Math.max(...args);
+      if (n === 'min') return Math.min(...args);
+      if (n === 'floor') return Math.floor(args[0]);
+      return Math.ceil(args[0]);
+    }
+    return vars[n] ?? 0;
+  };
+  const term = (): number => {
+    let v = primary();
+    while (peek() === '*' || peek() === '/') { const op = src[i++]; const r = primary(); v = op === '*' ? v * r : r === 0 ? 0 : v / r; }
+    return v;
+  };
+  const expr = (): number => {
+    let v = term();
+    while (peek() === '+' || peek() === '-') { const op = src[i++]; const r = term(); v = op === '+' ? v + r : v - r; }
+    return v;
+  };
+  return Math.floor(expr());
+}
+
+/** A formula amount { formula, plus? } (e.g. Dissolving Spit: { formula: 'armourRemoved', plus: 2 }). */
+function evalFormulaAmount(amount: any, vars: Record<string, number>): number {
+  return evalDamageFormula(amount.formula, vars) + (typeof amount.plus === 'number' ? amount.plus : 0);
+}
+
+/** The names a damage formula can use, for this attack. */
+function getFormulaVars(
+  ability: CardAbility,
+  attacker: BattlefieldUnit | null | undefined,
+  target: BattlefieldUnit | null | undefined,
+  options?: AttackExecutionOptions
+): Record<string, number> {
+  const removeEff: any = (ability.effects || []).find((e: any) => e.type === 'removeArmour');
+  const removeCap = removeEff ? (removeEff.amount === 'all' ? Infinity : typeof removeEff.amount === 'number' ? removeEff.amount : 0) : 0;
+  const armourRemoved =
+    typeof options?.armourRemovedBeforeAttack === 'number'
+      ? options.armourRemovedBeforeAttack
+      : removeEff && target
+      ? Math.min(removeCap, target.armour)
+      : 0;
+  return {
+    'self.armour': attacker?.armour ?? 0,
+    'target.armour': target?.armour ?? 0,
+    armourRemoved,
+    'lowestPerHitDamage(promotedCard.attacks)': getLowestPerHitDamageFromPromotedCards(attacker?.promotedCards, 0).lowestDmg
+  };
+}
+
+/**
+ * Whether every hit of this attack on the target bypasses all armour, read from its damage effect: bypassArmour, unless
+ * a modifier whose condition holds sets it off (e.g. Coup de Grace: "If the target is currently affected by Slow Venom,
+ * this attack deals 10 damage. Otherwise, deals 1 damage, bypassing armour") or a further hit doesn't (e.g. Arcane Surge).
+ */
+export function attackBypassesAllArmour(ability: CardAbility | null | undefined, target: BattlefieldUnit | null | undefined): boolean {
+  const dmgs = ((ability?.effects || []) as any[]).filter((e) => e.type === 'damage' && e.target !== 'self' && e.target !== 'caster');
+  if (dmgs.length === 0 || !dmgs.every((e) => e.bypassArmour === true)) return false;
+  if (dmgs.some((e) => e.extraHit && e.extraHit.bypassArmour === false)) return false;
+  const turnedOff = (dmgs[0].modifiers || []).some(
+    (m: any) => m.setBypassArmour === false && target && targetConditionHolds(m.if, null, target)
+  );
+  return !turnedOff;
+}
+
+/** Marks a hit whose attacker bonuses (applyAttackerBonusPassives) were applied. */
+const ATTACKER_BONUSES_APPLIED = 'attacker_bonuses';
+
+/**
  * Applies static attacker passives and promoted attack bonuses to attack hits.
  */
 export function applyAttackerBonusPassives(
@@ -222,10 +365,14 @@ export function applyAttackerBonusPassives(
   options?: AttackExecutionOptions
 ): void {
   if (!attacker) return;
+  hits.forEach((h) => {
+    if (!h.appliedBonuses?.includes(ATTACKER_BONUSES_APPLIED)) h.appliedBonuses = [...(h.appliedBonuses || []), ATTACKER_BONUSES_APPLIED];
+  });
   const attackerPassives = getUnitPassives(attacker);
   const isMelee =
     ability?.tags?.includes('melee') ||
     ability?.text?.toLowerCase().includes('melee') ||
+    dealsDamageAsPartOfOwnMovement(ability) ||
     false;
 
   // Behind condition
@@ -260,8 +407,17 @@ export function applyAttackerBonusPassives(
   const providerAbility = providerId
     ? [...(attacker.card.abilities || []), ...(attacker.grantedAbilities || [])].find((a) => a.id === providerId)
     : undefined;
-  const providerAdd: any = (providerAbility?.effects || []).find((e: any) => e.type === 'useAbility')?.addDamage;
-  if (providerAdd && !providerAdd.if && providerAbility && hits[0] && !hits[0].appliedBonuses?.includes(providerId)) {
+  const providerUse: any = (providerAbility?.effects || []).find((e: any) => e.type === 'useAbility');
+  // "If this attack was made from the tile behind the target, it deals an additional 3 damage on the first hit" (e.g.
+  // Umbral Strike: addDamage with an if), "If it was a melee attack, it deals an additional 1 damage per hit" (e.g.
+  // Elevated Technique: meleeAddDamage)
+  const providerAdd: any =
+    providerUse?.addDamage && (!providerUse.addDamage.if || evalAttackerCondition(providerUse.addDamage.if, attacker, isBehind) === true)
+      ? providerUse.addDamage
+      : providerUse?.meleeAddDamage && isMelee
+      ? providerUse.meleeAddDamage
+      : undefined;
+  if (providerAdd && providerAbility && hits[0] && !hits[0].appliedBonuses?.includes(providerId)) {
     const amount =
       typeof providerAdd.amount === 'number'
         ? providerAdd.amount
@@ -284,163 +440,8 @@ export function applyAttackerBonusPassives(
     }
   }
 
-  // 5. Elevated Technique: +1 per hit if melee
-  if (parentId === 'elevated_technique' && isMelee) {
-    for (const h of hits) {
-      if (!h.appliedBonuses?.includes('elevated_technique')) {
-        h.damage += 1;
-        h.appliedBonuses = [...(h.appliedBonuses || []), 'elevated_technique'];
-        h.conditionalNote = h.conditionalNote
-          ? `${h.conditionalNote}, +1 Elevated Technique`
-          : '+1 Elevated Technique';
-      }
-    }
-  }
-
-  // 6. Shield of Blessings (Order's Chosen): "When this unit has armour on it, its attacks deal an additional 2 damage."
-  if (attacker.armour > 0 && hits[0] && !hits[0].appliedBonuses?.includes('shield_of_blessings')) {
-    const hasShieldOfBlessings = attackerPassives.some(
-      (p) => p.id === 'shield_of_blessings' || p.name === 'Shield of Blessings'
-    );
-    if (hasShieldOfBlessings) {
-      hits[0].damage += 2;
-      hits[0].appliedBonuses = [...(hits[0].appliedBonuses || []), 'shield_of_blessings'];
-      hits[0].conditionalNote = hits[0].conditionalNote
-        ? `${hits[0].conditionalNote}, +2 Shield of Blessings`
-        : '+2 Shield of Blessings';
-    }
-  }
-
-  // 7. Drakescale (Drakerider Paladin): "While this unit has armour, it is immune to knockback and its melee attacks deal an additional 2 damage per hit."
-  if (attacker.armour > 0 && isMelee) {
-    const hasDrakescale = attackerPassives.some(
-      (p) => p.id === 'drakescale' || p.name === 'Drakescale'
-    );
-    if (hasDrakescale) {
-      for (const h of hits) {
-        if (!h.appliedBonuses?.includes('drakescale')) {
-          h.damage += 2;
-          h.appliedBonuses = [...(h.appliedBonuses || []), 'drakescale'];
-          h.conditionalNote = h.conditionalNote
-            ? `${h.conditionalNote}, +2 Drakescale`
-            : '+2 Drakescale';
-        }
-      }
-    }
-  }
-
-  // 8. Enrage (Savage Grizzly): "If this unit is damaged, it deals an additional 1 damage per hit with attacks."
-  if (attacker.damageCounters > 0) {
-    const hasEnrage = attackerPassives.some(
-      (p) => p.id === 'enrage' || p.name === 'Enrage'
-    );
-    if (hasEnrage) {
-      for (const h of hits) {
-        if (!h.appliedBonuses?.includes('enrage')) {
-          h.damage += 1;
-          h.appliedBonuses = [...(h.appliedBonuses || []), 'enrage'];
-          h.conditionalNote = h.conditionalNote
-            ? `${h.conditionalNote}, +1 Enrage`
-            : '+1 Enrage';
-        }
-      }
-    }
-  }
-
-  // 8b. Adrenaline (Brawl Fighter): "If this unit has already taken damage this turn, its attacks deal an additional 2 damage per hit."
-  if (attacker.tookDamageThisTurn) {
-    const hasAdrenaline = attackerPassives.some(
-      (p) => p.id === 'adrenaline' || p.name === 'Adrenaline'
-    );
-    if (hasAdrenaline) {
-      for (const h of hits) {
-        if (!h.appliedBonuses?.includes('adrenaline')) {
-          h.damage += 2;
-          h.appliedBonuses = [...(h.appliedBonuses || []), 'adrenaline'];
-          h.conditionalNote = h.conditionalNote
-            ? `${h.conditionalNote}, +2 Adrenaline`
-            : '+2 Adrenaline';
-        }
-      }
-    }
-  }
-
-  // 9. Glimmering Arrows (Dawnglow Archer): "This unit's attacks against armour deal an additional 2 damage per hit."
-  if (target && target.armour > 0) {
-    const hasGlimmering = attackerPassives.some(
-      (p) => p.id === 'glimmering_arrows' || p.name === 'Glimmering Arrows'
-    );
-    if (hasGlimmering) {
-      for (const h of hits) {
-        if (!h.appliedBonuses?.includes('glimmering_arrows')) {
-          h.damage += 2;
-          h.appliedBonuses = [...(h.appliedBonuses || []), 'glimmering_arrows'];
-          h.conditionalNote = h.conditionalNote
-            ? `${h.conditionalNote}, +2 Glimmering Arrows (vs armour)`
-            : '+2 Glimmering Arrows (vs armour)';
-        }
-      }
-    }
-  }
-
-  // 10. Backstab (Shade Assassin): "This unit deals an additional 4 damage on the first hit of any attack made from the tile behind the target."
-  if (isBehind && hits[0] && !hits[0].appliedBonuses?.includes('backstab')) {
-    const hasBackstab = attackerPassives.some(
-      (p) => p.id === 'backstab' || p.name === 'Backstab'
-    );
-    if (hasBackstab) {
-      hits[0].damage += 4;
-      hits[0].appliedBonuses = [...(hits[0].appliedBonuses || []), 'backstab'];
-      hits[0].conditionalNote = hits[0].conditionalNote
-        ? `${hits[0].conditionalNote}, +4 Backstab (from behind)`
-        : '+4 Backstab (from behind)';
-    }
-  }
-
-  // 11. Opportunist (Cutthroat Assassin): "This unit's melee attacks made from the tile behind the target deal an additional 1 damage per hit."
-  if (isBehind && isMelee) {
-    const hasOpportunist = attackerPassives.some(
-      (p) => p.id === 'opportunist' || p.name === 'Opportunist'
-    );
-    if (hasOpportunist) {
-      for (const h of hits) {
-        if (!h.appliedBonuses?.includes('opportunist')) {
-          h.damage += 1;
-          h.appliedBonuses = [...(h.appliedBonuses || []), 'opportunist'];
-          h.conditionalNote = h.conditionalNote
-            ? `${h.conditionalNote}, +1 Opportunist (from behind)`
-            : '+1 Opportunist (from behind)';
-        }
-      }
-    }
-  }
-
-  // 12. Umbral Strike (Wielder of Night): "If this attack was made from the tile behind the target, it deals an additional 3 damage on the first hit."
-  if (parentId === 'umbral_strike' && isBehind && hits[0] && !hits[0].appliedBonuses?.includes('umbral_strike')) {
-    hits[0].damage += 3;
-    hits[0].appliedBonuses = [...(hits[0].appliedBonuses || []), 'umbral_strike'];
-    hits[0].conditionalNote = hits[0].conditionalNote
-      ? `${hits[0].conditionalNote}, +3 Umbral Strike (from behind)`
-      : '+3 Umbral Strike (from behind)';
-  }
-
-  // 13. Inscribed Edge (Harsh Inquisitor): "The first time this unit makes an attack from the tile behind its target each turn, it deals an amount of additional damage equal to half the target's current armour on the first hit (rounded down)."
-  if (isBehind && target && target.armour > 1 && hits[0] && !hits[0].appliedBonuses?.includes('inscribed_edge')) {
-    const hasInscribedEdge = attackerPassives.some(
-      (p) => p.id === 'inscribed_edge' || p.name === 'Inscribed Edge'
-    );
-    const alreadyUsed = (attacker.usedTurnCounts?.['inscribed_edge'] || 0) > 0;
-    if (hasInscribedEdge && !alreadyUsed) {
-      const bonus = Math.floor(target.armour / 2);
-      if (bonus > 0) {
-        hits[0].damage += bonus;
-        hits[0].appliedBonuses = [...(hits[0].appliedBonuses || []), 'inscribed_edge'];
-        hits[0].conditionalNote = hits[0].conditionalNote
-          ? `${hits[0].conditionalNote}, +${bonus} Inscribed Edge (from behind)`
-          : `+${bonus} Inscribed Edge (from behind)`;
-      }
-    }
-  }
+  // (Elevated Technique, Umbral Strike: their useAbility's bonus, above. Shield of Blessings, Drakescale, Enrage,
+  // Adrenaline, Glimmering Arrows, Backstab, Opportunist, Inscribed Edge: their damageBonus, in the loop below)
 
   // 14. Death Mark (Blight Phantom): "This turn, this unit's attacks against that unit deal an additional 5 damage on the first hit. This effect does not stack."
   if (target && (target.deathMark || target.statuses?.includes('death_mark'))) {
@@ -448,7 +449,7 @@ export function applyAttackerBonusPassives(
       !target.deathMark?.casterInstanceId ||
       target.deathMark.casterInstanceId === attacker.instanceId;
     if (isTargetOfAttacker && hits[0] && !hits[0].appliedBonuses?.includes('death_mark')) {
-      const bonus = target.deathMark?.bonusDamage ?? 5;
+      const bonus = target.deathMark?.bonusDamage ?? 0;
       hits[0].damage += bonus;
       hits[0].appliedBonuses = [...(hits[0].appliedBonuses || []), 'death_mark'];
       hits[0].conditionalNote = hits[0].conditionalNote
@@ -496,23 +497,39 @@ export function applyAttackerBonusPassives(
       : evalAttackerCondition(cond, attacker, isBehind);
   };
   attackerPassives.forEach((p) => {
-    if (p.id === 'backstab' || p.id === 'opportunist') return;
     const effects = ((p.effects || []) as any[]).filter(
       (e: any) =>
         e.type === 'damageBonus' &&
         ((typeof e.if === 'string' && bonusConditionHolds(e.if) !== null) ||
-          (!e.if && typeof e.amount?.perTileMovedThisTurn === 'number'))
+          (!e.if && typeof e.amount?.perTileMovedThisTurn === 'number') ||
+          (!e.if && isArmourFormula(e.amount)) ||
+          (typeof e.if === 'string' && isArmourFormula(e.amount)))
     );
+    // (an armour condition with checkedAt: 'eachHit' is checked as each hit lands; the rest of a joined condition now)
+    const restOf = (cond: string, eachHit: boolean) =>
+      cond
+        .split('&&')
+        .map((c) => c.trim())
+        .filter((c) => !(eachHit && isArmourCondition(c)))
+        .join(' && ');
+    const armourPartOf = (cond: string) => cond.split('&&').map((c) => c.trim()).find(isArmourCondition);
     effects.forEach((eff: any, effIdx: number) => {
-      if (eff.if && !bonusConditionHolds(eff.if)) return;
+      const eachHit = eff.checkedAt === 'eachHit';
+      const nowCond = typeof eff.if === 'string' ? restOf(eff.if, eachHit) : '';
+      if (nowCond && !bonusConditionHolds(nowCond)) return;
+      // "The first time this unit makes an attack from the tile behind its target each turn" (e.g. Inscribed Edge)
+      if (p.limits?.firstQualifyingAttackEachTurn && /selfOnTileBehindTarget/.test(eff.if || '') && (attacker.attacksFromBehindThisTurn || 0) > 0) return;
+      const perHit = Boolean((eachHit && typeof eff.if === 'string' && armourPartOf(eff.if)) || isArmourFormula(eff.amount));
       const amount =
         typeof eff.amount === 'number'
           ? eff.amount
+          : isArmourFormula(eff.amount)
+          ? 0
           : Math.min(
               typeof eff.amount.max === 'number' ? eff.amount.max : Infinity,
               eff.amount.perTileMovedThisTurn * (attacker.tilesMovedThisTurn || 0)
             );
-      if (!amount) return;
+      if (!amount && !perHit) return;
       const distance =
         options?.attackerHex && options?.targetHex ? getHexDistance(options.attackerHex, options.targetHex) : 1;
       // (an attack without the Melee tag is ranged, as everywhere else, e.g. a straight-line attack with no range such as
@@ -521,9 +538,13 @@ export function applyAttackerBonusPassives(
         !isMelee || Boolean(ability?.tags?.includes('ranged')) || distance > 1 || (ability?.range?.[1] ?? 1) > 1;
       if (eff.appliesTo === 'ownRangedAttacks' && !isRangedAttack) return;
       if (eff.appliesTo === 'ownMeleeAttacks' && !isMelee) return;
-      const key = `bonus_${p.id || p.name}${effIdx > 0 ? `_${effIdx}` : ''}`;
+      const key = `${p.id || p.name}${effIdx > 0 ? `_${effIdx}` : ''}`;
       const scoped = eff.scope === 'firstHit' ? hits.slice(0, 1) : hits;
       scoped.forEach((h) => {
+        if (perHit) {
+          addPerHitBonus(h, { key, name: p.name, amount: eff.amount, if: eachHit && typeof eff.if === 'string' ? armourPartOf(eff.if) : undefined });
+          return;
+        }
         if (h.appliedBonuses?.includes(key)) return;
         h.damage += amount;
         h.appliedBonuses = [...(h.appliedBonuses || []), key];
@@ -793,66 +814,6 @@ export function getAbilityHitStructure(
     };
   }
 
-  // Script for Bladefury (Veteran Armsmaster):
-  // "Deals damage equal to the lowest damage number (per hit) among attacks of the promoted card.
-  // Then, subtract that number from 7, to a minimum of 1. Hits 4 more times dealing that amount of damage."
-  // Math formula: lower damage numbers on the promoted card lead to higher overall damage.
-  if (ability.id === 'bladefury' || ability.name === 'Bladefury') {
-    const actualAttacker = attacker || options?.attacker;
-    const { lowestDmg, sourceCardName, sourceAbilityName } = getLowestPerHitDamageFromPromotedCards(
-      actualAttacker?.promotedCards,
-      5
-    );
-
-    const firstHitDmg = lowestDmg;
-    const subsequentHitDmg = Math.max(1, 7 - lowestDmg);
-
-    const hits: AttackHit[] = [
-      {
-        hitIndex: 1,
-        damage: firstHitDmg,
-        conditionalNote: sourceAbilityName
-          ? `lowest promoted hit (${sourceAbilityName}: ${firstHitDmg})`
-          : `lowest promoted hit (${firstHitDmg})`
-      },
-      {
-        hitIndex: 2,
-        damage: subsequentHitDmg,
-        conditionalNote: `7 - ${firstHitDmg} (min 1)`
-      },
-      {
-        hitIndex: 3,
-        damage: subsequentHitDmg,
-        conditionalNote: `7 - ${firstHitDmg} (min 1)`
-      },
-      {
-        hitIndex: 4,
-        damage: subsequentHitDmg,
-        conditionalNote: `7 - ${firstHitDmg} (min 1)`
-      },
-      {
-        hitIndex: 5,
-        damage: subsequentHitDmg,
-        conditionalNote: `7 - ${firstHitDmg} (min 1)`
-      }
-    ];
-
-    applyAttackerBonusPassives(hits, ability, actualAttacker, target, options);
-    const totalDmg = hits.reduce((s, h) => s + h.damage, 0);
-
-    const summaryText = sourceCardName
-      ? `Bladefury: 5 hits (${hits[0].damage} + 4×${hits[1].damage} = ${totalDmg} total dmg). Based on ${sourceCardName}'s lowest hit (${firstHitDmg}), subsequent hits deal 7 - ${firstHitDmg} = ${subsequentHitDmg} each.`
-      : `Bladefury: 5 hits (${hits[0].damage} + 4×${hits[1].damage} = ${totalDmg} total dmg). Deals lowest promoted hit, then 4 hits of (7 - dmg, min 1).`;
-
-    return {
-      isBladefury: true,
-      isMultiHit: true,
-      hits,
-      summaryText,
-      badgeText: `${hits[0].damage}+4×${hits[1].damage} Dmg`
-    };
-  }
-
   // Combined attacks (e.g. Gemstone Hammer: "Deals 3 damage. Use a 1AP ranged attack ... For each AP spent, do this
   // again (counts as additional hits)"): one attack whose hits are, per repeat, the lead hit then the chosen attack's hits
   const combined = (ability as any).combinedHits as
@@ -904,10 +865,12 @@ export function getAbilityHitStructure(
     };
   }
 
-  // Overload Gemstone's uses of the promoted attack ("twice ... both against the same target") are two separate
-  // uses, run by the provider chain (see providerChain.ts: times 2, repeatAsSeparateUses): each is the attack itself, once
 
-  if (ability.id === 'overload_gemstone' || ability.name === 'Overload Gemstone') {
+  // "Use a 1AP attack on the promoted card twice ... against the same target" (e.g. Overload Gemstone: a useAbility with
+  // times 2). The uses themselves are run separately by the provider chain (see providerChain.ts: repeatAsSeparateUses);
+  // this is the preview: the first qualifying promoted attack's hits, that many times.
+  const repeatUse: any = (ability.effects || []).find((e: any) => e.type === 'useAbility' && typeof e.times === 'number' && e.times > 1);
+  if (repeatUse) {
     const actualAttacker = attacker || options?.attacker;
     const qualifying = actualAttacker?.promotedCards
       ? getQualifyingPromotedAbilities(ability, actualAttacker.promotedCards)
@@ -915,71 +878,51 @@ export function getAbilityHitStructure(
     if (qualifying.length > 0) {
       const firstPromo = qualifying[0].ability;
       const baseStruct = getAbilityHitStructure(firstPromo, actualAttacker, target, options);
-      const baseHits = baseStruct.hits && baseStruct.hits.length > 0 ? baseStruct.hits : [{ hitIndex: 1, damage: 5 }];
-      const hits: AttackHit[] = [
-        ...baseHits.map((h, i) => ({ ...h, hitIndex: i + 1, conditionalNote: '1st attack' })),
-        ...baseHits.map((h, i) => ({ ...h, hitIndex: baseHits.length + i + 1, conditionalNote: '2nd attack' }))
-      ];
-      const totalDmg = hits.reduce((s, h) => s + h.damage, 0);
+      const baseHits = baseStruct.hits || [];
+      const ordinal = (n: number) => (n === 1 ? '1st' : n === 2 ? '2nd' : n === 3 ? '3rd' : `${n}th`);
+      const hits: AttackHit[] = [];
+      for (let rep = 1; rep <= repeatUse.times; rep++) {
+        baseHits.forEach((h) => hits.push({ ...h, hitIndex: hits.length + 1, conditionalNote: `${ordinal(rep)} attack` }));
+      }
+      const totalDmg = hits.reduce((sum, h) => sum + h.damage, 0);
       return {
         isBladefury: false,
         isMultiHit: true,
         hits,
-        summaryText: `Overload Gemstone: Uses ${firstPromo.name} twice against target (${totalDmg} total damage)`,
+        summaryText: `${ability.name}: Uses ${firstPromo.name} ${repeatUse.times} times against the target (${totalDmg} total damage)`,
         badgeText: `${hits.map((h) => h.damage).join('+')} Dmg`
       };
     }
-
     return {
       isBladefury: false,
       isMultiHit: true,
-      hits: [
-        { hitIndex: 1, damage: 5, conditionalNote: '1st attack' },
-        { hitIndex: 2, damage: 5, conditionalNote: '2nd attack' }
-      ],
-      summaryText: 'Overload Gemstone: Uses a 1AP attack on the promoted card twice for free against the same target',
-      badgeText: '2x 1AP Atk'
+      hits: [],
+      summaryText: ability.text,
+      badgeText: `${repeatUse.times}x ${repeatUse.filter?.cost ?? ''}AP Atk`
     };
   }
 
-  // Script for Ice Lance (Frostbinder):
-  // "Deals 11 damage. The target cannot be promoted or fused during your opponent's next turn."
-  if (ability.id === 'ice_lance') {
-    const hits: AttackHit[] = [{ hitIndex: 1, damage: 11 }];
-    applyAttackerBonusPassives(hits, ability, attacker, target, options);
-    const totalDmg = hits.reduce((s, h) => s + h.damage, 0);
-    return {
-      isBladefury: false,
-      isMultiHit: false,
-      hits,
-      summaryText: `Deals ${totalDmg} damage. The target cannot be promoted or fused during your opponent's next turn.`,
-      badgeText: `${totalDmg} Dmg`
-    };
-  }
 
-  // Script for Flawless Parry (Skirmish Captain):
-  // "The next time this unit would take damage from an attack until the end of your opponent's next turn, prevent up to 4 damage. Then, if the attacker is within range 1, reflect the attack back at them. This unit's turn ends."
-  if (ability.id === 'flawless_parry' || ability.name === 'Flawless Parry') {
+  // An ability that deals no damage itself: no hits (e.g. a react that prevents damage, such as Flawless Parry, or a mark
+  // that adds to later attacks, such as Death Mark), its numbers read from its data for the badge
+  // (damage of its own: a damage effect, or damage to units it moves over, e.g. Mounted Charge's damageToUnitsMovedOver)
+  const dealsDamage = ((ability.effects || []) as any[]).some(
+    (e: any) => e.type === 'damage' || Object.keys(e).some((k) => /^damage/.test(k))
+  );
+  if (Array.isArray(ability.effects) && ability.effects.length > 0 && !dealsDamage && !(ability.effects as any[]).some((e: any) => e.type === 'useAbility')) {
+    const nested = (ability.effects as any[]).flatMap((e: any) => [e, ...((e.effects || []) as any[])]);
+    const prevent = nested.find((e: any) => e.type === 'preventDamage' && typeof e.upTo === 'number');
+    const markBonus = nested.find((e: any) => e.type === 'damageBonus' && typeof e.amount === 'number');
     return {
       isBladefury: false,
       isMultiHit: false,
       hits: [],
-      summaryText: "Until the end of your opponent's next turn, the next time this unit would take damage from an attack, prevent up to 7 damage and deal that much back to the attacker (a react effect). This unit's turn ends.",
-      badgeText: 'Parry (7)'
+      summaryText: ability.text,
+      badgeText: prevent ? `Parry (${prevent.upTo})` : markBonus ? `Mark (+${markBonus.amount})` : ''
     };
   }
 
-  // Script for Death Mark (Blight Phantom):
-  // "Target an enemy unit. This turn, this unit's attacks against that unit deal an additional 5 damage on the first hit. This effect does not stack."
-  if (ability.id === 'death_mark' || ability.name === 'Death Mark') {
-    return {
-      isBladefury: false,
-      isMultiHit: false,
-      hits: [],
-      summaryText: "Target an enemy unit. This turn, this unit's attacks against that unit deal an additional 5 damage on the first hit. This effect does not stack.",
-      badgeText: 'Mark (+5)'
-    };
-  }
+
 
   const selfDmg = getAbilitySelfDamage(ability);
   const targetDamageEffects = (ability.effects || []).filter(
@@ -1000,305 +943,8 @@ export function getAbilityHitStructure(
   const text = ability.text || '';
   const damageEffects = targetDamageEffects;
 
-  // Specific named abilities with damage conditions or distinct subsequent hit damages:
-  if (ability.id === 'flaming_dive' || ability.name === 'Flaming Dive') {
-    const actualAttacker = attacker || options?.attacker;
-    const hasMoved = Boolean(actualAttacker?.movedThisTurn);
-    const dmg = hasMoved ? 9 : 7;
-    const hits: AttackHit[] = [
-      {
-        hitIndex: 1,
-        damage: dmg,
-        conditionalNote: hasMoved ? '+2 moved this turn bonus' : undefined,
-        appliedBonuses: hasMoved ? ['flaming_dive'] : []
-      }
-    ];
-    applyAttackerBonusPassives(hits, ability, actualAttacker, target, options);
-    const totalDmg = hits.reduce((s, h) => s + h.damage, 0);
-    return {
-      isBladefury: false,
-      isMultiHit: false,
-      hits,
-      summaryText: hasMoved
-        ? `Deals ${totalDmg} damage (7 + 2 moved this turn bonus)`
-        : `Deals 7 damage (+2 if unit moved this turn)`,
-      badgeText: hasMoved ? `${totalDmg} Dmg` : '7 Dmg'
-    };
-  }
-
-  if (ability.id === 'guards_strike' || ability.name === "Guard's Strike") {
-    const isArmoured = attacker ? attacker.armour > 0 : false;
-    const dmg = isArmoured ? 7 : 5;
-    const hits: AttackHit[] = [
-      {
-        hitIndex: 1,
-        damage: dmg,
-        conditionalNote: isArmoured ? '+2 armoured bonus' : undefined,
-        appliedBonuses: isArmoured ? ['guards_strike'] : []
-      }
-    ];
-    applyAttackerBonusPassives(hits, ability, attacker, target);
-    const totalDmg = hits.reduce((s, h) => s + h.damage, 0);
-    return {
-      isBladefury: false,
-      isMultiHit: false,
-      hits,
-      summaryText: hits[0].conditionalNote
-        ? `Deals ${totalDmg} damage (${hits[0].conditionalNote})`
-        : isArmoured
-        ? 'Deals 7 damage (5 + 2 armoured bonus)'
-        : 'Deals 5 damage (+2 if armoured)',
-      badgeText: `${totalDmg} Dmg`
-    };
-  }
-
-  if (ability.id === 'phlox_shot' || ability.name === 'Phlox Shot') {
-    const targetArmoured = target ? target.armour > 0 : false;
-    const dmg = targetArmoured ? 7 : 5;
-    const hits: AttackHit[] = [
-      {
-        hitIndex: 1,
-        damage: dmg,
-        conditionalNote: targetArmoured ? '+2 vs armour bonus' : undefined,
-        appliedBonuses: targetArmoured ? ['phlox_shot'] : []
-      }
-    ];
-    applyAttackerBonusPassives(hits, ability, attacker, target);
-    const totalDmg = hits.reduce((s, h) => s + h.damage, 0);
-    return {
-      isBladefury: false,
-      isMultiHit: false,
-      hits,
-      summaryText: targetArmoured
-        ? `Deals ${totalDmg} damage (5 + 2 vs armour bonus)`
-        : 'Deals 5 damage (+2 vs armoured target)',
-      badgeText: `${totalDmg} Dmg`
-    };
-  }
-
-  if (ability.id === 'shove_off' || ability.name === 'Shove Off') {
-    const usedOnTarget = Boolean(
-      target && (attacker?.usedOnTargets?.['shove_off'] || []).includes(target.instanceId)
-    );
-    // { if: 'thisAbilityUsedOnTargetEarlierThisTurn', addAmount } on its damage effect
-    const shoveEff: any = ability.effects?.find((e: any) => e.type === 'damage');
-    const baseShove = typeof shoveEff?.amount === 'number' ? shoveEff.amount : 2;
-    const repeatBonus =
-      (shoveEff?.modifiers || []).find((m: any) => m.if === 'thisAbilityUsedOnTargetEarlierThisTurn')?.addAmount ?? 0;
-    const dmg = usedOnTarget ? baseShove + repeatBonus : baseShove;
-    const hits: AttackHit[] = [
-      {
-        hitIndex: 1,
-        damage: dmg,
-        conditionalNote: usedOnTarget ? `+${repeatBonus} repeat target bonus` : undefined,
-        appliedBonuses: usedOnTarget ? ['shove_off'] : []
-      }
-    ];
-    applyAttackerBonusPassives(hits, ability, attacker, target, options);
-    const totalDmg = hits.reduce((s, h) => s + h.damage, 0);
-    return {
-      isBladefury: false,
-      isMultiHit: false,
-      hits,
-      summaryText: usedOnTarget
-        ? `Deals ${totalDmg} damage (${baseShove} + ${repeatBonus} repeat attack bonus), Knockback 1`
-        : `Deals ${baseShove} damage (+${repeatBonus} if repeated on same target), Knockback 1`,
-      badgeText: `${totalDmg} Dmg`
-    };
-  }
-
-  if (ability.id === 'disembowel' || ability.name === 'Disembowel') {
-    const attackerHex = options?.attackerHex || attacker?.hexId;
-    const targetHex = options?.targetHex || target?.hexId;
-    const targetOwner = target?.owner || (attacker ? (attacker.owner === 'player1' ? 'player2' : 'player1') : null);
-    const isBehind = isAttackFromBehind(attackerHex, targetHex, targetOwner, ability);
-    const baseDmg = isBehind ? 8 : 6;
-    const hits: AttackHit[] = [
-      {
-        hitIndex: 1,
-        damage: baseDmg,
-        conditionalNote: isBehind ? '+2 from behind' : undefined,
-        appliedBonuses: isBehind ? ['disembowel'] : []
-      }
-    ];
-    applyAttackerBonusPassives(hits, ability, attacker, target, options);
-    const totalDmg = hits.reduce((s, h) => s + h.damage, 0);
-    return {
-      isBladefury: false,
-      isMultiHit: false,
-      hits,
-      summaryText: isBehind
-        ? `Deals 8 damage (6 + 2 from behind), applies knockback 1`
-        : `Deals 6 damage (+2 and knockback 1 if made from behind)`,
-      badgeText: `${totalDmg} Dmg`
-    };
-  }
-
-  if (ability.id === 'shield_bash_and_cleave') {
-    const hits: AttackHit[] = [
-      { hitIndex: 1, damage: 7 },
-      { hitIndex: 2, damage: 4 }
-    ];
-    applyAttackerBonusPassives(hits, ability, attacker, target);
-    return {
-      isBladefury: false,
-      isMultiHit: true,
-      hits,
-      summaryText: 'Hits 2 times: Hit 1 deals 7 damage, Hit 2 deals 4 damage',
-      badgeText: '7+4 Dmg'
-    };
-  }
-
-  if (ability.id === 'cleave_and_tear') {
-    const hits: AttackHit[] = [
-      { hitIndex: 1, damage: 4 },
-      { hitIndex: 2, damage: 3 }
-    ];
-    applyAttackerBonusPassives(hits, ability, attacker, target);
-    return {
-      isBladefury: false,
-      isMultiHit: true,
-      hits,
-      summaryText: 'Hits 2 times: Hit 1 deals 4 damage, Hit 2 deals 3 damage',
-      badgeText: '4+3 Dmg'
-    };
-  }
-
-  if (ability.id === 'dual_spin') {
-    const hits: AttackHit[] = [
-      { hitIndex: 1, damage: 3 },
-      { hitIndex: 2, damage: 2 }
-    ];
-    applyAttackerBonusPassives(hits, ability, attacker, target);
-    return {
-      isBladefury: false,
-      isMultiHit: true,
-      hits,
-      summaryText: 'Hits 2 times: Hit 1 deals 3 damage, Hit 2 deals 2 damage',
-      badgeText: '3+2 Dmg'
-    };
-  }
-
   // The ability itself, also when it is used through another (e.g. Knightly Armament's copy of Plunge and Twist)
   const coreId = ability.promotedAbilityId || ability.id;
-
-  if (coreId === 'rip_and_tear') {
-    const hits: AttackHit[] = [{ hitIndex: 1, damage: 7 }];
-    // "If no armour was removed this way": the caller says how much it removed, else the target's armour beforehand
-    const noArmour = extraHitConditionHolds('noArmourWasRemoved', ability, attacker || options?.attacker, target, options);
-    if (noArmour) {
-      hits.push({ hitIndex: 2, damage: 5, conditionalNote: 'no armour was removed' });
-    }
-    applyAttackerBonusPassives(hits, ability, attacker || options?.attacker, target, options);
-    return {
-      isBladefury: false,
-      isMultiHit: noArmour,
-      hits,
-      summaryText: target
-        ? target.armour > 0
-          ? `Removes all ${target.armour} armour, then deals 7 damage`
-          : 'Hits 2 times (7 + 5 damage, no armour removed)'
-        : 'Removes all armour, deals 7 damage (+5 if no armour removed)',
-      badgeText: target ? (target.armour > 0 ? '7 Dmg' : '7+5 Dmg') : '7 (+5) Dmg'
-    };
-  }
-
-  if (ability.id === 'shield_bash_and_cleave') {
-    const hits: AttackHit[] = [
-      { hitIndex: 1, damage: 7 },
-      { hitIndex: 2, damage: 4, conditionalNote: 'cleave' }
-    ];
-    applyAttackerBonusPassives(hits, ability, attacker, target);
-    return {
-      isBladefury: false,
-      isMultiHit: true,
-      hits,
-      summaryText: target && target.armour > 0 ? 'Removes up to 2 armour, deals 7 damage + 4 cleave' : 'Deals 7 damage + 4 cleave',
-      badgeText: '7+4 Dmg'
-    };
-  }
-
-  if (ability.id === 'telekinetic_rend') {
-    const steal = target ? Math.min(5, target.armour) : 5;
-    const hits: AttackHit[] = [{ hitIndex: 1, damage: steal, conditionalNote: `${steal} damage from armour stolen` }];
-    applyAttackerBonusPassives(hits, ability, attacker, target);
-    return {
-      isBladefury: false,
-      isMultiHit: false,
-      hits,
-      summaryText: `Steals up to 5 armour, deals 1 damage per armour stolen (${steal} dmg)`,
-      badgeText: `${steal} Dmg`
-    };
-  }
-
-  if (coreId === 'arcane_surge') {
-    const hits: AttackHit[] = [{ hitIndex: 1, damage: 6, bypassArmour: true }];
-    if (extraHitConditionHolds('target.wasAtFullHpBeforeAttack', ability, attacker || options?.attacker, target, options)) {
-      hits.push({ hitIndex: 2, damage: 4, bypassArmour: false, conditionalNote: 'target was at full HP' });
-    }
-    applyAttackerBonusPassives(hits, ability, attacker || options?.attacker, target, options);
-    return {
-      isBladefury: false,
-      isMultiHit: true,
-      hits,
-      summaryText: 'Hit 1 deals 6 damage (bypasses armour), then deals 4 damage if target was at full HP',
-      badgeText: '6+4 Dmg'
-    };
-  }
-  if (ability.id === 'coup_de_grace') {
-    const venomed = Boolean(target?.statuses?.includes('slow_venom'));
-    const hits: AttackHit[] = [
-      {
-        hitIndex: 1,
-        damage: venomed ? 10 : 1,
-        bypassArmour: !venomed,
-        conditionalNote: venomed ? 'target has Slow Venom' : undefined
-      }
-    ];
-    applyAttackerBonusPassives(hits, ability, attacker, target);
-    return {
-      isBladefury: false,
-      isMultiHit: false,
-      hits,
-      summaryText: 'Deals 10 damage if the target has Slow Venom, otherwise 1 damage bypassing armour',
-      badgeText: venomed ? '10 Dmg' : '1 Dmg'
-    };
-  }
-  if (coreId === 'plunge_and_twist') {
-    // "Then, if the target has no armour": checked after the first hit, as the second comes up
-    const hits: AttackHit[] = [
-      { hitIndex: 1, damage: 5 },
-      { hitIndex: 2, damage: 3, conditionalNote: 'target has no armour', onlyIfTargetHasNoArmour: true }
-    ];
-    applyAttackerBonusPassives(hits, ability, attacker || options?.attacker, target, options);
-    return {
-      isBladefury: false,
-      isMultiHit: true,
-      hits,
-      summaryText: 'Hit 1 deals 5 damage, then deals 3 damage if target has no armour',
-      badgeText: '5+3 Dmg'
-    };
-  }
-
-  if (coreId === 'prismatic_slash') {
-    // Only with a target to check (a preview on its own shows the 7)
-    const isScorched = Boolean(target) && isTargetOnScorchedTile(target, options);
-    const hits: AttackHit[] = [{ hitIndex: 1, damage: 7 }];
-    if (isScorched) {
-      hits.push({ hitIndex: 2, damage: 4, conditionalNote: 'standing on scorched tile' });
-    }
-    applyAttackerBonusPassives(hits, ability, attacker || options?.attacker, target, options);
-    const isMulti = hits.length > 1;
-    return {
-      isBladefury: false,
-      isMultiHit: isMulti,
-      hits,
-      summaryText: isMulti
-        ? `Hits 2 times: Hit 1 deals ${hits[0].damage} damage, Hit 2 deals ${hits[1].damage} damage (target on scorched tile)`
-        : 'Hit 1 deals 7 damage, then deals 4 damage if on scorched tile',
-      badgeText: isMulti ? `${hits[0].damage}+${hits[1].damage} Dmg` : '7 Dmg'
-    };
-  }
 
   // Check structured extraHit:
   const firstEffAny = damageEffects[0] as Record<string, any> | undefined;
@@ -1312,7 +958,12 @@ export function getAbilityHitStructure(
     const perHitAdd = ((firstEffAny.modifiers || []) as any[])
       .filter((m) => typeof m.addAmountPerHit === 'number' && target && targetConditionHolds(m.if, attacker || options?.attacker, target, options))
       .reduce((s, m) => s + m.addAmountPerHit, 0);
-    const d1 = (typeof firstEffAny.amount === 'number' ? firstEffAny.amount : 5) + perHitAdd;
+    const d1 =
+      (typeof firstEffAny.amount === 'number'
+        ? firstEffAny.amount
+        : typeof firstEffAny.amount?.formula === 'string'
+        ? evalFormulaAmount(firstEffAny.amount, getFormulaVars(ability, extraHitAttacker, target, options))
+        : 5) + perHitAdd;
     const d2 = (typeof firstEffAny.extraHit.amount === 'number' ? firstEffAny.extraHit.amount : d1 - perHitAdd) + perHitAdd;
     const hits: AttackHit[] = [
       { hitIndex: 1, damage: d1 },
@@ -1320,6 +971,7 @@ export function getAbilityHitStructure(
         hitIndex: 2,
         damage: d2,
         ...(firstEffAny.extraHit.if === 'target.noArmour' ? { onlyIfTargetHasNoArmour: true } : {}),
+        ...(firstEffAny.extraHit.if === 'thisAttackDamagedArmour' ? { onlyIfArmourDamaged: true } : {}),
         ...(typeof firstEffAny.extraHit.bypassArmour === 'boolean' ? { bypassArmour: firstEffAny.extraHit.bypassArmour } : {})
       }
     ];
@@ -1340,13 +992,22 @@ export function getAbilityHitStructure(
   if (damageEffects.length > 1 && damageEffects.some((e: any) => e.asAdditionalHit)) {
     const hits: AttackHit[] = [];
     let idx = 1;
+    const actualAttacker = attacker || options?.attacker;
+    const vars = getFormulaVars(ability, actualAttacker, target, options);
     for (const de of damageEffects) {
-      const amt = typeof de.amount === 'number' ? de.amount : 5;
+      // (a formula can use the first hit's amount, e.g. Bladefury: "subtract that number from 7")
+      const amt =
+        typeof de.amount === 'number'
+          ? de.amount
+          : typeof (de.amount as any)?.formula === 'string'
+          ? evalFormulaAmount(de.amount, { ...vars, firstHitAmount: hits[0]?.damage ?? 0 })
+          : 5;
       const count = typeof de.hits === 'number' ? de.hits : 1;
       for (let i = 0; i < count; i++) {
-        hits.push({ hitIndex: idx++, damage: amt });
+        hits.push({ hitIndex: idx++, damage: amt, ...(typeof (de as any).bypassArmour === 'boolean' ? { bypassArmour: (de as any).bypassArmour } : {}) });
       }
     }
+    applyAttackerBonusPassives(hits, ability, actualAttacker, target, options);
     const allSame = hits.every((h) => h.damage === hits[0].damage);
     return {
       isBladefury: false,
@@ -1377,6 +1038,8 @@ export function getAbilityHitStructure(
   if (damageEffects.length > 0) {
     if (typeof damageEffects[0].amount === 'number') {
       baseDamage = damageEffects[0].amount;
+    } else if (typeof (damageEffects[0].amount as any)?.formula === 'string') {
+      baseDamage = evalFormulaAmount(damageEffects[0].amount, getFormulaVars(ability, attacker || options?.attacker, target, options));
     } else if (
       typeof damageEffects[0].amount === 'object' &&
       damageEffects[0].amount !== null &&
@@ -1400,6 +1063,10 @@ export function getAbilityHitStructure(
     const baseId = ability.id?.includes('__') ? ability.id.split('__').pop()! : ability.id;
     if ((attacker?.usedTurnCounts?.[baseId] || 0) > 0) baseDamage = usedEarlierMod.setAmount;
   }
+  // Added to the first hit only (a modifier with scope: 'firstHit', e.g. Flaming Dive, Guard's Strike, Disembowel)
+  let firstHitAdd = 0;
+  // A hit's own bypass when a modifier sets it (e.g. Coup de Grace's setBypassArmour: false)
+  let setBypass: boolean | undefined;
   // Data-driven: "if this unit moved before declaring this attack this turn, add amount" (e.g. Flaming Dive)
   const movedThisTurnMod = ((damageEffects[0] as any)?.modifiers || []).find(
     (m: any) =>
@@ -1411,7 +1078,8 @@ export function getAbilityHitStructure(
   if (movedThisTurnMod) {
     const actualAttacker = attacker || options?.attacker;
     if (actualAttacker?.movedThisTurn) {
-      baseDamage += movedThisTurnMod.addAmount;
+      if (movedThisTurnMod.scope === 'firstHit') firstHitAdd += movedThisTurnMod.addAmount;
+      else baseDamage += movedThisTurnMod.addAmount;
     }
   }
   // Data-driven modifiers on the attacker's movement and this ability's earlier uses this turn:
@@ -1422,11 +1090,44 @@ export function getAbilityHitStructure(
   {
     const actualAttacker = attacker || options?.attacker;
     let minAmount: number | undefined;
+    const modAttackerHex = options?.attackerHex || actualAttacker?.hexId;
+    const modTargetHex = options?.targetHex || target?.hexId;
+    const modBehind = isAttackFromBehind(
+      modAttackerHex,
+      modTargetHex,
+      target?.owner || (actualAttacker ? (actualAttacker.owner === 'player1' ? 'player2' : 'player1') : null),
+      ability
+    );
+    // (an amount added to the first hit, or to every hit)
+    const add = (m: any, amount: number) => {
+      if (m.scope === 'firstHit') firstHitAdd += amount;
+      else baseDamage += amount;
+    };
     ((damageEffects[0] as any)?.modifiers || []).forEach((m: any) => {
+      if (m === movedThisTurnMod) return;
+      // { if, setAmount, setBypassArmour? } on the target (e.g. Coup de Grace: 10 damage against Slow Venom)
+      if (typeof m.setAmount === 'number' && m.if !== 'thisAbilityUsedEarlierThisTurn') {
+        const holds =
+          typeof m.if === 'string' && m.if.startsWith('target.')
+            ? Boolean(target && targetConditionHolds(m.if, actualAttacker, target, options))
+            : Boolean(actualAttacker && evalAttackerCondition(m.if, actualAttacker, modBehind) === true);
+        if (holds) {
+          baseDamage = m.setAmount;
+          if (typeof m.setBypassArmour === 'boolean') setBypass = m.setBypassArmour;
+        }
+        return;
+      }
       if (m.if === 'self.hasNotMovedThisTurn' && typeof m.addAmount === 'number') {
-        if (!actualAttacker?.movedThisTurn) baseDamage += m.addAmount;
+        if (!actualAttacker?.movedThisTurn) add(m, m.addAmount);
       } else if (m.if === 'self.hasArmour' && typeof m.addAmount === 'number') {
-        if ((actualAttacker?.armour || 0) > 0) baseDamage += m.addAmount;
+        if ((actualAttacker?.armour || 0) > 0) add(m, m.addAmount);
+      } else if (m.if === 'thisAbilityUsedOnTargetEarlierThisTurn' && typeof m.addAmount === 'number') {
+        // e.g. Shove Off: "If this unit has already used this attack on the target this turn"
+        const useKey = String(ability.baseAbilityId || ability.id);
+        if (target && (actualAttacker?.usedOnTargets?.[useKey] || []).includes(target.instanceId)) add(m, m.addAmount);
+      } else if (m.if === 'selfOnTileBehindTarget' && typeof m.addAmount === 'number') {
+        // e.g. Disembowel: "If this attack is made from behind, it deals an additional 2 damage"
+        if (modBehind) add(m, m.addAmount);
       } else if (typeof m.addAmount?.perTileMovedThisTurn === 'number') {
         baseDamage += m.addAmount.perTileMovedThisTurn * (actualAttacker?.tilesMovedThisTurn || 0);
       } else if (typeof m.addAmount?.perPreviousUseThisTurn === 'number') {
@@ -1438,17 +1139,13 @@ export function getAbilityHitStructure(
       } else if (typeof m.addAmount?.perCardUnderTarget === 'number' && target) {
         // e.g. Flash-Freezing Drop: "an additional 4 damage for each card beneath the target unit"
         baseDamage += m.addAmount.perCardUnderTarget * (target.promotedCards?.length || 0);
-      } else if (typeof m.addAmount === 'number' && target && targetConditionHolds(m.if, actualAttacker, target, options)) {
-        // Conditions on the target (e.g. Coordinated Strike, Frostbite Fangs)
-        baseDamage += m.addAmount;
+      } else if (typeof m.addAmount === 'number' && m.checkedAt !== 'eachHit' && target && targetConditionHolds(m.if, actualAttacker, target, options)) {
+        // Conditions on the target (e.g. Coordinated Strike, Frostbite Fangs, Phlox Shot)
+        add(m, m.addAmount);
       }
       if (typeof m.minAmount === 'number') minAmount = Math.max(minAmount ?? 0, m.minAmount);
     });
     if (minAmount !== undefined) baseDamage = Math.max(minAmount, baseDamage);
-  }
-
-  if (ability.id === 'fortified_blows' || ability.baseAbilityId === 'fortified_blows') {
-    baseDamage = attacker?.armour ?? 2;
   }
 
   let hitCount = 1;
@@ -1479,9 +1176,6 @@ export function getAbilityHitStructure(
     hitCount = 2;
   } else if (/hits\s+three\s+times|hit\s+three\s+times|hits\s+3\s+times|hit\s+3\s+times/i.test(text)) {
     hitCount = 3;
-    if (ability.id === 'bursting_bubbles' && attacker && attacker.damageCounters > 0) {
-      hitCount = 2;
-    }
   } else if (/hits\s+four\s+times|hit\s+four\s+times|hits\s+4\s+times|hit\s+4\s+times/i.test(text)) {
     hitCount = 4;
   } else {
@@ -1493,15 +1187,29 @@ export function getAbilityHitStructure(
     damageEffects[0]?.armourInteraction === 'blockWithoutDepleting' ||
     /Armour blocks this attack without depleting/i.test(text);
 
+  // { if: 'target.noArmour' | 'target.hasArmour', addAmount } on the damage (e.g. Hundred-Cut Crescendo: "Each time this
+  // attack hits, if the target no longer has any armour, that hit deals an additional 1 damage"): as each hit lands
+  const armourMods = (((damageEffects[0] as any)?.modifiers || []) as any[]).filter(
+    (m) => isArmourCondition(m.if) && m.checkedAt === 'eachHit' && typeof m.addAmount === 'number'
+  );
+  const withArmourMods = (h: AttackHit): AttackHit => {
+    armourMods.forEach((m, i) =>
+      addPerHitBonus(h, { key: `${ability.id}_armour_${i}`, name: ability.name, amount: m.addAmount, if: m.if })
+    );
+    return h;
+  };
+
   if (hitCount > 1) {
     const hits: AttackHit[] = [];
     for (let i = 1; i <= hitCount; i++) {
       hits.push({
         hitIndex: i,
-        damage: baseDamage,
+        damage: baseDamage + (i === 1 ? firstHitAdd : 0),
+        ...(setBypass !== undefined ? { bypassArmour: setBypass } : {}),
         blockWithoutDepleting,
         ...(i === 1 && (damageEffects[0] as any)?.firstHitBypassesArmour ? { bypassArmour: true } : {})
       });
+      withArmourMods(hits[hits.length - 1]);
     }
     applyAttackerBonusPassives(hits, ability, attacker, target);
     const allSame = hits.every((h) => h.damage === hits[0].damage);
@@ -1517,7 +1225,9 @@ export function getAbilityHitStructure(
   }
 
   // Single hit
-  const hits: AttackHit[] = [{ hitIndex: 1, damage: baseDamage }];
+  const hits: AttackHit[] = [
+    withArmourMods({ hitIndex: 1, damage: baseDamage + firstHitAdd, ...(setBypass !== undefined ? { bypassArmour: setBypass } : {}) })
+  ];
   applyAttackerBonusPassives(hits, ability, attacker, target);
   const totalDmg = hits[0].damage;
   const hasBonus = Boolean(hits[0].appliedBonuses && hits[0].appliedBonuses.length > 0);
@@ -1585,6 +1295,8 @@ export function calculateDamageReduction(
   const applyReduction = (e: any, sourceName: string) => {
     if (e.from === 'meleeAttack' && !isMelee) return;
     if (e.from === 'rangedAttack' && !isRanged) return;
+    // "from enemy attacks" (e.g. Solid Ribcage): not from an attack of its own side
+    if (e.from === 'enemyAttack' && options.attacker && options.attacker.owner === target.owner) return;
     if ((e.per === 'attack' || e.scope === 'firstHit') && hitIndex !== 1) return;
     if (!conditionHolds(e.if)) return;
     const floor = typeof e.minDamage === 'number' ? e.minDamage : 0;
@@ -1665,6 +1377,7 @@ function getArmourBypass(hit: AttackHit, options?: AttackExecutionOptions): { al
   );
   const isMelee =
     Boolean(ability?.tags?.includes('melee')) ||
+    dealsDamageAsPartOfOwnMovement(ability) ||
     Boolean(options?.attackerHex && options?.targetHex && getHexDistance(options.attackerHex, options.targetHex) === 1);
   const passiveApplies = (e: any) =>
     (!e.melee || isMelee) && (!e.if || (attacker ? evalAttackerCondition(e.if, attacker, isBehind) === true : false));
@@ -1676,8 +1389,12 @@ function getArmourBypass(hit: AttackHit, options?: AttackExecutionOptions): { al
   }
   // Borrowed attacks, such as Tenacious Slam (bypass up to 4)
   const parentId = String(ability?.parentAbilityId || (ability?.id?.includes('__') ? ability.id.split('__')[0] : ''));
-  const providerBypass: Record<string, number> = { tenacious_slam: 4 };
-  upTo += providerBypass[parentId] ?? 0;
+  // (e.g. Tenacious Slam: "Use a 1AP melee attack ... bypassing up to 4 armour": its useAbility's bypassArmourUpTo)
+  if (parentId && attacker) {
+    const provider = [...(attacker.card.abilities || []), ...(attacker.grantedAbilities || [])].find((a) => a.id === parentId);
+    const use: any = (provider?.effects || []).find((e: any) => e.type === 'useAbility');
+    if (typeof use?.bypassArmourUpTo === 'number') upTo += use.bypassArmourUpTo;
+  }
   return { all, upTo };
 }
 /**
@@ -1704,7 +1421,11 @@ export function executeSequentialHits(
   let armourBreakHitAdded = false; // Breaker's Resolve: once per attack
   const hitResults: HitExecutionRecord[] = [];
   // Hits added while resolving (e.g. Breaker's Resolve) join the end of this attack
-  const queue = [...hitsToExecute];
+  const queue = hitsToExecute.map((h) => ({ ...h }));
+  // Hits made without the attacker's bonuses (e.g. a custom damage formula): apply them now, once
+  if (options?.attacker && queue.length > 0 && !queue.some((h) => h.appliedBonuses?.includes(ATTACKER_BONUSES_APPLIED))) {
+    applyAttackerBonusPassives(queue, options.ability, options.attacker, options.target, options);
+  }
   // "The first ranged attack against this unit each turn can only deal a maximum of N damage" (e.g. Shining Supremacy)
   const damageCap = getAttackDamageCap(options);
   let dealtTowardCap = 0;
@@ -1715,53 +1436,19 @@ export function executeSequentialHits(
     }
     // "Then, if the target has no armour, this attack hits again" (e.g. Plunge and Twist): armour left after the earlier hits
     if (hit.onlyIfTargetHasNoArmour && currentArmour > 0) continue;
+    // "Then, if this attack damaged armour, hits again" (e.g. Phlox Shot): armour taken off by the earlier hits
+    if (hit.onlyIfArmourDamaged && !(currentArmour < initialArmour)) continue;
 
     let hitDmg = hit.damage;
     let notes = hit.conditionalNote || '';
 
-    // Apply attacker damage bonus passives if not already baked into hit
-    const attacker = options?.attacker;
-    const attackerPassives = getUnitPassives(attacker);
-    const isMelee =
-      options?.ability?.tags?.includes('melee') ||
-      (options?.attackerHex && options?.targetHex
-        ? getHexDistance(options.attackerHex, options.targetHex) === 1
-        : false);
-
-    // 1. Shield of Blessings (Order's Chosen): "When this unit has armour on it, its attacks deal an additional 2 damage."
-    if (hit.hitIndex === 1 && !hit.appliedBonuses?.includes('shield_of_blessings') && (attacker?.armour ?? 0) > 0) {
-      if (attackerPassives.some((p) => p.id === 'shield_of_blessings' || p.name === 'Shield of Blessings')) {
-        hitDmg += 2;
-        notes = notes ? `${notes}, +2 Shield of Blessings` : '+2 Shield of Blessings';
-      }
-    }
-    // 2. Drakescale (Drakerider Paladin): "While this unit has armour, it is immune to knockback and its melee attacks deal an additional 2 damage per hit."
-    if (isMelee && !hit.appliedBonuses?.includes('drakescale') && (attacker?.armour ?? 0) > 0) {
-      if (attackerPassives.some((p) => p.id === 'drakescale' || p.name === 'Drakescale')) {
-        hitDmg += 2;
-        notes = notes ? `${notes}, +2 Drakescale` : '+2 Drakescale';
-      }
-    }
-    // 3. Enrage (Savage Grizzly): "If this unit is damaged, it deals an additional 1 damage per hit with attacks."
-    if (!hit.appliedBonuses?.includes('enrage') && (attacker?.damageCounters ?? 0) > 0) {
-      if (attackerPassives.some((p) => p.id === 'enrage' || p.name === 'Enrage')) {
-        hitDmg += 1;
-        notes = notes ? `${notes}, +1 Enrage` : '+1 Enrage';
-      }
-    }
-    // 3b. Adrenaline (Brawl Fighter): "If this unit has already taken damage this turn, its attacks deal an additional 2 damage per hit."
-    if (!hit.appliedBonuses?.includes('adrenaline') && Boolean(attacker?.tookDamageThisTurn)) {
-      if (attackerPassives.some((p) => p.id === 'adrenaline' || p.name === 'Adrenaline')) {
-        hitDmg += 2;
-        notes = notes ? `${notes}, +2 Adrenaline` : '+2 Adrenaline';
-      }
-    }
-    // 4. Glimmering Arrows (Dawnglow Archer): "This unit's attacks against armour deal an additional 2 damage per hit."
-    // Dynamically evaluated against remaining currentArmour!
-    if (!hit.appliedBonuses?.includes('glimmering_arrows') && currentArmour > 0) {
-      if (attackerPassives.some((p) => p.id === 'glimmering_arrows' || p.name === 'Glimmering Arrows')) {
-        hitDmg += 2;
-        notes = notes ? `${notes}, +2 Glimmering Arrows (vs armour)` : '+2 Glimmering Arrows (vs armour)';
+    // Bonuses checked against the target's armour as this hit lands (e.g. Glimmering Arrows, Hundred-Cut Crescendo,
+    // Inscribed Edge: see perHitBonuses)
+    for (const b of hit.perHitBonuses || []) {
+      const add = evalPerHitBonus(b, currentArmour);
+      if (add > 0) {
+        hitDmg += add;
+        notes = notes ? `${notes}, +${add} ${b.name}` : `+${add} ${b.name}`;
       }
     }
 
@@ -1775,49 +1462,7 @@ export function executeSequentialHits(
       notes = notes ? `${notes}, +${perArmourHit.perHitBonusIfTargetArmoured} (vs armour)` : `+${perArmourHit.perHitBonusIfTargetArmoured} (vs armour)`;
     }
 
-    // 5. Behind-the-target conditions (Backstab, Opportunist, Inscribed Edge)
-    const attackerHex = options?.attackerHex || attacker?.hexId;
-    const targetHex = options?.targetHex || options?.target?.hexId;
-    const targetOwner = options?.target?.owner || (attacker ? (attacker.owner === 'player1' ? 'player2' : 'player1') : null);
-    const isBehind = isAttackFromBehind(attackerHex, targetHex, targetOwner, options?.ability);
-
-    if (isBehind) {
-      // Backstab (Shade Assassin): +4 on first hit
-      if (hit.hitIndex === 1 && !hit.appliedBonuses?.includes('backstab')) {
-        if (attackerPassives.some((p) => p.id === 'backstab' || p.name === 'Backstab')) {
-          hitDmg += 4;
-          notes = notes ? `${notes}, +4 Backstab (from behind)` : '+4 Backstab (from behind)';
-        }
-      }
-      // Opportunist (Cutthroat Assassin): +1 per hit on melee
-      if (isMelee && !hit.appliedBonuses?.includes('opportunist')) {
-        if (attackerPassives.some((p) => p.id === 'opportunist' || p.name === 'Opportunist')) {
-          hitDmg += 1;
-          notes = notes ? `${notes}, +1 Opportunist (from behind)` : '+1 Opportunist (from behind)';
-        }
-      }
-      // Inscribed Edge (Harsh Inquisitor): +floor(armour / 2) on first hit
-      if (hit.hitIndex === 1 && !hit.appliedBonuses?.includes('inscribed_edge') && currentArmour > 1) {
-        if (attackerPassives.some((p) => p.id === 'inscribed_edge' || p.name === 'Inscribed Edge')) {
-          const alreadyUsed = (attacker?.usedTurnCounts?.['inscribed_edge'] || 0) > 0;
-          if (!alreadyUsed) {
-            const bonus = Math.floor(currentArmour / 2);
-            if (bonus > 0) {
-              hitDmg += bonus;
-              notes = notes ? `${notes}, +${bonus} Inscribed Edge (from behind)` : `+${bonus} Inscribed Edge (from behind)`;
-            }
-          }
-        }
-      }
-    }
-
-    // Special: Hundred-Cut Crescendo: +1 damage if target has no armour at time of hit
-    if (abilityId === 'hundred_cut_crescendo' && currentArmour === 0) {
-      hitDmg += 1;
-      notes = notes ? `${notes}, +1 unarmoured bonus` : '+1 unarmoured bonus';
-    }
-
-        const bypass = getArmourBypass(hit, options);
+            const bypass = getArmourBypass(hit, options);
     const bypassed = bypass.all ? currentArmour : Math.min(bypass.upTo, currentArmour);
     const effectiveArmour = currentArmour - bypassed; // armour the hit "sees"
 
@@ -1957,7 +1602,9 @@ export function getAttackDamageCap(options?: AttackExecutionOptions): { key: str
   if (!target || !options?.attacker || options.attacker.owner === target.owner) return null;
   const ability = options.ability;
   const distance = options.attackerHex && options.targetHex ? getHexDistance(options.attackerHex, options.targetHex) : 1;
-  const isRanged = Boolean(ability?.tags?.includes('ranged')) || distance > 1 || (ability?.range?.[1] ?? 1) > 1;
+  const isRanged =
+    !dealsDamageAsPartOfOwnMovement(ability) &&
+    (Boolean(ability?.tags?.includes('ranged')) || distance > 1 || (ability?.range?.[1] ?? 1) > 1);
   for (const p of getUnitPassives(target)) {
     const eff: any = (p.effects || []).find((e: any) => e.type === 'capDamage' && typeof e.max === 'number');
     if (!eff || (eff.from === 'rangedAttack' && !isRanged) || (eff.from === 'meleeAttack' && isRanged)) continue;
