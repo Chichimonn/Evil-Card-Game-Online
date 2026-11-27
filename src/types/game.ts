@@ -97,6 +97,16 @@ export interface BattlefieldUnit {
   // for each unit it damaged this turn (by instanceId), the ability use that first did (see abilityUseSerialRef in App.tsx),
   // for "damages the same unit with a second ability in a turn" (e.g. Scorching Tempo); cleared with dealtDamageThisTurn
   damagedByUseThisTurn?: Record<string, number>;
+  // the enemy units it dealt damage to this turn (e.g. Electric Spoils), and the units it dealt damage to with a melee
+  // attack this turn (e.g. Barbed Tip), by instanceId; cleared with dealtDamageThisTurn
+  damagedEnemyIdsThisTurn?: string[];
+  meleeDamagedIdsThisTurn?: string[];
+  unitsKilledThisTurn?: number; // e.g. Three Curses: how many units this unit has killed this turn; cleared at turn end
+  // passives whose "you may ... If you do" this unit took this turn (e.g. Synthetic Blades), by passive id; cleared at turn end
+  optedInPassivesThisTurn?: string[];
+  // e.g. Glue Gun: "If the target moves during your opponent's next turn, it takes N damage for each tile moved"; cleared
+  // when that turn ends
+  moveDamageMark?: { perTile: number; sourceName: string; duringTurnOf: PlayerId };
   dealtDamageThisTurn?: boolean; // this unit dealt damage this turn (e.g. Combat Roll); cleared at the end of every turn // e.g. Critical Forecast: the 1AP ability chosen this turn, whose first use repeats for free
   cannotInflictKnockbackNextOwnTurn?: boolean; // e.g. Hold the Gate drawback: cleared when the owner's next turn ends
 }

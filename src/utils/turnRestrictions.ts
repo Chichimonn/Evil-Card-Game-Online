@@ -564,6 +564,24 @@ export function applyAttackerSingleTargetReduction(
   return target;
 }
 
+/**
+ * "If the target moves during your opponent's next turn, it takes 6 damage for each tile moved" (e.g. Glue Gun):
+ * { type: 'moveDamageMark', target: 'hitUnit', perTile }. The move triggers read it (see App applyMoveTriggers).
+ */
+export function applyMoveDamageMark(
+  target: BattlefieldUnit,
+  ability: CardAbility | null | undefined,
+  caster?: BattlefieldUnit | null
+): BattlefieldUnit {
+  const eff = ((ability?.effects || []) as any[]).find((e) => e.type === 'moveDamageMark' && typeof e.perTile === 'number');
+  if (!eff || !caster || caster.instanceId === target.instanceId) return target;
+  const opponent: PlayerId = caster.owner === 'player1' ? 'player2' : 'player1';
+  return {
+    ...target,
+    moveDamageMark: { perTile: Math.max(eff.perTile, target.moveDamageMark?.perTile || 0), sourceName: ability?.name || 'Mark', duringTurnOf: opponent }
+  };
+}
+
 /** One call for every status an ability can leave on the unit it hits. Add new ones here. */
 export function applyAbilityStatuses(
   target: BattlefieldUnit,
@@ -571,7 +589,7 @@ export function applyAbilityStatuses(
   lastTurnUnitIds: Record<PlayerId, string | null>,
   caster?: BattlefieldUnit | null
 ): BattlefieldUnit {
-  return applyAttackerSingleTargetReduction(applyLockStep(applyAttackerMark(applyDamageOnTakingTurn(applyFirstHitReduction(
+  return applyMoveDamageMark(applyAttackerSingleTargetReduction(applyLockStep(applyAttackerMark(applyDamageOnTakingTurn(applyFirstHitReduction(
     applyCannotMove(
       applyCannotPromoteOrFuse(
         applyMoveTax(applyActionTax(applyTurnDenial(target, ability, lastTurnUnitIds), ability), ability),
@@ -581,7 +599,7 @@ export function applyAbilityStatuses(
       caster
     ),
     ability
-  ), ability, caster), ability, caster), ability, caster), ability, caster);
+  ), ability, caster), ability, caster), ability, caster), ability, caster), ability, caster);
 }
 
 /** AP cost of the universal move action for this unit right now. */

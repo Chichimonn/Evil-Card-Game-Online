@@ -2,7 +2,7 @@ export interface AbilityModifier {
   if?: string;
   addAmount?:
     | number
-    | { perTarget?: number; perExtraTarget?: number; perTileMovedThisTurn?: number; perPreviousUseThisTurn?: number; perCardUnderTarget?: number };
+    | { perTarget?: number; perExtraTarget?: number; perTileMovedThisTurn?: number; perPreviousUseThisTurn?: number; perCardUnderTarget?: number; perUnitKilledThisTurn?: number };
   minAmount?: number;
   setAmount?: number;
   setHits?: number;
@@ -43,6 +43,9 @@ export interface CardAbility {
   tags?: string[];
   range?: number[];
   rangeText?: string;
+  // The range is only how far this ability moves its user, written in its text (e.g. "Move up to 3 tiles"), not a
+  // Range tag of the card: kept for targeting, not shown as a chip
+  rangeIsMoveDistance?: boolean;
   target?: string;
   // Read by the targeting rules (e.g. "empty tile target"); not shown on the card
   targetText?: string;

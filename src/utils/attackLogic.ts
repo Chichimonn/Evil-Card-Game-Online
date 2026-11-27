@@ -169,6 +169,9 @@ export function evalAttackerCondition(cond: string, attacker: BattlefieldUnit, i
   // "If this unit is damaged" (e.g. Enrage), "If this unit has already taken damage this turn" (e.g. Adrenaline)
   if (cond === 'self.hasDamage') return attacker.damageCounters > 0;
   if (cond === 'self.tookDamageThisTurn') return Boolean(attacker.tookDamageThisTurn);
+  // "If you do" of a passive's optional cost taken this turn (e.g. Synthetic Blades: 'self.optedIn:synthetic_blades')
+  const optedIn = cond.match(/^self\.optedIn:(.+)$/);
+  if (optedIn) return (attacker.optedInPassivesThisTurn || []).includes(optedIn[1]);
   const hpRemaining = attacker.card.hp - attacker.damageCounters;
   if (cond === 'self.hpRemainingIsEven') return hpRemaining % 2 === 0;
   if (cond === 'self.hpRemainingIsOdd') return hpRemaining % 2 === 1;
@@ -1065,6 +1068,8 @@ export function getAbilityHitStructure(
   }
   // Added to the first hit only (a modifier with scope: 'firstHit', e.g. Flaming Dive, Guard's Strike, Disembowel)
   let firstHitAdd = 0;
+  // (an amount added to the last hit only, e.g. Three Curses: "an additional 1 damage on the last hit for each unit...")
+  let lastHitAdd = 0;
   // A hit's own bypass when a modifier sets it (e.g. Coup de Grace's setBypassArmour: false)
   let setBypass: boolean | undefined;
   // Data-driven: "if this unit moved before declaring this attack this turn, add amount" (e.g. Flaming Dive)
@@ -1101,6 +1106,7 @@ export function getAbilityHitStructure(
     // (an amount added to the first hit, or to every hit)
     const add = (m: any, amount: number) => {
       if (m.scope === 'firstHit') firstHitAdd += amount;
+      else if (m.scope === 'lastHit') lastHitAdd += amount;
       else baseDamage += amount;
     };
     ((damageEffects[0] as any)?.modifiers || []).forEach((m: any) => {
@@ -1130,6 +1136,9 @@ export function getAbilityHitStructure(
         if (modBehind) add(m, m.addAmount);
       } else if (typeof m.addAmount?.perTileMovedThisTurn === 'number') {
         baseDamage += m.addAmount.perTileMovedThisTurn * (actualAttacker?.tilesMovedThisTurn || 0);
+      } else if (typeof m.addAmount?.perUnitKilledThisTurn === 'number') {
+        // e.g. Three Curses: "an additional 1 damage per hit for each unit this unit has killed this turn"
+        add(m, m.addAmount.perUnitKilledThisTurn * (actualAttacker?.unitsKilledThisTurn || 0));
       } else if (typeof m.addAmount?.perPreviousUseThisTurn === 'number') {
         const useKey = ability.baseAbilityId || ability.id;
         baseDamage += m.addAmount.perPreviousUseThisTurn * (actualAttacker?.usedTurnCounts?.[useKey] || 0);
@@ -1204,7 +1213,7 @@ export function getAbilityHitStructure(
     for (let i = 1; i <= hitCount; i++) {
       hits.push({
         hitIndex: i,
-        damage: baseDamage + (i === 1 ? firstHitAdd : 0),
+        damage: baseDamage + (i === 1 ? firstHitAdd : 0) + (i === hitCount ? lastHitAdd : 0),
         ...(setBypass !== undefined ? { bypassArmour: setBypass } : {}),
         blockWithoutDepleting,
         ...(i === 1 && (damageEffects[0] as any)?.firstHitBypassesArmour ? { bypassArmour: true } : {})
@@ -1226,7 +1235,7 @@ export function getAbilityHitStructure(
 
   // Single hit
   const hits: AttackHit[] = [
-    withArmourMods({ hitIndex: 1, damage: baseDamage + firstHitAdd, ...(setBypass !== undefined ? { bypassArmour: setBypass } : {}) })
+    withArmourMods({ hitIndex: 1, damage: baseDamage + firstHitAdd + lastHitAdd, ...(setBypass !== undefined ? { bypassArmour: setBypass } : {}) })
   ];
   applyAttackerBonusPassives(hits, ability, attacker, target);
   const totalDmg = hits[0].damage;
@@ -1378,7 +1387,12 @@ function getArmourBypass(hit: AttackHit, options?: AttackExecutionOptions): { al
   const isMelee =
     Boolean(ability?.tags?.includes('melee')) ||
     dealsDamageAsPartOfOwnMovement(ability) ||
-    Boolean(options?.attackerHex && options?.targetHex && getHexDistance(options.attackerHex, options.targetHex) === 1);
+    Boolean(
+      !ability?.tags?.includes('ranged') &&
+        options?.attackerHex &&
+        options?.targetHex &&
+        getHexDistance(options.attackerHex, options.targetHex) === 1
+    );
   const passiveApplies = (e: any) =>
     (!e.melee || isMelee) && (!e.if || (attacker ? evalAttackerCondition(e.if, attacker, isBehind) === true : false));
   for (const p of getUnitPassives(attacker)) {

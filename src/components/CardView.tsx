@@ -218,12 +218,18 @@ export const CardAbilityBox: React.FC<{
   const areaRange = (ability.effects || [])
     .map((e: any) => (typeof e.area === 'string' ? e.area.match(/WithinRange:(\d+)$/)?.[1] : undefined))
     .find(Boolean);
+  // A Range chip only for a Range tag of the card: not on a melee ability (melee and ranged are exclusive), nor when the
+  // range is only how far it moves its user, written in its text (rangeIsMoveDistance, e.g. Bright Swoop)
+  const showRange =
+    Boolean(ability.rangeText || (ability.range && ability.range.length > 0)) &&
+    !tags.includes('melee') &&
+    !ability.rangeIsMoveDistance;
   // Any tag besides an Assist or Inspiring one (they go on the line under it)
   const hasOtherTags =
     otherTags.length > 0 ||
     isStraightLineAbility(ability) ||
     Boolean(ability.usesPath) ||
-    Boolean(ability.rangeText || (ability.range && ability.range.length > 0)) ||
+    showRange ||
     Boolean(areaRange) ||
     Boolean(ability.tagNote);
   return (
@@ -279,7 +285,7 @@ export const CardAbilityBox: React.FC<{
               }`
             )}
           </span>
-        ) : (ability.rangeText || (ability.range && ability.range.length > 0)) ? (
+        ) : showRange ? (
           <span className={`bg-sky-800 text-white ${chip}`}>
             {withNumerals(`Range: ${ability.rangeText || (ability.range ?(ability.range.length > 1 ? `${ability.range[0]}-${ability.range[1]}` : ability.range[0]) : '')}`)}
           </span>

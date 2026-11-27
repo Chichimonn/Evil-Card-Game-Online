@@ -5,9 +5,11 @@ import { CardAbility } from '../types/card';
  * attack): an ability that moves or places its user and then deals damage (e.g. Sidestepping Crush, Spitfire Landing,
  * Lightning Joust, Super Jump), or deals damage to the units its user moves over (e.g. Mounted Charge). Not one that moves
  * or places the target (e.g. Grappling Hook, Boarding Hook), nor one whose user moves only after it has dealt its damage
- * (e.g. Umbral Flail), unless it's tagged Melee anyway.
+ * (e.g. Umbral Flail), unless it's tagged Melee anyway. Nor one tagged Ranged (e.g. Spitfire Landing, Ash Cloud Dive):
+ * its damage is a ranged attack.
  */
 export function dealsDamageAsPartOfOwnMovement(ability: CardAbility | null | undefined): boolean {
+  if (ability?.tags?.includes('ranged')) return false;
   const effects = ((ability?.effects || []) as any[]);
   // Damage to the units moved over or through
   if (

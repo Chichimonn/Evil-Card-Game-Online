@@ -1682,6 +1682,8 @@ export default function App() {
       // ...and which units it damaged (e.g. Deep Freeze: "only against a target that this unit has dealt damage to"),
       // by the event's unit when it says (a knockback may have moved it off its tile), else whoever is on the tile
       const ids = new Set(next[dealerHex].damagedIdsThisTurn || []);
+      const enemyIds = new Set(next[dealerHex].damagedEnemyIdsThisTurn || []);
+      const meleeIds = new Set(next[dealerHex].meleeDamagedIdsThisTurn || []);
       // (units an earlier ability use of it damaged this turn, with the tile each was hit on now)
       const useSerial = abilityUseSerialRef.current.serial;
       const byUse = { ...(next[dealerHex].damagedByUseThisTurn || {}) };
@@ -1692,10 +1694,21 @@ export default function App() {
         if (byUse[id] !== undefined && byUse[id] !== useSerial && !repeats.some((r) => r.id === id)) repeats.push({ id, hex: ev.hexId });
         if (byUse[id] === undefined) byUse[id] = useSerial;
         ids.add(id);
+        // (an enemy unit, e.g. Electric Spoils; with a melee attack, e.g. Barbed Tip)
+        const owner = ev.damagedUnitOwner || next[ev.hexId]?.owner;
+        if (owner && owner !== activeTurnUnit.owner) enemyIds.add(id);
+        if (!ev.nonAttack && isMeleeAttackAbility(abilityUseSerialRef.current.ability)) meleeIds.add(id);
       });
       next = {
         ...next,
-        [dealerHex]: { ...next[dealerHex], dealtDamageThisTurn: true, damagedIdsThisTurn: Array.from(ids), damagedByUseThisTurn: byUse }
+        [dealerHex]: {
+          ...next[dealerHex],
+          dealtDamageThisTurn: true,
+          damagedIdsThisTurn: Array.from(ids),
+          damagedByUseThisTurn: byUse,
+          damagedEnemyIdsThisTurn: Array.from(enemyIds),
+          meleeDamagedIdsThisTurn: Array.from(meleeIds)
+        }
       };
       // "If this unit damages the same unit with a second ability in a turn, the tile that unit is on becomes scorched"
       // (e.g. Scorching Tempo): the tile it's on now (where it was hit, if this damage defeated it)
@@ -1857,7 +1870,34 @@ export default function App() {
       const left = [fromHex, ...path.slice(0, -1)].filter((h) => h !== hex && !board[h]);
       if (left.length > 0) mover = { ...mover, carriedUnit: { ...mover.carriedUnit, lastLeftHex: left[left.length - 1] } };
     }
-    let next = resolvePassiveDamage({ ...board, [hex]: mover }, getMoveDamage(mover, path, { ...board, [hex]: mover }, mover.owner === activePlayer, newDirections));
+    let next: Record<string, BattlefieldUnit> = { ...board, [hex]: mover };
+    // "When this unit moves, before moving, it deals 4 damage to all surrounding units that it has damaged with a melee
+    // attack this turn" (e.g. Barbed Tip): { trigger: 'self.moves', effects: [{ type: 'damage', amount, timing:
+    // 'beforeMoving', area: 'unitsSurroundingSelfDamagedBySelfWithMeleeAttackThisTurn' }] }, around the tile it left
+    if (fromHex && !followed) {
+      const hitIds = mover.meleeDamagedIdsThisTurn || [];
+      const before: PassiveDamage[] = [];
+      getUnitPassives(mover).forEach((p) => {
+        if (p.trigger !== 'self.moves') return;
+        ((p.effects || []) as any[]).forEach((e) => {
+          if (e.type !== 'damage' || e.timing !== 'beforeMoving' || typeof e.amount !== 'number') return;
+          if (e.area !== 'unitsSurroundingSelfDamagedBySelfWithMeleeAttackThisTurn') return;
+          getSurroundingHexes(fromHex).forEach((h) => {
+            const u = next[h];
+            if (u && u.instanceId !== moverInstanceId && hitIds.includes(u.instanceId)) before.push({ hex: h, amount: e.amount, source: p.name });
+          });
+        });
+      });
+      if (before.length > 0) next = resolvePassiveDamage(next, before);
+    }
+    const moverNow = next[hex];
+    if (!moverNow) return next;
+    next = resolvePassiveDamage(next, getMoveDamage(moverNow, path, next, moverNow.owner === activePlayer, newDirections));
+    // "If the target moves during your opponent's next turn, it takes 6 damage for each tile moved" (e.g. Glue Gun)
+    const glue = next[hex]?.moveDamageMark;
+    if (glue && glue.duringTurnOf === activePlayer) {
+      next = resolvePassiveDamage(next, [{ hex, amount: glue.perTile * path.length, source: glue.sourceName }]);
+    }
     // Lock-Step on the mover: the unit that put it there follows, step for step in the same directions, stopping at
     // the first occupied (or off-board) tile
     const lockerId = mover.lockStepBy;
@@ -2053,8 +2093,18 @@ export default function App() {
             dealtDamageThisTurn: undefined,
             damagedIdsThisTurn: undefined,
             damagedByUseThisTurn: undefined,
+            damagedEnemyIdsThisTurn: undefined,
+            meleeDamagedIdsThisTurn: undefined,
             attackerMark: undefined
           };
+        }
+        // "...this turn" counts and choices (e.g. Three Curses' kills, Synthetic Blades taken) are over
+        if (unitToUpdate.unitsKilledThisTurn || unitToUpdate.optedInPassivesThisTurn) {
+          unitToUpdate = { ...unitToUpdate, unitsKilledThisTurn: undefined, optedInPassivesThisTurn: undefined };
+        }
+        // "...during your opponent's next turn" (e.g. Glue Gun): lapses when that turn ends
+        if (unitToUpdate.moveDamageMark && unitToUpdate.moveDamageMark.duringTurnOf === activePlayer) {
+          unitToUpdate = { ...unitToUpdate, moveDamageMark: undefined };
         }
         // "...until the end of your opponent's next turn" (e.g. Ethereal Guard): lapses when that opponent's turn ends
         if (unitToUpdate.attackDamageReduction && unitToUpdate.attackDamageReduction.setOnTurnOf !== activePlayer) {
@@ -8987,8 +9037,11 @@ export default function App() {
         const coupBypass = attackBypassesAllArmour(activeAbility, targetUnit);
         // "Hits again for 4 damage to the target and all enemy units surrounding it" (e.g. Shield Bash & Cleave): the
         // damage effect with area 'targetAndEnemyUnitsSurroundingTarget', dealt to the surrounding enemies
+        // (also "Deals 5 damage, and 2 damage to all enemy units surrounding the target", e.g. Electric Baton: a damage
+        // effect with area 'otherEnemyUnitsSurroundingTarget')
         const cleaveEff: any = ((activeAbility.effects || []) as any[]).find(
-          (e: any) => e.type === 'damage' && e.area === 'targetAndEnemyUnitsSurroundingTarget'
+          (e: any) =>
+            e.type === 'damage' && (e.area === 'targetAndEnemyUnitsSurroundingTarget' || e.area === 'otherEnemyUnitsSurroundingTarget')
         );
         const cleaveDamage: number = typeof cleaveEff?.amount === 'number' ? cleaveEff.amount : 0;
         // "If the target is not on a tile surrounding this unit, you may place it on an empty tile surrounding this unit"
@@ -9316,7 +9369,11 @@ export default function App() {
         const abilityHealEff: any = activeAbility.effects?.find((e: any) => e.type === 'heal' && e.target === 'self');
         // ({ if: 'damageDealt' }: "If this attack deals damage, heal 2 damage from this unit", e.g. Purple Siphon)
         const abilityHeal =
-          !abilityHealEff || isFeedingFrenzy || (abilityHealEff.if === 'damageDealt' && !(damage > 0))
+          !abilityHealEff ||
+          isFeedingFrenzy ||
+          (abilityHealEff.if === 'damageDealt' && !(damage > 0)) ||
+          // ({ if: 'targetKilled' }: "If this attack kills the target, heal 3 damage", e.g. Gel Reaper)
+          (abilityHealEff.if === 'targetKilled' && !isDefeated)
             ? 0
             : abilityHealEff.amount === 'totalDamageDealt'
             ? damage
@@ -15088,6 +15145,14 @@ export default function App() {
     if (res.log) showNotification(res.log);
     let next = res.updatedBoard;
     const killedAnEnemy = killer && [killed, ...res.defeated].some((u) => u.owner !== killer.owner && !u.card.isWall);
+    // "For each unit this unit has killed this turn" (e.g. Three Curses)
+    if (killer) {
+      const killerHex = Object.keys(next).find((h) => next[h].instanceId === killer.instanceId);
+      const count = [killed, ...res.defeated].filter((u) => u.instanceId !== killer.instanceId).length;
+      if (killerHex && count > 0) {
+        next = { ...next, [killerHex]: { ...next[killerHex], unitsKilledThisTurn: (next[killerHex].unitsKilledThisTurn || 0) + count } };
+      }
+    }
     // Only on its own turn: "on a turn when it has killed an enemy unit" is the turn of the unit that has it
     if (killer && killedAnEnemy && killer.owner === activePlayer) {
       const killerHex = Object.keys(next).find((h) => next[h].instanceId === killer.instanceId);
@@ -15249,6 +15314,68 @@ export default function App() {
         showNotification(`${sources.join(', ')}: ${unit.card.name} can't use ${[...barred].join('/')}AP abilities this turn.`);
       }
     }
+    // "When you choose this unit to take a turn, you may have it take 3 damage. If you do, its melee attacks deal an
+    // additional 1 damage per hit this turn" (e.g. Synthetic Blades): { trigger: 'self.takesTurn', effects: [{ type:
+    // 'optionalSelfDamage', amount }, { type: 'damageBonus', if: 'self.optedIn:<passive id>', ... }] }. Taking it locks
+    // the turn in to this unit.
+    getUnitPassives(unit).forEach((p) => {
+      if (p.trigger !== 'self.takesTurn') return;
+      const cost: any = ((p.effects || []) as any[]).find((e) => e.type === 'optionalSelfDamage' && typeof e.amount === 'number');
+      if (!cost) return;
+      const key = String(p.id || p.name);
+      askCardChoice(
+        {
+          title: p.name,
+          message: `${p.text}`,
+          player: unit.owner,
+          options: [
+            { label: `Take ${cost.amount} damage`, value: 'yes' },
+            { label: 'No', value: 'no' }
+          ]
+        },
+        (answer) => {
+          if (answer !== 'yes') return;
+          const before = Object.values(unitsOnBoard).find((u) => u.instanceId === unitId) || unit;
+          const died = before.damageCounters + cost.amount - Math.min(before.armour, cost.amount) >= before.card.hp;
+          setUnitsOnBoard((prev) => {
+            const h = Object.keys(prev).find((k) => prev[k].instanceId === unitId);
+            if (!h) return prev;
+            const cur = prev[h];
+            const absorbed = Math.min(cur.armour, cost.amount);
+            const counters = cur.damageCounters + cost.amount - absorbed;
+            let next = { ...prev };
+            if (counters >= cur.card.hp) {
+              delete next[h];
+            } else {
+              next[h] = {
+                ...cur,
+                armour: cur.armour - absorbed,
+                damageCounters: counters,
+                tookDamageThisTurn: true,
+                lockedIn: true,
+                optedInPassivesThisTurn: [...(cur.optedInPassivesThisTurn || []), key]
+              };
+            }
+            next = applyDamageEventsAndPassives([{ hexId: h, damagedUnitOwner: cur.owner, damageAmount: cost.amount, nonAttack: true, instanceId: unitId }], next);
+            checkVictory(next);
+            return next;
+          });
+          if (died) {
+            if (unit.card.type !== 'token') {
+              if (unit.owner === 'player1') setPlayer1Graveyard((g) => [...g, unit.card]);
+              else setPlayer2Graveyard((g) => [...g, unit.card]);
+            }
+            setActiveTurnUnitHex(null);
+            setSelectedHex(null);
+            setIsMovingMode(false);
+            showNotification(`${unit.card.name}'s ${p.name}: took ${cost.amount} damage and was defeated! Choose another unit.`);
+          } else {
+            showNotification(`${unit.card.name}'s ${p.name}: took ${cost.amount} damage; its melee attacks deal more this turn (locked in to this unit).`);
+          }
+          appendLog('choice', `${unit.card.name}'s ${p.name}: took ${cost.amount} damage`, unit.owner);
+        }
+      );
+    });
     // "When this unit starts its turn, choose an enemy unit. That unit's passives have no effect this turn" (e.g.
     // Posthumous Prerogative): { type: 'removePassives', trigger: 'self.takesTurn', target: 'chosenEnemyUnit' }
     const prerogative = getUnitPassives(unit).find((p) =>
@@ -15700,18 +15827,42 @@ export default function App() {
       postLootCallback?: () => void;
     }
   ) => {
+    // "When this unit loots, if it has damaged more than 1 enemy this turn, it may loot twice as many cards" (e.g.
+    // Electric Spoils): { trigger: 'self.loots', effects: [{ type: 'multiplyLoot', factor, if:
+    // 'self.enemiesDamagedThisTurn>=N' }] } on the looting unit, checked when the loot happens (after the attack that
+    // set it off has been recorded). Looting more is never worse, so it is always taken.
+    const looterId = (opts?.unitHex ? unitsOnBoard[opts.unitHex] : activeTurnUnit)?.instanceId;
+    const lootAmount = (): { amount: number; title: string } => {
+      const looter = looterId ? Object.values(unitsOnBoardRef.current).find((u) => u.instanceId === looterId) : undefined;
+      let n = amount;
+      let title = sourceTitle;
+      if (!looter || looter.owner !== player) return { amount: n, title };
+      getUnitPassives(looter).forEach((p) => {
+        if (p.trigger !== 'self.loots') return;
+        ((p.effects || []) as any[]).forEach((e) => {
+          if (e.type !== 'multiplyLoot' || typeof e.factor !== 'number') return;
+          const need = typeof e.if === 'string' ? e.if.match(/^self.enemiesDamagedThisTurn>=(d+)$/) : null;
+          if (e.if && (!need || (looter.damagedEnemyIdsThisTurn || []).length < parseInt(need[1], 10))) return;
+          showNotification(`⚡ ${looter.card.name}'s ${p.name}: Loot ${n * e.factor} instead of ${n}.`);
+          n *= e.factor;
+          title = `${title} + ${p.name}`;
+        });
+      });
+      return { amount: n, title };
+    };
     // Draws when the popup opens, from the hand and deck as they are then
-    enqueuePopup(player, `${sourceTitle} (Loot ${amount})`, (ctx) =>
+    enqueuePopup(player, `${sourceTitle} (Loot ${amount})`, (ctx) => {
+      const loot = lootAmount();
       executeLoot(
         player,
-        amount,
-        sourceTitle,
+        loot.amount,
+        loot.title,
         unitName,
         opts,
         player === 'player1' ? ctx.p1Hand : ctx.p2Hand,
         player === 'player1' ? ctx.p1Deck : ctx.p2Deck
-      )
-    );
+      );
+    });
   };
 
   // Loot from attacks, read from card data (once-per-turn passives are tracked here by unit and turn):
@@ -15753,7 +15904,8 @@ export default function App() {
     }
     ((ability?.effects || []) as any[]).forEach((e) => {
       if (e.type !== 'loot' || typeof e.amount !== 'number') return;
-      if ((e.if === 'targetKilled' && outcome.killedEnemy) || (e.if === 'damageDealt' && outcome.dealtDamage)) {
+      // ({ if: 'attackUsed' }: a plain "Loot 1" after the attack, e.g. Taze and Take)
+      if ((e.if === 'targetKilled' && outcome.killedEnemy) || (e.if === 'damageDealt' && outcome.dealtDamage) || e.if === 'attackUsed') {
         out.push({ amount: e.amount, title: ability!.name, player: attacker.owner });
       }
     });

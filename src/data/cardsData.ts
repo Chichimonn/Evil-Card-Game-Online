@@ -3377,7 +3377,7 @@ export const initialCardsData: CardsDataSchema = {
           "id": "tenacious_slam",
           "name": "Tenacious Slam",
           "cost": 1,
-          "text": "Use a 1AP melee attack of the promoted card as this ability for free, bypassing up to 4 armour.",
+          "text": "Use a 1AP melee attack of the promoted card as this ability for free, bypassing up to 2 armour.",
           "effects": [
             {
               "type": "useAbility",
@@ -3388,7 +3388,7 @@ export const initialCardsData: CardsDataSchema = {
                 "melee": true
               },
               "free": true,
-              "bypassArmourUpTo": 4
+              "bypassArmourUpTo": 2
             }
           ],
           "script": null
@@ -3400,11 +3400,11 @@ export const initialCardsData: CardsDataSchema = {
           "tags": [
             "melee"
           ],
-          "text": "Deals 11 damage.",
+          "text": "Deals 10 damage.",
           "effects": [
             {
               "type": "damage",
-              "amount": 11,
+              "amount": 10,
               "hits": 1,
               "area": "allUnitsSurroundingSelf"
             }
@@ -4244,7 +4244,7 @@ export const initialCardsData: CardsDataSchema = {
         "count": 2,
         "requirement": []
       },
-      "hp": 32,
+      "hp": 30,
       "ap": 3,
       "art": "art/giant_boar.png",
       "passives": [
@@ -4459,6 +4459,7 @@ export const initialCardsData: CardsDataSchema = {
         },
         {
           "id": "reckless_leap",
+          "rangeIsMoveDistance": true,
           "name": "Reckless Leap",
           "cost": 2,
           "text": "Move this unit 2 tiles in the same direction for free. Then, this unit takes 3 damage.",
@@ -4555,6 +4556,9 @@ export const initialCardsData: CardsDataSchema = {
           "id": "spitfire_landing",
           "name": "Spitfire Landing",
           "cost": 2,
+          "tags": [
+            "ranged"
+          ],
           "text": "Move up to 3 tiles in a straight line for free, then deal 6 damage to all enemy units surrounding this unit.",
           "effects": [
             {
@@ -4589,7 +4593,7 @@ export const initialCardsData: CardsDataSchema = {
         "count": 2,
         "requirement": []
       },
-      "hp": 29,
+      "hp": 26,
       "ap": 3,
       "art": "art/tempest_roc.png",
       "passives": [
@@ -4597,7 +4601,7 @@ export const initialCardsData: CardsDataSchema = {
           "id": "gale_wings",
           "name": "Gale Wings",
           "trigger": "static",
-          "text": "Takes 2 damage less per attack from ranged attacks on the first hit, to a minimum of 1 damage.",
+          "text": "This unit takes 2 damage less from ranged attacks on the first hit, to a minimum of 1 damage.",
           "effects": [
             {
               "type": "reduceDamage",
@@ -6880,7 +6884,7 @@ export const initialCardsData: CardsDataSchema = {
           ]
         ]
       },
-      "hp": 21,
+      "hp": 22,
       "ap": 3,
       "art": "art/elite_sniper.png",
       "passives": [
@@ -6888,12 +6892,12 @@ export const initialCardsData: CardsDataSchema = {
           "id": "lock",
           "name": "Lock",
           "trigger": "static",
-          "text": "When this unit attacks a unit, if it has already attacked that unit this turn, it deals an additional 2 damage on the first hit.",
+          "text": "When this unit attacks a unit, if it has already attacked that unit this turn, it deals an additional 1 damage on the first hit.",
           "effects": [
             {
               "type": "damageBonus",
               "appliesTo": "ownAttacks",
-              "amount": 2,
+              "amount": 1,
               "scope": "firstHit",
               "if": "target.attackedBySelfThisTurn"
             }
@@ -6903,11 +6907,11 @@ export const initialCardsData: CardsDataSchema = {
           "id": "stock",
           "name": "Stock",
           "trigger": "static",
-          "text": "When this unit attacks a target in melee range, that attack hits again for 3 damage.",
+          "text": "When this unit attacks a target in melee range, that attack hits again for 2 damage.",
           "effects": [
             {
               "type": "extraHit",
-              "amount": 3,
+              "amount": 2,
               "if": "target.inMeleeRange"
             }
           ]
@@ -6933,7 +6937,7 @@ export const initialCardsData: CardsDataSchema = {
           "id": "fire",
           "name": "Fire!",
           "cost": 1,
-          "text": "Deals 3 damage.",
+          "text": "Deals 4 damage.",
           "range": [
             1,
             4
@@ -6943,7 +6947,7 @@ export const initialCardsData: CardsDataSchema = {
           "effects": [
             {
               "type": "damage",
-              "amount": 3,
+              "amount": 4,
               "hits": 1
             }
           ]
@@ -7987,7 +7991,7 @@ export const initialCardsData: CardsDataSchema = {
         { "id": "torch_beating", "name": "Torch Beating", "cost": 1, "tags": ["melee"],
           "text": "Deals 2 damage. Hits three times.",
           "effects": [{ "type": "damage", "amount": 2, "hits": 3 }] },
-        { "id": "leap_strike", "name": "Leap Strike", "cost": 1, "range": [1, 1], "rangeText": "1", "target": "emptyTile",
+        { "id": "leap_strike", "rangeIsMoveDistance": true, "name": "Leap Strike", "cost": 1, "range": [1, 1], "rangeText": "1", "target": "emptyTile",
           "targetText": "move 1 tile", "limits": { "oncePerTurn": true },
           "text": "Move 1 tile. Then, if there is an enemy unit in the direction moved, this unit deals 6 damage to it. Use only once per turn.",
           "effects": [
@@ -8199,12 +8203,12 @@ export const initialCardsData: CardsDataSchema = {
       "abilities": [
         { "id": "jade_burst", "name": "Jade Burst", "tagNote": "Tile Target", "cost": 1, "range": [1, 3], "rangeText": "1-3", "target": "tile",
           "targetText": "targets tile", "limits": { "oncePerTurn": true },
-          "text": "Deals 4 damage to enemy units on the target tile and 3 damage to enemy units surrounding it. Use only once per turn.",
+          "text": "Deals 6 damage to enemy units on the target tile and 2 damage to enemy units surrounding it. Use only once per turn.",
           "effects": [
-            { "type": "damage", "amount": 4, "hits": 1, "area": "enemyUnitsOnTargetTile" },
-            { "type": "damage", "amount": 3, "hits": 1, "area": "enemyUnitsSurroundingTargetTile" }
+            { "type": "damage", "amount": 6, "hits": 1, "area": "enemyUnitsOnTargetTile" },
+            { "type": "damage", "amount": 2, "hits": 1, "area": "enemyUnitsSurroundingTargetTile" }
           ] },
-        { "id": "strangling_brambles", "name": "Strangling Brambles", "cost": 2, "tags": ["melee"],
+        { "id": "strangling_brambles", "name": "Strangling Brambles", "cost": 2, "range": [1, 2], "rangeText": "1-2", "target": "unit",
           "text": "Deals 8 damage. If the target takes the next turn, moving costs an additional 1AP the first time it moves that turn.",
           "effects": [
             { "type": "damage", "amount": 8, "hits": 1 },
@@ -8422,7 +8426,7 @@ export const initialCardsData: CardsDataSchema = {
         { "id": "ice_block_throw", "name": "Ice Block Throw", "cost": 2, "range": [1, 3], "rangeText": "1-3", "target": "unit",
           "text": "Deals 12 damage.",
           "effects": [{ "type": "damage", "amount": 12, "hits": 1 }] },
-        { "id": "avalanche", "name": "Avalanche", "cost": 3, "tags": ["melee"], "range": [1, 1], "rangeText": "1", "target": "unit",
+        { "id": "avalanche", "name": "Avalanche", "cost": 3, "tags": ["melee"], "target": "unit",
           "text": "Deals 18 damage and 6 damage to all units surrounding the target (including this one and any other friendly units).",
           "effects": [
             { "type": "damage", "amount": 18, "hits": 1, "area": "targetTile" },
@@ -9541,7 +9545,7 @@ export const initialCardsData: CardsDataSchema = {
           "id": "gale_wings",
           "name": "Gale Wings",
           "trigger": "static",
-          "text": "Takes 2 damage less per attack from ranged attacks on the first hit, to a minimum of 1 damage.",
+          "text": "This unit takes 2 damage less from ranged attacks on the first hit, to a minimum of 1 damage.",
           "effects": [
             {
               "type": "reduceDamage",
@@ -9883,11 +9887,6 @@ export const initialCardsData: CardsDataSchema = {
             "max": 2,
             "distinct": true
           },
-          "range": [
-            1,
-            1
-          ],
-          "rangeText": "1",
           "effects": [
             {
               "type": "damage",
@@ -10069,6 +10068,7 @@ export const initialCardsData: CardsDataSchema = {
         },
         {
           "id": "pouncing_arc",
+          "rangeIsMoveDistance": true,
           "name": "Pouncing Arc",
           "cost": 2,
           "text": "Move 1 tile. Then, deal 7 damage to a surrounding enemy unit and 3 damage to all other enemy units surrounding this unit.",
@@ -10564,6 +10564,7 @@ export const initialCardsData: CardsDataSchema = {
         },
         {
           "id": "bright_swoop",
+          "rangeIsMoveDistance": true,
           "name": "Bright Swoop",
           "cost": 2,
           "text": "Move up to 3 tiles. This unit may move over other units this way. Then, deal 4 damage to all surrounding enemy units. This ability must leave this unit alone on its tile.",
@@ -10726,6 +10727,7 @@ export const initialCardsData: CardsDataSchema = {
         },
         {
           "id": "gelatinous_bounce",
+          "rangeIsMoveDistance": true,
           "name": "Gelatinous Bounce",
           "cost": 2,
           "text": "Move 1 tile, deal 2 damage to all surrounding enemies, then armour up to 2.",
@@ -11032,6 +11034,7 @@ export const initialCardsData: CardsDataSchema = {
         },
         {
           "id": "crashing_thunder_dive",
+          "rangeIsMoveDistance": true,
           "name": "Crashing Thunder Dive",
           "cost": 3,
           "text": "Move up to 4 tiles. This unit may move over other units this way. Then, deal 6 damage to all surrounding enemy units and apply knockback 1 to each. This ability must leave this unit alone on its tile.",
@@ -11056,7 +11059,8 @@ export const initialCardsData: CardsDataSchema = {
             }
           ],
           "tags": [
-            "inspiring"
+            "inspiring",
+            "ranged"
           ],
           "target": "emptyTile",
           "range": [
@@ -11428,7 +11432,7 @@ export const initialCardsData: CardsDataSchema = {
           ]
         ]
       },
-      "hp": 21,
+      "hp": 22,
       "ap": 3,
       "art": "art/jungle_stalker.png",
       "passives": [
@@ -11453,15 +11457,15 @@ export const initialCardsData: CardsDataSchema = {
           "id": "lethal_fangs",
           "name": "Lethal Fangs",
           "cost": 1,
-          "text": "Deals 4 damage. Hits twice. If this attack kills the target, this unit may move 1 tile for free. Use only once per turn.",
+          "text": "Deals 7 damage. If this attack kills the target, this unit may move 1 tile for free. Use only once per turn.",
           "limits": {
             "oncePerTurn": true
           },
           "effects": [
             {
               "type": "damage",
-              "amount": 4,
-              "hits": 2
+              "amount": 7,
+              "hits": 1
             },
             {
               "type": "move",
@@ -11481,12 +11485,15 @@ export const initialCardsData: CardsDataSchema = {
           "id": "razor_claws",
           "name": "Razor Claws",
           "cost": 1,
-          "text": "Deals 3 damage. Hits twice.",
+          "text": "Deals 4 damage. Hits again for 3 damage.",
           "effects": [
             {
               "type": "damage",
-              "amount": 3,
-              "hits": 2
+              "amount": 4,
+              "hits": 1,
+              "extraHit": {
+                "amount": 3
+              }
             }
           ],
           "tags": [
@@ -11568,6 +11575,7 @@ export const initialCardsData: CardsDataSchema = {
         },
         {
           "id": "sludge_wave",
+          "rangeIsMoveDistance": true,
           "name": "Sludge Wave",
           "cost": 2,
           "text": "Move 1 tile. Apply knockback 1 to all surrounding enemy units, then deal 3 damage to them.",
@@ -12582,7 +12590,7 @@ export const initialCardsData: CardsDataSchema = {
           ]
         ]
       },
-      "hp": 20,
+      "hp": 24,
       "ap": 3,
       "art": "art/biogenic_mass.png",
       "passives": [
@@ -12590,12 +12598,12 @@ export const initialCardsData: CardsDataSchema = {
           "id": "adaptive_mucus",
           "name": "Adaptive Mucus",
           "trigger": "self.takesDamageFromAttack",
-          "text": "Whenever this unit takes damage from an attack, it armours up to 3 immediately after the damage.",
+          "text": "Whenever this unit takes damage from an attack, it armours up to 2 immediately after the damage.",
           "effects": [
             {
               "type": "armour",
               "target": "self",
-              "upTo": 3,
+              "upTo": 2,
               "timing": "afterAttackResolves"
             }
           ]
@@ -12631,27 +12639,22 @@ export const initialCardsData: CardsDataSchema = {
           "name": "Overgrowth Spores",
           "tagNote": "Up to 2 Targets",
           "cost": 2,
-          "text": "Deals 5 damage. This unit heals 5 damage.",
+          "text": "Deals 6 damage. This unit heals 6 damage.",
           "target": "enemyUnit",
           "targetCount": {
             "max": 2,
             "distinct": true
           },
-          "range": [
-            1,
-            1
-          ],
-          "rangeText": "1",
           "effects": [
             {
               "type": "damage",
-              "amount": 5,
+              "amount": 6,
               "hits": 1
             },
             {
               "type": "heal",
               "target": "self",
-              "amount": 5
+              "amount": 6
             }
           ],
           "tags": [
@@ -14200,20 +14203,20 @@ export const initialCardsData: CardsDataSchema = {
           ]
         },
         {
-          "id": "hair_yank",
-          "name": "Hair Yank",
-          "cost": 1,
-          "text": "Deals 1 damage. Heal up to 10 damage from this unit. Use only once per turn.",
+          "id": "hair_yanker",
+          "name": "Hair Yanker",
+          "cost": 2,
+          "text": "Deals 4 damage. Heal up to 12 damage from this unit. Use only once per turn.",
           "effects": [
             {
               "type": "damage",
-              "amount": 1,
+              "amount": 4,
               "hits": 1
             },
             {
               "type": "heal",
               "target": "self",
-              "amount": 10
+              "amount": 12
             }
           ],
           "tags": [
@@ -14394,7 +14397,7 @@ export const initialCardsData: CardsDataSchema = {
           "id": "haunting_clank",
           "name": "Haunting Clank",
           "trigger": "static",
-          "text": "This unit may move over other units. If this unit moves over another unit, move it to an empty surrounding tile for free, then it armours up to 3.",
+          "text": "This unit may move over other units. If this unit moves over another unit, move it to an empty surrounding tile for free, then it armours up to 4.",
           "effects": [
             {
               "type": "modifyMove",
@@ -14405,7 +14408,7 @@ export const initialCardsData: CardsDataSchema = {
                 {
                   "type": "armour",
                   "target": "self",
-                  "upTo": 3
+                  "upTo": 4
                 }
               ]
             }
@@ -14417,12 +14420,16 @@ export const initialCardsData: CardsDataSchema = {
           "id": "spectral_blade",
           "name": "Spectral Blade",
           "cost": 1,
-          "text": "Deals 5 damage.",
+          "text": "Deals 5 damage. Bypasses up to 2 armour.",
           "effects": [
             {
               "type": "damage",
               "amount": 5,
               "hits": 1
+            },
+            {
+              "type": "bypassArmourUpTo",
+              "amount": 2
             }
           ],
           "tags": [
@@ -14782,6 +14789,22 @@ export const initialCardsData: CardsDataSchema = {
               "duration": "yourNextTurn"
             }
           ]
+        },
+        {
+          "id": "clawing_scratches",
+          "name": "Clawing Scratches",
+          "cost": 1,
+          "tags": [
+            "melee"
+          ],
+          "text": "Deals 3 damage. Hits twice.",
+          "effects": [
+            {
+              "type": "damage",
+              "amount": 3,
+              "hits": 2
+            }
+          ]
         }
       ],
       "classTags": [
@@ -14863,6 +14886,7 @@ export const initialCardsData: CardsDataSchema = {
         },
         {
           "id": "spectral_retreat",
+          "rangeIsMoveDistance": true,
           "name": "Spectral Retreat",
           "cost": 2,
           "text": "Move up to 3 tiles. Armour up to 2. This unit may move over other units this way (if it could not do so already). This ability must leave this unit alone on its tile.",
@@ -15506,6 +15530,7 @@ export const initialCardsData: CardsDataSchema = {
       "abilities": [
         {
           "id": "deathly_slither",
+          "rangeIsMoveDistance": true,
           "name": "Deathly Slither",
           "cost": 1,
           "text": "Move this unit up to 2 tiles, then deal 2 damage to this unit and all surrounding enemy units.",
@@ -16540,7 +16565,7 @@ export const initialCardsData: CardsDataSchema = {
           "id": "three_curses",
           "name": "Three Curses",
           "cost": 1,
-          "text": "This attack deals an additional 1 damage per hit for each time it has previously been used this turn. Deals 1 damage. Hits three times. Use up to three times per turn.",
+          "text": "This attack deals an additional 1 damage on the last hit for each unit this unit has killed this turn. Deals 2 damage. Hits three times. Use up to 3 times per turn.",
           "range": [
             1,
             2
@@ -16553,13 +16578,14 @@ export const initialCardsData: CardsDataSchema = {
           "effects": [
             {
               "type": "damage",
-              "amount": 1,
+              "amount": 2,
               "hits": 3,
               "modifiers": [
                 {
                   "addAmount": {
-                    "perPreviousUseThisTurn": 1
-                  }
+                    "perUnitKilledThisTurn": 1
+                  },
+                  "scope": "lastHit"
                 }
               ]
             }
@@ -18450,6 +18476,7 @@ export const initialCardsData: CardsDataSchema = {
         },
         {
           "id": "splashdown",
+          "rangeIsMoveDistance": true,
           "name": "Splashdown",
           "cost": 1,
           "text": "This unit moves 1 tile for free. Then, you may deal 2 damage and apply knockback 1 to a surrounding enemy unit. Use only once per turn.",
@@ -18943,8 +18970,12 @@ export const initialCardsData: CardsDataSchema = {
         },
         {
           "id": "ash_cloud_dive",
+          "rangeIsMoveDistance": true,
           "name": "Ash Cloud Dive",
           "cost": 1,
+          "tags": [
+            "ranged"
+          ],
           "text": "Move up to 2 tiles. This unit may move over other units this way. Then, deal 3 damage to all surrounding enemy units. This ability must leave this unit alone on its tile. Use only once per turn.",
           "effects": [
             {
@@ -19855,6 +19886,375 @@ export const initialCardsData: CardsDataSchema = {
       ],
       "classTags": [
         "Knight"
+      ]
+    },
+    {
+      "id": "nimbus_fighter",
+      "set": "Parallel Challengers",
+      "name": "Nimbus Fighter",
+      "type": "unit",
+      "basic": true,
+      "reinforce": {
+        "mode": "basic"
+      },
+      "hp": 17,
+      "ap": 2,
+      "art": "art/nimbus_fighter.png",
+      "passives": [
+        {
+          "id": "wing_boots",
+          "name": "Wing Boots",
+          "trigger": "static",
+          "text": "This unit may move over other units. Doing this to an enemy unit deals 4 damage to that unit. If this unit is not alone on its tile after moving, move it to an empty surrounding tile for free.",
+          "effects": [
+            {
+              "type": "modifyMove",
+              "target": "self",
+              "moveOverUnits": "any",
+              "relocateToEmptySurroundingTile": true,
+              "onMoveOntoUnit": [
+                {
+                  "type": "damage",
+                  "target": "otherUnitOnTile",
+                  "amount": 4,
+                  "ifOtherIsEnemy": true
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "abilities": [
+        {
+          "id": "flying_knife",
+          "name": "Flying Knife",
+          "cost": 1,
+          "range": [
+            1,
+            2
+          ],
+          "rangeText": "1-2",
+          "target": "unit",
+          "limits": {
+            "oncePerTurn": true
+          },
+          "text": "Deals 6 damage. Use only once per turn.",
+          "effects": [
+            {
+              "type": "damage",
+              "amount": 6,
+              "hits": 1
+            }
+          ]
+        },
+        {
+          "id": "airblade",
+          "name": "Airblade",
+          "cost": 1,
+          "tags": [
+            "melee"
+          ],
+          "text": "Deals 6 damage. Bypasses up to 2 armour.",
+          "effects": [
+            {
+              "type": "damage",
+              "amount": 6,
+              "hits": 1
+            },
+            {
+              "type": "bypassArmourUpTo",
+              "amount": 2
+            }
+          ]
+        }
+      ],
+      "classTags": [
+        "Nimbus",
+        "Fighter"
+      ]
+    },
+    {
+      "id": "lightning_plunderer",
+      "set": "Parallel Challengers",
+      "name": "Lightning Plunderer",
+      "type": "unit",
+      "basic": true,
+      "reinforce": {
+        "mode": "basic"
+      },
+      "hp": 17,
+      "ap": 2,
+      "art": "art/lightning_plunderer.png",
+      "passives": [
+        {
+          "id": "electric_spoils",
+          "name": "Electric Spoils",
+          "trigger": "self.loots",
+          "text": "When this unit loots, if it has damaged more than 1 enemy this turn, it may loot twice as many cards.",
+          "effects": [
+            {
+              "type": "multiplyLoot",
+              "factor": 2,
+              "if": "self.enemiesDamagedThisTurn>=2"
+            }
+          ]
+        }
+      ],
+      "abilities": [
+        {
+          "id": "electric_baton",
+          "name": "Electric Baton",
+          "cost": 1,
+          "tags": [
+            "melee"
+          ],
+          "text": "Deals 5 damage, and 2 damage to all enemy units surrounding the target.",
+          "effects": [
+            {
+              "type": "damage",
+              "amount": 5,
+              "hits": 1
+            },
+            {
+              "type": "damage",
+              "amount": 2,
+              "hits": 1,
+              "area": "otherEnemyUnitsSurroundingTarget"
+            }
+          ]
+        },
+        {
+          "id": "taze_and_take",
+          "name": "Taze and Take",
+          "cost": 1,
+          "tags": [
+            "melee"
+          ],
+          "text": "Deals 5 damage. If the target took the last turn, your opponent cannot choose it to take their next turn unless it is their last non-token unit (they must choose a different non-token unit if able). Loot 1.",
+          "effects": [
+            {
+              "type": "damage",
+              "amount": 5,
+              "hits": 1
+            },
+            {
+              "type": "denyTurnSelection",
+              "target": "hitUnit",
+              "if": "target.tookLastTurn",
+              "duration": "opponentNextTurnChoice",
+              "exception": "targetIsLastNonTokenUnit"
+            },
+            {
+              "type": "loot",
+              "amount": 1,
+              "if": "attackUsed"
+            }
+          ]
+        }
+      ],
+      "classTags": [
+        "Lightning",
+        "Plunderer"
+      ]
+    },
+    {
+      "id": "ooze_assassin",
+      "set": "Parallel Challengers",
+      "name": "Ooze Assassin",
+      "type": "unit",
+      "basic": true,
+      "reinforce": {
+        "mode": "basic"
+      },
+      "hp": 18,
+      "ap": 2,
+      "art": "art/ooze_assassin.png",
+      "passives": [
+        {
+          "id": "synthetic_blades",
+          "name": "Synthetic Blades",
+          "trigger": "self.takesTurn",
+          "text": "When you choose this unit to take a turn, you may have it take 3 damage. If you do, its melee attacks deal an additional 1 damage per hit this turn.",
+          "effects": [
+            {
+              "type": "optionalSelfDamage",
+              "amount": 3
+            },
+            {
+              "type": "damageBonus",
+              "appliesTo": "ownMeleeAttacks",
+              "amount": 1,
+              "scope": "allHits",
+              "if": "self.optedIn:synthetic_blades"
+            }
+          ]
+        }
+      ],
+      "abilities": [
+        {
+          "id": "gel_reaper",
+          "name": "Gel Reaper",
+          "cost": 1,
+          "tags": [
+            "melee"
+          ],
+          "text": "Deals 3 damage. Hits twice. If this attack kills the target, heal 3 damage.",
+          "effects": [
+            {
+              "type": "damage",
+              "amount": 3,
+              "hits": 2
+            },
+            {
+              "type": "heal",
+              "target": "self",
+              "amount": 3,
+              "if": "targetKilled"
+            }
+          ]
+        },
+        {
+          "id": "glue_gun",
+          "name": "Glue Gun",
+          "cost": 1,
+          "range": [
+            1,
+            2
+          ],
+          "rangeText": "1-2",
+          "target": "unit",
+          "limits": {
+            "oncePerTurn": true
+          },
+          "text": "Deals 3 damage to this unit and the target. If the target moves during your opponent's next turn, it takes 6 damage for each tile moved. Use only once per turn.",
+          "effects": [
+            {
+              "type": "damage",
+              "target": "self",
+              "amount": 3,
+              "hits": 1
+            },
+            {
+              "type": "damage",
+              "amount": 3,
+              "hits": 1
+            },
+            {
+              "type": "moveDamageMark",
+              "target": "hitUnit",
+              "perTile": 6,
+              "duration": "opponentNextTurn"
+            }
+          ]
+        },
+        {
+          "id": "elastic_jump",
+          "name": "Elastic Jump",
+          "tagNote": "Empty Tile Target",
+          "cost": 2,
+          "range": [
+            1,
+            3
+          ],
+          "rangeText": "1-3",
+          "target": "emptyTile",
+          "targetText": "empty tile target",
+          "text": "Place this unit on the target tile.",
+          "effects": [
+            {
+              "type": "place",
+              "target": "self",
+              "tile": "target"
+            }
+          ]
+        }
+      ],
+      "classTags": [
+        "Ooze",
+        "Assassin"
+      ]
+    },
+    {
+      "id": "plant_lancer",
+      "set": "Parallel Challengers",
+      "name": "Plant Lancer",
+      "type": "unit",
+      "basic": true,
+      "reinforce": {
+        "mode": "basic"
+      },
+      "hp": 19,
+      "ap": 2,
+      "art": "art/plant_lancer.png",
+      "passives": [
+        {
+          "id": "barbed_tip",
+          "name": "Barbed Tip",
+          "trigger": "self.moves",
+          "text": "When this unit moves, before moving, it deals 4 damage to all surrounding units that it has damaged with a melee attack this turn.",
+          "effects": [
+            {
+              "type": "damage",
+              "amount": 4,
+              "timing": "beforeMoving",
+              "area": "unitsSurroundingSelfDamagedBySelfWithMeleeAttackThisTurn"
+            }
+          ]
+        }
+      ],
+      "abilities": [
+        {
+          "id": "green_spear",
+          "name": "Green Spear",
+          "cost": 1,
+          "tags": [
+            "melee"
+          ],
+          "text": "Deals 5 damage. Then, armour up to 2.",
+          "effects": [
+            {
+              "type": "damage",
+              "amount": 5,
+              "hits": 1
+            },
+            {
+              "type": "armour",
+              "target": "self",
+              "upTo": 2
+            }
+          ]
+        },
+        {
+          "id": "thorn_joust",
+          "rangeIsMoveDistance": true,
+          "name": "Thorn Joust",
+          "cost": 1,
+          "range": [
+            1,
+            1
+          ],
+          "rangeText": "1",
+          "target": "emptyTile",
+          "targetText": "move 1 tile",
+          "text": "Move 1 tile. Then, if there is an enemy unit in the direction moved, this unit deals 5 damage to it.",
+          "effects": [
+            {
+              "type": "move",
+              "target": "self",
+              "tile": "target"
+            },
+            {
+              "type": "damage",
+              "amount": 5,
+              "hits": 1,
+              "target": "enemyInDirectionMoved"
+            }
+          ]
+        }
+      ],
+      "classTags": [
+        "Plant",
+        "Lancer"
       ]
     }
   ]

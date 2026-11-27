@@ -257,4 +257,10 @@ export const TYPE_LINES: Record<string, string> = {
   "bosun_plunderer": "Basic Unit.", // Bosun Plunderer
   "tonfa_fighter": "Basic Unit.", // Tonfa Fighter
   "arbalest_knight": "Basic Unit.", // Arbalest Knight
+
+  // ---- Parallel Challengers ----
+  "nimbus_fighter": "Basic Unit.", // Nimbus Fighter
+  "lightning_plunderer": "Basic Unit.", // Lightning Plunderer
+  "ooze_assassin": "Basic Unit.", // Ooze Assassin
+  "plant_lancer": "Basic Unit.", // Plant Lancer
 };
