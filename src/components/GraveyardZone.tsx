@@ -1,4 +1,5 @@
 import React, { useState, useMemo, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { CardItem } from '../types/card';
 import { CardThumbnail } from './CardThumbnail';
 import { CardPreview } from './CardPreview';
@@ -116,8 +117,10 @@ export const GraveyardZone: React.FC<GraveyardZoneProps> = ({
         </div>
       </div>
 
-      {/* Graveyard Modal Overlay */}
-      {showModal && (
+      {/* Graveyard Modal Overlay. Drawn straight into the app's root rather than here: the slot sits in boxes with a
+          backdrop blur, which would otherwise hold a "fixed" window inside them (shrunk to the box, unreadable). */}
+      {showModal && createPortal(<>
+      {(
         <div 
           className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-200"
           onClick={closeGraveyard}
@@ -201,7 +204,7 @@ export const GraveyardZone: React.FC<GraveyardZoneProps> = ({
       )}
 
       {/* The opened card, big in its own window over the graveyard (click anywhere or Escape to go back) */}
-      {showModal && openCard && (
+      {openCard && (
         <div
           className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/85 backdrop-blur-sm animate-in fade-in duration-150 cursor-pointer"
           onClick={() => setOpenCard(null)}
@@ -222,6 +225,7 @@ export const GraveyardZone: React.FC<GraveyardZoneProps> = ({
           />
         </div>
       )}
+      </>, document.querySelector('[data-app-root]') ?? document.body)}
     </>
   );
 };

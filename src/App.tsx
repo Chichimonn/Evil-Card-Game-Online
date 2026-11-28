@@ -237,6 +237,7 @@ import {
   canonicalJson,
   describeBoardChanges,
   describeCardChanges,
+  describeActionEffects,
   boardLogSnapshot
 } from './game/turnHandoff';
 import GameLogPanel, { pulseInStep, SLOW_PULSE_SOFT_CSS } from './components/GameLogPanel';
@@ -13820,6 +13821,14 @@ export default function App() {
       player2: { hand: s.hands.player2.length, deck: s.decks.player2.length, grave: s.graveyards.player2.length }
     };
     logTurnUnitRef.current = s.activeTurnUnitHex;
+    // (a loaded or handed-over game starts the action lines afresh: its AP isn't a spend made here)
+    {
+      const tu = s.activeTurnUnitHex ? s.unitsOnBoard[s.activeTurnUnitHex] : null;
+      logApRef.current = tu
+        ? { id: tu.instanceId, ap: tu.currentAp, counts: tu.usedTurnCounts || {}, moves: tu.movesThisTurn || 0, drew: Boolean(tu.usedUniversalDrawThisTurn) }
+        : null;
+      openActionRef.current = null;
+    }
     lastSetupPlayerRef.current = s.activePlayer;
     cardChoiceCallbackRef.current = null;
     cardChoiceQueueRef.current = [];
@@ -14685,6 +14694,34 @@ export default function App() {
     player2: { hand: 0, deck: 0, grave: 0 }
   });
   const logTurnUnitRef = useRef<string | null>(null);
+  // The unit taking the turn at the last log check (its AP and what it had used), and the action line still being
+  // written (see below)
+  const logApRef = useRef<{ id: string; ap: number; counts: Record<string, number>; moves: number; drew: boolean } | null>(null);
+  type OpenAction = { seq: number; base: string; effects: string[]; ap: number; unitId: string; turn: number; player: PlayerId };
+  const openActionRef = useRef<OpenAction | null>(null);
+  const actionLogText = (o: OpenAction) => [o.base, ...o.effects, `${o.ap} AP remaining`].join(', ');
+  // What the unit spent its AP on, read from what it has used this turn: the ability whose use count went up (its name),
+  // else a move, else a draw
+  const actionNameForLog = (
+    u: BattlefieldUnit,
+    prev: { counts: Record<string, number>; moves: number; drew: boolean }
+  ): string => {
+    const counts = u.usedTurnCounts || {};
+    const raised = Object.keys(counts).filter((k) => (counts[k] || 0) > (prev.counts[k] || 0) && !k.startsWith('free:'));
+    const known = [
+      ...(u.card.abilities || []),
+      ...(u.grantedAbilities || []),
+      ...(u.promotedCards || []).flatMap((c) => c.abilities || []),
+      ...(u.attachedCards || []).flatMap((c) => c.abilities || [])
+    ];
+    const byName = raised.find((k) => known.some((a) => a.name === k));
+    if (byName) return byName;
+    const byId = raised.map((k) => known.find((a) => a.id === k)).find(Boolean);
+    if (byId) return byId.name;
+    if (raised.includes('universal:move') || (u.movesThisTurn || 0) > prev.moves) return 'Move';
+    if (u.usedUniversalDrawThisTurn && !prev.drew) return 'Draw';
+    return raised.find((k) => !k.includes(':') && !k.includes('__')) || 'an action';
+  };
   // Every change to the board and the card zones goes in the log, whatever caused it (moves, knockbacks, deaths,
   // damage, draws, discards); card names in hands stay out of it
   useEffect(() => {
@@ -14705,8 +14742,48 @@ export default function App() {
     const when = last?.turn ?? turnCount;
     describeBoardChanges(before, snap).forEach((c) => appendLog(c.kind, c.text, who, when));
     describeCardChanges(cardsBefore, cards).forEach((t) => appendLog('cards', t, who, when));
+
+    // The log shows only what units spend AP on: the unit taking the turn spending AP starts a line ("Knight used Slash"),
+    // and what happens after it, until its next spend or the turn's end, is added to that line with the AP it has left
+    if (gamePhase !== 'playing') return;
+    const prevTu = logApRef.current;
+    const tu =
+      (activeTurnUnitHex ? unitsOnBoard[activeTurnUnitHex] : null) ||
+      (prevTu && activeTurnUnitHex ? Object.values(unitsOnBoard).find((u) => u.instanceId === prevTu.id) : null) ||
+      null;
+    logApRef.current = tu
+      ? { id: tu.instanceId, ap: tu.currentAp, counts: tu.usedTurnCounts || {}, moves: tu.movesThisTurn || 0, drew: Boolean(tu.usedUniversalDrawThisTurn) }
+      : activeTurnUnitHex
+      ? prevTu
+      : null;
+    if (openActionRef.current && (openActionRef.current.turn !== turnCount || openActionRef.current.player !== activePlayer)) {
+      openActionRef.current = null;
+    }
+    const effects = describeActionEffects(before, snap, cardsBefore, cards, tu?.instanceId ?? null, tu?.owner ?? null);
+    if (tu && prevTu && prevTu.id === tu.instanceId && tu.currentAp < prevTu.ap) {
+      openActionRef.current = {
+        seq: nextLogSeqRef.current,
+        base: `${tu.card.name} used ${actionNameForLog(tu, prevTu)}`,
+        effects,
+        ap: tu.currentAp,
+        unitId: tu.instanceId,
+        turn: turnCount,
+        player: activePlayer
+      };
+      appendLog('action', actionLogText(openActionRef.current), tu.owner, turnCount);
+    } else if (openActionRef.current) {
+      const o = openActionRef.current;
+      const apChanged = Boolean(tu && tu.instanceId === o.unitId && tu.currentAp !== o.ap);
+      if (effects.length > 0 || apChanged) {
+        o.effects = [...o.effects, ...effects];
+        if (tu && tu.instanceId === o.unitId) o.ap = tu.currentAp;
+        // (the same entry, rewritten: it's still this turn's, so it hasn't been handed over yet)
+        gameLogRef.current = gameLogRef.current.map((e) => (e.seq === o.seq ? { ...e, text: actionLogText(o) } : e));
+        setGameLog(gameLogRef.current);
+      }
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [unitsOnBoard, player1Hand, player2Hand, player1Deck, player2Deck, player1Graveyard, player2Graveyard]);
+  }, [unitsOnBoard, player1Hand, player2Hand, player1Deck, player2Deck, player1Graveyard, player2Graveyard, activeTurnUnitHex]);
   useEffect(() => {
     const prev = logTurnUnitRef.current;
     logTurnUnitRef.current = activeTurnUnitHex;
@@ -16896,6 +16973,8 @@ export default function App() {
     <div className="fixed inset-0 h-full w-full overflow-hidden bg-stone-950 text-stone-100 flex flex-col font-sans selection:bg-sky-500 selection:text-stone-950 select-none"
       // The game's size for this screen, as Chrome's zoom would set it (see utils/device)
       style={{ zoom: STARTING_SCALE }}
+      // (windows that must cover the whole screen are drawn straight in here: see GraveyardZone)
+      data-app-root
       onClickCapture={blockWhileWaiting}
       onDoubleClickCapture={blockWhileWaiting}
       onMouseDownCapture={blockWhileWaiting}

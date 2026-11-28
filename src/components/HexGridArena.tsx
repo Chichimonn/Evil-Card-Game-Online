@@ -228,6 +228,14 @@ export const HexGridArena: React.FC<HexGridArenaProps> = ({
         onMouseMove={handleBoardHover}
         onMouseLeave={handleBoardLeave}
       >
+        {/* The move-here arrow's small bob: about two thirds of Tailwind's bounce (25% of its height, here about 3.5px) */}
+        <style>{`
+          @keyframes move-option-bob {
+            0%, 100% { transform: translateY(-2.2px); animation-timing-function: cubic-bezier(0.8, 0, 1, 1); }
+            50% { transform: translateY(0); animation-timing-function: cubic-bezier(0, 0, 0.2, 1); }
+          }
+          .move-option-bob { animation: move-option-bob 1s infinite; }
+        `}</style>
         <defs>
           <filter id="hex-shadow" x="-20%" y="-20%" width="140%" height="140%">
             <feDropShadow dx="0" dy="2" stdDeviation="3" floodColor="#000" floodOpacity="0.75" />
@@ -310,6 +318,20 @@ export const HexGridArena: React.FC<HexGridArenaProps> = ({
             const isMomentumCharge = Boolean(momentumChargeHex && cell.id === momentumChargeHex);
             const isAssistDeploy = assistDeployHexes.includes(cell.id);
             const isSealed = sealedReinforceHexes.includes(cell.id);
+            // Every tile a unit can be moved or placed on (a move, a free move, an Assist's tile) is drawn the one way:
+            // green, pulsing, with a green arrow pointing down onto it. (A move tile that is also something else, e.g. an
+            // attack target, is drawn as that.)
+            const isMoveOption =
+              isAssistDeploy ||
+              (isMoveTarget &&
+                !isMomentumCharge &&
+                !isTributeSelected &&
+                !isFusionSelected &&
+                !isTributeTarget &&
+                !isFusionTarget &&
+                !isPendingTarget &&
+                !isAttackTarget &&
+                !isAbilityRange);
             // Show the seal while the player could be reinforcing
             const showSeal = isSealed && !activeTurnUnitHex && isReinforcementPhase;
 
@@ -342,8 +364,8 @@ export const HexGridArena: React.FC<HexGridArenaProps> = ({
               strokeWidth = 1.8;
             }
 
-            if (isAssistDeploy) {
-              strokeColor = '#facc15'; // Bright yellow-gold for assist deploy tile
+            if (isMoveOption) {
+              strokeColor = '#10b981'; // Green: a tile the unit can be moved or placed on
               strokeWidth = 4.5;
             } else if (isMomentumCharge) {
               strokeColor = '#f59e0b'; // Vibrant amber for Momentum Charge tile
@@ -410,8 +432,8 @@ export const HexGridArena: React.FC<HexGridArenaProps> = ({
                   strokeWidth={strokeWidth}
                   strokeLinejoin="round"
                   className={`transition-colors duration-200 ${
-                    isAssistDeploy
-                      ? 'fill-yellow-950/80 brightness-140 animate-pulse'
+                    isMoveOption
+                      ? 'fill-emerald-950/80 brightness-140 animate-pulse'
                       : isMomentumCharge
                       ? 'fill-amber-950/90 brightness-150 animate-pulse'
                       : isFusionSelected
@@ -509,32 +531,18 @@ export const HexGridArena: React.FC<HexGridArenaProps> = ({
                   </g>
                 )}
 
-                {/* Assist Deploy Indicator */}
-                {isAssistDeploy && !unitOnHex && (
+                {/* Move-here indicator (moves, free moves, an Assist's tile): a green arrow pointing down, bobbing slightly */}
+                {isMoveOption && !unitOnHex && (
                   <g transform={`rotate(${-boardYaw}, ${cell.cx}, ${cell.cy - 8})`} className="pointer-events-none">
-                    <text
-                      x={cell.cx}
-                      y={cell.cy - 12}
-                      textAnchor="middle"
-                      dominantBaseline="central"
-                      fontSize="14"
-                      className="select-none animate-bounce"
-                    >
-                      ⭐
-                    </text>
-                    <text
-                      x={cell.cx}
-                      y={cell.cy + 2}
-                      textAnchor="middle"
-                      dominantBaseline="central"
-                      fontSize="8.5"
-                      fontWeight="900"
-                      fill="#fef08a"
-                      fontFamily="sans-serif"
-                      className="animate-pulse"
-                    >
-                      ASSIST
-                    </text>
+                    <g className="move-option-bob">
+                      <path
+                        d={`M ${cell.cx - 2.5} ${cell.cy - 20} h 5 v 7 h 4.5 l -7 8 l -7 -8 h 4.5 z`}
+                        fill="#34d399"
+                        stroke="#022c22"
+                        strokeWidth="1"
+                        strokeLinejoin="round"
+                      />
+                    </g>
                   </g>
                 )}
 

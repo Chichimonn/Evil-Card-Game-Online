@@ -16,7 +16,8 @@ export type LogKind =
   | 'unit' // a unit entered or left play, or its damage or armour changed
   | 'cards' // cards drawn, discarded or returned (counts per zone)
   | 'choice' // an answer to a choice prompt
-  | 'note'; // what the game reported (the notification text)
+  | 'note' // what the game reported (the notification text)
+  | 'action'; // a unit spent AP on something, what came of it, and the AP it has left (the only kind the log shows)
 
 export interface LogEntry {
   seq: number; // numbered from 1, without gaps, across the whole match
@@ -162,6 +163,45 @@ export function describeBoardChanges(
   for (const [id, b] of Object.entries(before)) {
     if (!after[id]) out.push({ kind: 'unit', text: `${label(b.owner)} ${b.name} left play from ${b.hex}` });
   }
+  return out;
+}
+
+type LogUnit = { hex: string; name: string; owner: PlayerId; damage: number; armour: number };
+
+/**
+ * What came of a unit's action, in short phrases for its log line: e.g. "moved to C4", "Goblin took 2 damage", "Goblin
+ * left play", "drew 1 card". actorId is the unit that acted (its own move reads "moved to ..."); actorOwner's draws read
+ * "drew ...", the other player's "P2 drew ...".
+ */
+export function describeActionEffects(
+  before: Record<string, LogUnit>,
+  after: Record<string, LogUnit>,
+  cardsBefore: Record<PlayerId, { hand: number }>,
+  cardsAfter: Record<PlayerId, { hand: number }>,
+  actorId: string | null,
+  actorOwner: PlayerId | null
+): string[] {
+  const out: string[] = [];
+  for (const [id, a] of Object.entries(after)) {
+    const b = before[id];
+    if (!b) {
+      out.push(`${a.name} entered play on ${a.hex}`);
+      continue;
+    }
+    if (b.hex !== a.hex) out.push(id === actorId ? `moved to ${a.hex}` : `${a.name} moved to ${a.hex}`);
+    if (a.damage > b.damage) out.push(`${a.name} took ${a.damage - b.damage} damage`);
+    if (a.damage < b.damage) out.push(`${a.name} healed ${b.damage - a.damage}`);
+    if (a.armour > b.armour) out.push(`${a.name} gained ${a.armour - b.armour} armour`);
+    if (a.armour < b.armour) out.push(`${a.name} lost ${b.armour - a.armour} armour`);
+  }
+  for (const [id, b] of Object.entries(before)) {
+    if (!after[id]) out.push(`${b.name} left play`);
+  }
+  (['player1', 'player2'] as PlayerId[]).forEach((p) => {
+    const drawn = cardsAfter[p].hand - cardsBefore[p].hand;
+    const who = p === actorOwner ? '' : `${label(p)} `;
+    if (drawn > 0) out.push(`${who}drew ${drawn} card${drawn === 1 ? '' : 's'}`);
+  });
   return out;
 }
 

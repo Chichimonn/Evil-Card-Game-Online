@@ -17,7 +17,14 @@ const KIND_STYLE: Record<LogKind, string> = {
   unit: 'text-stone-300',
   cards: 'text-emerald-300',
   choice: 'text-fuchsia-300',
-  note: 'text-stone-400 italic'
+  note: 'text-stone-400 italic',
+  action: 'text-stone-200'
+};
+
+// Who the line is about, in their colour (Player 1 blue, Player 2 red, as in the players' box)
+const PLAYER_STYLE: Record<PlayerId, string> = {
+  player1: 'text-sky-400 font-bold',
+  player2: 'text-red-400 font-bold'
 };
 
 /**
@@ -193,10 +200,11 @@ export default function GameLogPanel({ entries, handoffStatus, viewer, open, onT
             className={`${expanded ? 'flex-1' : ''} overflow-y-auto px-3 py-1 space-y-0.5`}
             style={expanded ? undefined : { height: compactListHeight }}
           >
-            {entries.length === 0 && <div className="text-stone-500">Nothing yet.</div>}
+            {!entries.some((e) => e.kind === 'action') && <div className="text-stone-500">Nothing yet.</div>}
             {entries.map((e) => {
               // (an entry with nothing for this viewer, e.g. the other player's refused click, isn't shown)
-              if (!logTextFor(e, viewer)) return null;
+              // (only what units spend AP on: everything else stays in the record, for the turn handoff, but isn't shown)
+              if (e.kind !== 'action' || !logTextFor(e, viewer)) return null;
               const header = e.turn !== lastTurn;
               lastTurn = e.turn;
               const age = now - (seenAtRef.current.get(e.seq) ?? 0);
@@ -214,7 +222,7 @@ export default function GameLogPanel({ entries, handoffStatus, viewer, open, onT
                     // (a re-render mid-flash carries on where it was)
                     style={flashing ? { animationDelay: `-${age}ms` } : undefined}
                   >
-                    <span className="text-stone-600 mr-1">{e.player === 'player1' ? 'P1' : 'P2'}</span>
+                    <span className={`${PLAYER_STYLE[e.player]} mr-1`}>{e.player === 'player1' ? 'P1' : 'P2'}:</span>
                     {logTextFor(e, viewer)}
                   </div>
                 </React.Fragment>
