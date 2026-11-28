@@ -2219,6 +2219,10 @@ export default function App() {
   const shownFocus: { card: CardItem; owner?: PlayerId } | null = focusIsTurnUnit
     ? { card: activeTurnUnit!.card, owner: activeTurnUnit!.owner }
     : focusCard;
+  // While a unit is taking the turn, an enemy unit hovered on the board shows on the big card for as long as it's
+  // hovered (a preview only: no actions); the turn unit comes back as soon as the cursor moves off it
+  const focusPeek =
+    activeTurnUnit && hoveredBoardUnit && hoveredBoardUnit.owner !== activeTurnUnit.owner ? hoveredBoardUnit : null;
   // (a new player's turn starts with nothing in focus: in hot seat, the last player's hand card isn't left showing)
   useEffect(() => {
     setFocusCard(null);
@@ -18001,12 +18005,30 @@ export default function App() {
                   focus stays on it. The match log is under it. */}
               {(gamePhase === 'setup' || gamePhase === 'playing') && (
                 <div
-                  className="absolute right-6 top-2 z-40 w-[340px] flex flex-col gap-1.5 pointer-events-auto overflow-y-auto hide-scrollbar rounded-xl"
-                  // (it ends just above the action menu: scroll it to see what doesn't fit; scrolling it doesn't zoom)
+                  className="absolute right-6 -top-1 pt-3 z-40 w-[340px] flex flex-col gap-1.5 pointer-events-auto overflow-y-auto hide-scrollbar rounded-xl"
+                  // (it ends just above the action menu: scroll it to see what doesn't fit; scrolling it doesn't zoom. It
+                  // starts 12px higher than the card, padded down by as much, so the card's tag over its top edge, e.g.
+                  // "Enemy", has room inside the scrolling and isn't cut off: the card is where it always was)
                   style={{ bottom: actionMenuHeight > 0 ? actionMenuHeight + 10 + 8 : 10 }}
                   onWheel={(e) => e.stopPropagation()}
                 >
-                  {shownFocus && (
+                  {focusPeek && (
+                    <FocusCardPanel
+                      card={focusPeek.card}
+                      customArtUrl={customArtMap[focusPeek.card.id]}
+                      turnUnit={null}
+                      activeAbility={null}
+                      onAbilityClick={() => {}}
+                      onHoverAbility={() => {}}
+                      locked
+                      tag={
+                        focusPeek.owner !== (localPlayer ?? activePlayer)
+                          ? { text: 'Enemy', className: 'bg-red-700 text-red-50' }
+                          : null
+                      }
+                    />
+                  )}
+                  {shownFocus && !focusPeek && (
                     <FocusCardPanel
                       actions={focusIsTurnUnit && gamePhase === 'playing' ? focusActions : []}
                       subActions={gamePhase === 'playing' ? focusSubActions : null}
