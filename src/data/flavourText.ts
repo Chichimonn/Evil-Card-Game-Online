@@ -262,4 +262,10 @@ export const FLAVOUR_TEXT: Record<string, string> = {
   "toadstool": "A common mushroom of an uncommon size.", // Toadstool
   "freak": "This unfortunate creature is the brainchild of an uncaring creator, building it for one purpose alone. It cannot think or feel.", // Freak
   "apparition": "A long-dead soul forgotten by all but one person, it doesn't know that the one it faithfully protects is also long-dead.", // Apparition
+
+  // ---- Parallel Challengers ----
+  "lightning_plunderer": "This sea pirate received a magical device from a raid that emits electricity. Fashioning himself the Lightning Plunderer, he is, in reality, a really bold and audacious criminal armed with a taser and the will to steal.", // Lightning Plunderer
+  "nimbus_fighter": "The Nimbus Fighter uses an eclectic mix of lightweight knives that can be wielded in conjunction with his winged shoes. Donning a unique cloud-shaped rendition of the classic fighter hat, this fighter's winged knife will return like a homing pigeon when thrown.", // Nimbus Fighter
+  "ooze_assassin": "When your body is made of a protoplasm of nearly endless malleability, you'd think you would have a calling to some higher function. Nope. The Ooze Assassin kills for hire, and some say his unique body makes him best-in-class.", // Ooze Assassin
+  "plant_lancer": "This lancer clad in green wields a specially-grown lance covered in huge thorns, not unlike the kind you would find on a rose. Its tip is bittersweet, hurting just as much on the way out due to this merciless barbing.", // Plant Lancer
 };
